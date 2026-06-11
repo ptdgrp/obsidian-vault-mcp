@@ -18,7 +18,7 @@ server is read-only.
 | 🧭 | `resolve_ref` | Resolve notes, headings, and blocks. |
 | ↗ | `get_outlinks` | Outgoing local links. |
 | ↩ | `get_backlinks` | Incoming local links. |
-| # | `get_tags` | Body and frontmatter tags. |
+| # | `list_tags` | Body and frontmatter tags. |
 | 🧾 | `query_frontmatter` | Query YAML/frontmatter fields. |
 | 🧵 | `collect_note_context` | Current note plus link context. |
 | 🔗 | `collect_reference_context` | Resolve reference then collect context. |
@@ -353,7 +353,7 @@ Output:
 and optional `section`. Verbose `LinkEvidence` has `source`, `target`, optional
 `alias`, `resolved`, and `snippet`.
 
-## # get_tags
+## # list_tags
 
 List tags across body tag nodes and frontmatter tags, or list notes under one
 exact tag.

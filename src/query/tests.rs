@@ -150,7 +150,7 @@ fn parse_note_extracts_safe_relative_markdown_links() {
 #[test]
 fn tags_include_body_tags_and_frontmatter_tags() {
     let (_dir, queries) = fixture();
-    let result = queries.get_tags(None).expect("tags");
+    let result = queries.list_tags(None).expect("tags");
     let protagonist = result
         .tags
         .iter()
@@ -188,7 +188,7 @@ fn tags_include_body_tags_and_frontmatter_tags() {
 fn tags_default_output_is_compact_and_verbose_keeps_sources() {
     let (_dir, queries) = fixture();
     let compact = queries
-        .get_tags_output(Some("状态/身体"), false)
+        .list_tags_output(Some("状态/身体"), false)
         .expect("compact tags");
     let TagsOutput::Compact(compact) = compact else {
         panic!("expected compact tag output");
@@ -212,7 +212,7 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
     );
 
     let verbose = queries
-        .get_tags_output(Some("状态/身体"), true)
+        .list_tags_output(Some("状态/身体"), true)
         .expect("verbose tags");
     let TagsOutput::Verbose(verbose) = verbose else {
         panic!("expected verbose tag output");

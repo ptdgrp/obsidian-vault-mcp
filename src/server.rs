@@ -309,12 +309,12 @@ impl ObsidianVaultMcp {
     #[tool(
         description = "List tags across body tag nodes and frontmatter tags. Defaults to compact note[:line] output; set verbose=true for detailed de-duplicated section metadata"
     )]
-    fn get_tags(
+    fn list_tags(
         &self,
         Parameters(TagsRequest { tag, verbose }): Parameters<TagsRequest>,
     ) -> Result<Json<TagsOutput>, String> {
-        run_tool("get_tags", || {
-            self.queries().get_tags_output(tag.as_deref(), verbose)
+        run_tool("list_tags", || {
+            self.queries().list_tags_output(tag.as_deref(), verbose)
         })
     }
 

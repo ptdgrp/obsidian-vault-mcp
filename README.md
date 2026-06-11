@@ -46,7 +46,7 @@ cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
 cargo run -- --vault /path/to/vault search_text "求生本能"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault get_tags --tag "状态/身体"
+cargo run -- --vault /path/to/vault list_tags --tag "状态/身体"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
@@ -146,7 +146,7 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `resolve_ref`
 - `get_outlinks`
 - `get_backlinks`
-- `get_tags` - body tag nodes and frontmatter `tag`/`tags`
+- `list_tags` - body tag nodes and frontmatter `tag`/`tags`
 - `query_frontmatter` - query a top-level frontmatter field by explicit
   `exists`, `equals`, or `regex` mode
 - `collect_note_context`
@@ -171,7 +171,7 @@ not returned by MCP tools.
   reading the whole note.
 - Use `search_text` for literal recall and `search_regex` for structured phrase
   patterns such as chapter ranges, years, or recurring motifs.
-- Use `get_tags` for both body tag nodes and frontmatter tags. Use
+- Use `list_tags` for both body tag nodes and frontmatter tags. Use
   `query_frontmatter` when the condition is a metadata field such as
   `phase: active`; choose `exists`, `equals`, or `regex` explicitly.
 - Search tools return lightweight navigation results by default: path, line

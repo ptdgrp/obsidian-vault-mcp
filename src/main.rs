@@ -135,7 +135,7 @@ enum Command {
     },
 
     /// List body and frontmatter tags, optionally filtered by exact tag
-    GetTags {
+    ListTags {
         #[arg(long)]
         tag: Option<String>,
 
@@ -279,8 +279,8 @@ async fn main() -> anyhow::Result<()> {
         Command::GetBacklinks { target, verbose } => {
             print_value(&queries.get_backlinks_output(&target, verbose)?)?;
         }
-        Command::GetTags { tag, verbose } => {
-            print_value(&queries.get_tags_output(tag.as_deref(), verbose)?)?;
+        Command::ListTags { tag, verbose } => {
+            print_value(&queries.list_tags_output(tag.as_deref(), verbose)?)?;
         }
         Command::QueryFrontmatter {
             field,

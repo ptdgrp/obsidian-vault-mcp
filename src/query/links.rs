@@ -96,7 +96,7 @@ impl VaultQueries {
         }
     }
 
-    pub fn get_tags(&self, tag: Option<&str>) -> anyhow::Result<TagsResult> {
+    pub fn list_tags(&self, tag: Option<&str>) -> anyhow::Result<TagsResult> {
         let mut buckets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut occurrences: BTreeMap<String, Vec<TagOccurrence>> = BTreeMap::new();
         for note in self.index_notes()? {
@@ -142,8 +142,8 @@ impl VaultQueries {
         })
     }
 
-    pub fn get_tags_output(&self, tag: Option<&str>, verbose: bool) -> anyhow::Result<TagsOutput> {
-        let result = self.get_tags(tag)?;
+    pub fn list_tags_output(&self, tag: Option<&str>, verbose: bool) -> anyhow::Result<TagsOutput> {
+        let result = self.list_tags(tag)?;
         if verbose {
             Ok(TagsOutput::Verbose(detailed_tags(result)))
         } else {

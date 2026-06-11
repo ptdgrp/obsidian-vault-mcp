@@ -37,7 +37,7 @@ cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
 cargo run -- --vault /path/to/vault search_text "求生本能"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault get_tags --tag "状态/身体"
+cargo run -- --vault /path/to/vault list_tags --tag "状态/身体"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
@@ -149,7 +149,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `resolve_ref`：解析 Obsidian reference，例如 `[[Note#Heading]]`。
 - `get_outlinks`：获取一个 note 的出链。
 - `get_backlinks`：获取一个 note 或 reference 的反链。
-- `get_tags`：列出正文 tag 节点和 frontmatter `tag` / `tags`，或列出某个标签下的 note。
+- `list_tags`：列出正文 tag 节点和 frontmatter `tag` / `tags`，或列出某个标签下的 note。
 - `query_frontmatter`：按顶层 frontmatter 字段查询 note，模式必须显式指定为 `exists`、`equals` 或 `regex`。
 - `collect_note_context`：收集一个 note 的当前内容、出链和反链上下文。
 - `collect_reference_context`：先解析 reference，再收集上下文。
@@ -164,7 +164,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 2. 用 `list_notes` 获取 note 路径和标题的轻量清单。
 3. 用 `get_note_outline` 定位要读取的标题。
 4. 用 `read_section` 读取需要的局部内容，避免整篇塞进上下文。
-5. 用 `get_tags` 查询正文标签和 frontmatter 标签；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
+5. 用 `list_tags` 查询正文标签和 frontmatter 标签；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
 6. 用 `resolve_ref`、`get_outlinks`、`get_backlinks` 和 `get_graph_neighborhood` 处理明确的本地链接关系。
 7. 大范围分析前，先用 `find_unresolved_links` 和 `find_ambiguous_links` 做 vault 健康检查。
 
