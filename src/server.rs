@@ -17,7 +17,7 @@ use crate::{
         AmbiguousLinksResult, BacklinksResult, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteGraphResult,
         NoteOutlineResult, OutlinksResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagsResult, UnresolvedLinksResult, VaultFilesOptions,
+        SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult, VaultFilesOptions,
         VaultFilesResult, VaultQueries,
     },
     resolver::ResolveResult,
@@ -104,6 +104,9 @@ pub struct OutlinksRequest {
 pub struct TagsRequest {
     /// Optional exact tag filter. Both "状态/身体" and "#状态/身体" are accepted.
     pub tag: Option<String>,
+    /// Return detailed section metadata when true. Defaults to compact LLM-friendly output.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -294,13 +297,15 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "List tags across body tag nodes and frontmatter tags, or list notes under one exact tag"
+        description = "List tags across body tag nodes and frontmatter tags. Defaults to compact note[:line] output; set verbose=true for detailed de-duplicated section metadata"
     )]
     fn get_tags(
         &self,
-        Parameters(TagsRequest { tag }): Parameters<TagsRequest>,
-    ) -> Result<Json<TagsResult>, String> {
-        run_tool("get_tags", || self.queries().get_tags(tag.as_deref()))
+        Parameters(TagsRequest { tag, verbose }): Parameters<TagsRequest>,
+    ) -> Result<Json<TagsOutput>, String> {
+        run_tool("get_tags", || {
+            self.queries().get_tags_output(tag.as_deref(), verbose)
+        })
     }
 
     #[tool(

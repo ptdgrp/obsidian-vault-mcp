@@ -3,9 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::resolver::{RefResolver, ResolveResult};
 
 use super::{
-    BacklinksResult, FrontmatterMatch, FrontmatterMatchMode, FrontmatterQueryOptions,
-    FrontmatterQueryResult, LinkEvidence, OutlinksResult, TagBucket, TagOccurrence, TagSourceKind,
-    TagsResult, VaultQueries, find_indexed_note, read_snippet,
+    BacklinksResult, CompactTagBucket, CompactTagMatch, CompactTagsResult, DetailedSection,
+    DetailedTagBucket, DetailedTagOccurrence, DetailedTagsResult, FrontmatterMatch,
+    FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult, LinkEvidence,
+    OutlinksResult, TagBucket, TagOccurrence, TagSourceKind, TagsOutput, TagsResult, VaultQueries,
+    find_indexed_note, read_snippet,
 };
 
 impl VaultQueries {
@@ -115,6 +117,15 @@ impl VaultQueries {
         })
     }
 
+    pub fn get_tags_output(&self, tag: Option<&str>, verbose: bool) -> anyhow::Result<TagsOutput> {
+        let result = self.get_tags(tag)?;
+        if verbose {
+            Ok(TagsOutput::Verbose(detailed_tags(result)))
+        } else {
+            Ok(TagsOutput::Compact(compact_tags(result)))
+        }
+    }
+
     pub fn query_frontmatter(
         &self,
         options: FrontmatterQueryOptions,
@@ -220,6 +231,113 @@ fn tag_values(value: &serde_json::Value) -> Vec<String> {
 
 fn normalize_tag(tag: &str) -> String {
     tag.trim().trim_start_matches('#').to_string()
+}
+
+fn compact_tags(result: TagsResult) -> CompactTagsResult {
+    CompactTagsResult {
+        tags: result
+            .tags
+            .into_iter()
+            .map(|bucket| {
+                let tag = bucket.tag.clone();
+                CompactTagBucket {
+                    tag,
+                    notes: compact_tag_matches(bucket),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn compact_tag_matches(bucket: TagBucket) -> Vec<CompactTagMatch> {
+    if bucket.occurrences.is_empty() {
+        return bucket
+            .notes
+            .into_iter()
+            .map(|note| CompactTagMatch {
+                note,
+                source_kind: TagSourceKind::Body,
+                section: None,
+            })
+            .collect();
+    }
+
+    bucket
+        .occurrences
+        .into_iter()
+        .map(|occurrence| {
+            let section = occurrence
+                .source
+                .as_ref()
+                .and_then(|source| source.section.as_ref())
+                .map(|section| section.heading_path.join(" / "));
+            let note = occurrence
+                .source
+                .as_ref()
+                .map(|source| format!("{}:{}", source.path, source.line_start))
+                .unwrap_or(occurrence.note);
+            CompactTagMatch {
+                note,
+                source_kind: occurrence.source_kind,
+                section,
+            }
+        })
+        .collect()
+}
+
+fn detailed_tags(result: TagsResult) -> DetailedTagsResult {
+    DetailedTagsResult {
+        tags: result
+            .tags
+            .into_iter()
+            .map(|bucket| DetailedTagBucket {
+                tag: bucket.tag,
+                occurrences: detailed_tag_occurrences(bucket.occurrences),
+            })
+            .collect(),
+    }
+}
+
+fn detailed_tag_occurrences(occurrences: Vec<TagOccurrence>) -> Vec<DetailedTagOccurrence> {
+    occurrences
+        .into_iter()
+        .map(|occurrence| {
+            let location = occurrence
+                .source
+                .as_ref()
+                .map(source_location)
+                .unwrap_or_else(|| occurrence.note.clone());
+            let section = occurrence
+                .source
+                .and_then(|source| source.section.map(detailed_section));
+            DetailedTagOccurrence {
+                location,
+                source_kind: occurrence.source_kind,
+                section,
+            }
+        })
+        .collect()
+}
+
+fn detailed_section(section: crate::parser::SectionInfo) -> DetailedSection {
+    let heading_path =
+        (section.heading_path != vec![section.heading.clone()]).then_some(section.heading_path);
+    let heading_anchor =
+        (section.heading_anchor != section.heading).then_some(section.heading_anchor);
+    DetailedSection {
+        heading: section.heading,
+        heading_level: section.heading_level,
+        heading_path,
+        heading_anchor,
+    }
+}
+
+fn source_location(source: &super::SearchSource) -> String {
+    if source.line_start == source.line_end {
+        format!("{}:{}", source.path, source.line_start)
+    } else {
+        format!("{}:{}-{}", source.path, source.line_start, source.line_end)
+    }
 }
 
 fn value_strings(value: &serde_json::Value) -> Vec<String> {

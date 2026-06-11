@@ -158,6 +158,63 @@ pub struct TagsResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactTagsResult {
+    pub tags: Vec<CompactTagBucket>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactTagBucket {
+    pub tag: String,
+    pub notes: Vec<CompactTagMatch>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactTagMatch {
+    /// Vault-relative path, with :line suffix for body tags.
+    pub note: String,
+    pub source_kind: TagSourceKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DetailedTagsResult {
+    pub tags: Vec<DetailedTagBucket>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DetailedTagBucket {
+    pub tag: String,
+    pub occurrences: Vec<DetailedTagOccurrence>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DetailedTagOccurrence {
+    /// Vault-relative path, with :line or :start-end suffix when line data exists.
+    pub location: String,
+    pub source_kind: TagSourceKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<DetailedSection>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DetailedSection {
+    pub heading: String,
+    pub heading_level: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading_path: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading_anchor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum TagsOutput {
+    Compact(CompactTagsResult),
+    Verbose(DetailedTagsResult),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TagBucket {
     pub tag: String,
     pub notes: Vec<String>,

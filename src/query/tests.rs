@@ -163,6 +163,56 @@ fn tags_include_body_tags_and_frontmatter_tags() {
 }
 
 #[test]
+fn tags_default_output_is_compact_and_verbose_keeps_sources() {
+    let (_dir, queries) = fixture();
+    let compact = queries
+        .get_tags_output(Some("状态/身体"), false)
+        .expect("compact tags");
+    let TagsOutput::Compact(compact) = compact else {
+        panic!("expected compact tag output");
+    };
+    assert_eq!(compact.tags.len(), 1);
+    assert!(
+        compact.tags[0]
+            .notes
+            .iter()
+            .any(|note| note.note == "林动.md:12"
+                && note.source_kind == TagSourceKind::Body
+                && note.section.as_deref() == Some("林动"))
+    );
+    assert!(
+        compact.tags[0]
+            .notes
+            .iter()
+            .any(|note| note.note == "林动.md"
+                && note.source_kind == TagSourceKind::Frontmatter
+                && note.section.is_none())
+    );
+
+    let verbose = queries
+        .get_tags_output(Some("状态/身体"), true)
+        .expect("verbose tags");
+    let TagsOutput::Verbose(verbose) = verbose else {
+        panic!("expected verbose tag output");
+    };
+    assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
+        occurrence.location == "林动.md:12"
+            && occurrence.section.as_ref().is_some_and(|section| {
+                section.heading == "林动"
+                    && section.heading_level == 1
+                    && section.heading_path.is_none()
+                    && section.heading_anchor.is_none()
+            })
+    }));
+    assert!(
+        verbose.tags[0]
+            .occurrences
+            .iter()
+            .all(|occurrence| !occurrence.location.is_empty())
+    );
+}
+
+#[test]
 fn frontmatter_query_supports_exists_equals_and_regex_modes() {
     let (_dir, queries) = fixture();
     let exists = queries

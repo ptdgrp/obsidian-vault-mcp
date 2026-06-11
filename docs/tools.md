@@ -4,6 +4,30 @@ This document describes the public MCP tool contract exposed by
 `obsidian-vault-mcp`. All paths are vault-relative unless stated otherwise. The
 server is read-only.
 
+## Tool Index
+
+| Symbol | Tool | Use |
+| --- | --- | --- |
+| 🗒️ | `list_notes` | Lightweight note paths and titles. |
+| 🗂️ | `list_vault_files` | Flat visible vault file listing. |
+| 📖 | `read_note` | Full note body. |
+| 🧩 | `parse_note` | Parsed Markdown and Obsidian structures. |
+| 🌲 | `get_note_outline` | Heading tree before section reads. |
+| 🔎 | `search_text` | Literal text search. |
+| .* | `search_regex` | Regex search with optional path glob. |
+| 🧭 | `resolve_ref` | Resolve notes, headings, and blocks. |
+| ↗ | `get_outlinks` | Outgoing local links. |
+| ↩ | `get_backlinks` | Incoming local links. |
+| # | `get_tags` | Body and frontmatter tags. |
+| 🧾 | `query_frontmatter` | Query YAML/frontmatter fields. |
+| 🧵 | `collect_note_context` | Current note plus link context. |
+| 🔗 | `collect_reference_context` | Resolve reference then collect context. |
+| ✂ | `read_section` | Exact heading, block, or line-range content. |
+| ? | `find_unresolved_links` | Links with no visible target. |
+| ! | `find_ambiguous_links` | Links with multiple targets. |
+| 🕸️ | `get_graph_neighborhood` | Bounded local-link graph. |
+| 🗺️ | `get_note_graph` | Full local-link graph. |
+
 ## Common Types
 
 ### Empty Input
@@ -67,7 +91,7 @@ Variants:
 | `source` | Source | Match location. |
 | `snippet` | string | Short preview. Use `read_section` for full evidence. |
 
-## list_notes
+## 🗒️ list_notes
 
 List visible Markdown notes with path, first heading title, size, and modified
 time.
@@ -91,7 +115,7 @@ Output:
 | `path` | string | Vault-relative note path. |
 | `title` | string \| null | First Markdown heading, when present. |
 
-## list_vault_files
+## 🗂️ list_vault_files
 
 List gitignore-aware visible vault files as flat entries with paths. This is not
 a nested directory tree; group by `path` prefix if a tree-shaped view is needed.
@@ -137,7 +161,7 @@ Output:
 | `size_bytes` | integer | File size in bytes. |
 | `modified_unix_ms` | integer \| null | Last modified Unix timestamp in milliseconds. |
 
-## read_note
+## 📖 read_note
 
 Read one Markdown note body by path, stem, or alias.
 
@@ -155,7 +179,7 @@ Output:
 | `content` | string | Note body, possibly truncated by server limits. |
 | `truncated` | boolean | Whether content was truncated. |
 
-## parse_note
+## 🧩 parse_note
 
 Parse one Markdown note into headings, local links, embeds, tags, block ids,
 frontmatter, and source spans.
@@ -191,7 +215,7 @@ Important nested shapes:
 
 `kind` for links is `wikilink` or `markdown`.
 
-## get_note_outline
+## 🌲 get_note_outline
 
 Return one note's heading tree without body text.
 
@@ -219,7 +243,7 @@ Output:
 | `source` | Source | Heading source span. |
 | `children` | OutlineNode[] | Nested child headings. |
 
-## search_text
+## 🔎 search_text
 
 Search literal text across visible Markdown notes and return section-aware
 snippets.
@@ -240,7 +264,7 @@ Output:
 | `matches` | TextMatch[] | Search results. |
 | `truncated` | boolean | Whether results were truncated. |
 
-## search_regex
+## .* search_regex
 
 Search visible Markdown notes with a Rust regular expression.
 
@@ -262,7 +286,7 @@ Output:
 | `matches` | TextMatch[] | Search results. |
 | `truncated` | boolean | Whether results were truncated. |
 
-## resolve_ref
+## 🧭 resolve_ref
 
 Resolve an Obsidian reference to a note, heading, or block without guessing
 ambiguous targets.
@@ -289,7 +313,7 @@ Output:
 
 `reference` has `raw`, `target`, and optional `reference`.
 
-## get_outlinks
+## ↗ get_outlinks
 
 Get outgoing local links from one note with resolved target status and source
 snippets.
@@ -307,7 +331,7 @@ Output:
 | `note` | string | Resolved note path. |
 | `links` | LinkEvidence[] | Outgoing links. |
 
-## get_backlinks
+## ↩ get_backlinks
 
 Get backlinks to a note or Obsidian reference with resolved target status and
 source snippets.
@@ -327,7 +351,7 @@ Output:
 | `backlinks` | LinkEvidence[] | Inbound links. |
 | `truncated` | boolean | Whether results were truncated. |
 
-## get_tags
+## # get_tags
 
 List tags across body tag nodes and frontmatter tags, or list notes under one
 exact tag.
@@ -337,8 +361,9 @@ Input:
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `tag` | string \| null | `null` | Optional exact tag filter. Both `状态/身体` and `#状态/身体` are accepted. |
+| `verbose` | boolean | `false` | Return detailed section metadata without duplicating note paths. |
 
-Output:
+Default output (`verbose: false`):
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -349,18 +374,32 @@ Output:
 | Field | Type | Description |
 | --- | --- | --- |
 | `tag` | string | Normalized tag. |
-| `notes` | string[] | Notes containing the tag. |
-| `occurrences` | TagOccurrence[] | Body/frontmatter occurrences when available. |
+| `notes` | CompactTagMatch[] | Compact note matches. Body tags use `path:line` notation. |
 
-`TagOccurrence`:
+`CompactTagMatch`:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `note` | string | Note path. |
+| `note` | string | Vault-relative path, with `:line` suffix for body tags. |
 | `source_kind` | `"body"` \| `"frontmatter"` | Tag source. |
-| `source` | Source \| null | Source span for body tags. |
+| `section` | string \| null | Heading breadcrumb, omitted when unavailable. |
 
-## query_frontmatter
+Verbose output (`verbose: true`) uses a detailed but de-duplicated shape:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `tag` | string | Normalized tag. |
+| `occurrences` | DetailedTagOccurrence[] | Body/frontmatter occurrences. |
+
+`DetailedTagOccurrence`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `location` | string | Vault-relative path, with `:line` or `:start-end` suffix when line data exists. |
+| `source_kind` | `"body"` \| `"frontmatter"` | Tag source. |
+| `section` | object \| null | Nearest-heading metadata for body tags; redundant breadcrumb/anchor fields are omitted. |
+
+## 🧾 query_frontmatter
 
 Query notes by a top-level frontmatter field.
 
@@ -389,7 +428,7 @@ Output:
 | `note` | string | Note path. |
 | `value` | JSON value | Matched frontmatter value. |
 
-## collect_note_context
+## 🧵 collect_note_context
 
 Collect bounded context grouped as current note, outlinks, and backlinks.
 
@@ -417,7 +456,7 @@ Output:
 
 `ContextItem` has `source: Source` and `content: string`.
 
-## collect_reference_context
+## 🔗 collect_reference_context
 
 Resolve a reference, then collect bounded context grouped as current note,
 outlinks, and backlinks.
@@ -430,7 +469,7 @@ Input:
 
 Output: same shape as `collect_note_context`.
 
-## read_section
+## ✂ read_section
 
 Read exactly one heading section, block id, or line range from a note.
 
@@ -462,7 +501,7 @@ Output:
 `SourceSpan` serializes `path`, `line_start`, `line_end`, and `section`. Byte
 offsets are internal and are not returned.
 
-## find_unresolved_links
+## ? find_unresolved_links
 
 Find local links that do not resolve to any visible note.
 
@@ -479,7 +518,7 @@ Output:
 | `links` | LinkEvidence[] | Unresolved links. |
 | `truncated` | boolean | Whether results were truncated. |
 
-## find_ambiguous_links
+## ! find_ambiguous_links
 
 Find local links that resolve to multiple visible notes.
 
@@ -496,7 +535,7 @@ Output:
 | `links` | LinkEvidence[] | Ambiguous links. |
 | `truncated` | boolean | Whether results were truncated. |
 
-## get_graph_neighborhood
+## 🕸️ get_graph_neighborhood
 
 Return a bounded local-link graph neighborhood around one note or reference.
 Prefer this over `get_note_graph` for normal agent context.
@@ -537,7 +576,7 @@ Output:
 | `alias` | string \| null | Link alias/display text. |
 | `status` | string | Link resolution status. |
 
-## get_note_graph
+## 🗺️ get_note_graph
 
 Build the full visible-note local-link graph for audit, visualization, or
 debugging.
@@ -549,4 +588,3 @@ Input:
 ```
 
 Output: same shape as `get_graph_neighborhood`.
-

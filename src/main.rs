@@ -155,6 +155,9 @@ enum Command {
         #[arg(long)]
         tag: Option<String>,
 
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
+
         #[arg(long)]
         json: bool,
     },
@@ -314,8 +317,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Backlinks { target, json } => {
             print_value(&queries.get_backlinks(&target)?, json)?;
         }
-        Command::GetTags { tag, json } => {
-            print_value(&queries.get_tags(tag.as_deref())?, json)?;
+        Command::GetTags { tag, verbose, json } => {
+            print_value(&queries.get_tags_output(tag.as_deref(), verbose)?, json)?;
         }
         Command::QueryFrontmatter {
             field,
