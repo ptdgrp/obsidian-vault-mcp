@@ -1,0 +1,42 @@
+[package]
+name = "obsidian-vault-mcp"
+version = "0.1.1"
+edition = "2024"
+
+[dependencies]
+aho-corasick = "1.1.4"
+anyhow = "1.0.102"
+camino = { version = "1.2.2", features = ["serde1"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
+globset = "0.4.18"
+ignore = "0.4.26"
+markdown = { git = "https://github.com/tonitrnel/markdown", rev = "7d3d0054bf4b4cc8fcf0ef366e45ea1ee77278de" }
+memchr = "2.8.1"
+natord = "1.0.9"
+opentelemetry = "0.32.0"
+opentelemetry-appender-tracing = "0.32.0"
+opentelemetry-otlp = "0.32.0"
+opentelemetry_sdk = "0.32.1"
+rayon = "1.11.0"
+regex = "1.12.3"
+rmcp = { version = "1.7.0", features = ["server",
+  "macros",
+  "schemars",
+  "transport-io"
+] }
+schemars = { version = "1.2.1", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "io-std", "fs"]}
+toml = "1.1.2"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.33.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-normalization = "0.1.25"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
+pretty_assertions = "1"
