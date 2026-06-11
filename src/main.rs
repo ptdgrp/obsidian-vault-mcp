@@ -7,12 +7,10 @@ mod vault;
 use std::time::Duration;
 
 use camino::Utf8PathBuf;
-use chrono::{DateTime, Local};
 use clap::Parser;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
-use serde::Serialize;
 use tracing_subscriber::{
     EnvFilter, Layer as _, Registry, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -298,7 +296,7 @@ async fn main() -> anyhow::Result<()> {
             print_value(&queries.read_note(&note)?, json)?;
         }
         Command::ParseNote { note, json } => {
-            print_value(&queries.parse_note(&note)?, json)?;
+            print_value(&queries.parse_note_result(&note)?, json)?;
         }
         Command::GetNoteOutline { note, json } => {
             print_value(&queries.get_note_outline(&note)?, json)?;
@@ -316,7 +314,7 @@ async fn main() -> anyhow::Result<()> {
                 include_readme_outline,
                 max_files,
             })?;
-            print_value(&CliVaultFilesResult::from(result), json)?;
+            print_value(&result, json)?;
         }
         Command::Resolve {
             reference,
@@ -478,81 +476,6 @@ fn print_value<T: serde::Serialize>(value: &T, _json: bool) -> anyhow::Result<()
     Ok(())
 }
 
-#[derive(Serialize)]
-struct CliVaultFilesResult {
-    summary: crate::query::VaultFilesSummary,
-    files: Vec<CliVaultFile>,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    truncated_files: usize,
-}
-
-impl From<crate::query::VaultFilesResult> for CliVaultFilesResult {
-    fn from(result: crate::query::VaultFilesResult) -> Self {
-        Self {
-            summary: result.summary,
-            files: result.files.into_iter().map(CliVaultFile::from).collect(),
-            truncated_files: result.truncated_files,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct CliVaultFile {
-    path: String,
-    kind: crate::query::VaultFileKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    outline: Option<Vec<String>>,
-    size: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    modified: Option<String>,
-}
-
-impl From<crate::query::VaultFile> for CliVaultFile {
-    fn from(file: crate::query::VaultFile) -> Self {
-        Self {
-            path: file.path,
-            kind: file.kind,
-            title: file.title,
-            outline: file.outline,
-            size: human_size(file.size_bytes),
-            modified: file.modified_unix_ms.and_then(local_datetime),
-        }
-    }
-}
-
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    if bytes < 1024 {
-        return format!("{bytes} B");
-    }
-
-    let mut size = bytes as f64;
-    let mut unit_index = 0;
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_index += 1;
-    }
-
-    if size >= 10.0 {
-        format!("{size:.0} {}", UNITS[unit_index])
-    } else {
-        format!("{size:.1} {}", UNITS[unit_index])
-    }
-}
-
-fn local_datetime(unix_ms: u64) -> Option<String> {
-    let seconds = i64::try_from(unix_ms / 1000).ok()?;
-    let nanos = u32::try_from((unix_ms % 1000) * 1_000_000).ok()?;
-    let datetime: DateTime<Local> = DateTime::from_timestamp(seconds, nanos)?.into();
-    Some(datetime.format("%Y-%m-%d %H:%M:%S %:z").to_string())
-}
-
-fn is_zero(value: &usize) -> bool {
-    *value == 0
-}
-
 struct TelemetryGuard {
     tracer_provider: Option<SdkTracerProvider>,
     logger_provider: Option<SdkLoggerProvider>,
@@ -656,52 +579,4 @@ fn telemetry_filter(input: &str) -> anyhow::Result<EnvFilter> {
     Ok(EnvFilter::try_new(format!(
         "obsidian_vault_mcp={input},warn"
     ))?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn human_size_formats_binary_units_for_cli() {
-        assert_eq!(human_size(0), "0 B");
-        assert_eq!(human_size(999), "999 B");
-        assert_eq!(human_size(1536), "1.5 KB");
-        assert_eq!(human_size(10 * 1024), "10 KB");
-        assert_eq!(human_size(1024 * 1024), "1.0 MB");
-    }
-
-    #[test]
-    fn cli_vault_files_result_hides_noisy_fields() {
-        let result = crate::query::VaultFilesResult {
-            root: "novel.md".to_string(),
-            ignored: vec![".obsidian/workspace.json".to_string()],
-            summary: crate::query::VaultFilesSummary {
-                notes: 1,
-                directories: 1,
-                attachments: 0,
-                empty_directories: 0,
-            },
-            files: vec![crate::query::VaultFile {
-                path: "README.md".to_string(),
-                kind: crate::query::VaultFileKind::Note,
-                title: Some("Title".to_string()),
-                outline: None,
-                size_bytes: 1536,
-                modified_unix_ms: Some(0),
-            }],
-            truncated_files: 0,
-        };
-
-        let value = serde_json::to_value(CliVaultFilesResult::from(result)).expect("json");
-
-        assert!(value.get("root").is_none());
-        assert!(value.get("ignored").is_none());
-        assert!(value.get("truncated_files").is_none());
-        let file = &value["files"][0];
-        assert_eq!(file["size"], "1.5 KB");
-        assert!(file.get("modified").is_some());
-        assert!(file.get("size_bytes").is_none());
-        assert!(file.get("modified_unix_ms").is_none());
-    }
 }

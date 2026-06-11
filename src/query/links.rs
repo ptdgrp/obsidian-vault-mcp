@@ -322,13 +322,10 @@ fn detailed_tag_occurrences(occurrences: Vec<TagOccurrence>) -> Vec<DetailedTagO
 fn detailed_section(section: crate::parser::SectionInfo) -> DetailedSection {
     let heading_path =
         (section.heading_path != vec![section.heading.clone()]).then_some(section.heading_path);
-    let heading_anchor =
-        (section.heading_anchor != section.heading).then_some(section.heading_anchor);
     DetailedSection {
         heading: section.heading,
         heading_level: section.heading_level,
         heading_path,
-        heading_anchor,
     }
 }
 

@@ -137,7 +137,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `list_notes`：列出可见 Markdown note。
 - `list_vault_files`：返回可见文件路径清单。
 - `read_note`：读取一个 Markdown note 全文。
-- `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和源码范围。
+- `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑行号定位。
 - `get_note_outline`：返回一个 note 的标题树。
 - `read_section`：读取一个标题、block id 或行号范围。
 - `search_text`：字面量搜索。

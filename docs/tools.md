@@ -56,7 +56,6 @@ Snippet-like results include a `source` object:
 | `heading` | string | Heading text. |
 | `heading_level` | integer | Markdown heading level. |
 | `heading_path` | string[] | Heading breadcrumb from outer to inner heading. |
-| `heading_anchor` | string | Generated heading anchor. |
 
 ### Resolve Summary
 
@@ -135,8 +134,6 @@ Output:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `root` | string | Display name of the vault root directory. |
-| `ignored` | string[] | Paths skipped by default ignore rules or exclude globs when observed. |
 | `summary` | VaultFilesSummary | Whole-vault counts after ignore/exclude filtering. |
 | `files` | VaultFile[] | Visible files sorted by natural vault-relative path order. |
 | `truncated_files` | integer | Files omitted because `max_files` was reached. |
@@ -158,8 +155,8 @@ Output:
 | `kind` | `"note"` \| `"attachment"` | File kind. |
 | `title` | string \| null | First Markdown heading for notes. |
 | `outline` | string[] \| null | README heading titles when requested. |
-| `size_bytes` | integer | File size in bytes. |
-| `modified_unix_ms` | integer \| null | Last modified Unix timestamp in milliseconds. |
+| `size` | string | Human-readable file size. |
+| `modified` | string \| null | Last modified time in the current system timezone. |
 
 ## 📖 read_note
 
@@ -181,8 +178,8 @@ Output:
 
 ## 🧩 parse_note
 
-Parse one Markdown note into headings, local links, embeds, tags, block ids,
-frontmatter, and source spans.
+Parse one Markdown note into compact headings, local links, embeds, tags, block
+ids, and frontmatter.
 
 Input:
 
@@ -196,21 +193,21 @@ Output:
 | --- | --- | --- |
 | `path` | string | Resolved note path. |
 | `frontmatter` | JSON object \| null | Parsed YAML frontmatter when present. |
-| `headings` | HeadingInfo[] | Markdown headings. |
-| `links` | LinkInfo[] | Obsidian wikilinks and safe in-vault Markdown links. |
-| `embeds` | EmbedInfo[] | Obsidian embeds. |
-| `tags` | TagInfo[] | Body tags. |
-| `blocks` | BlockInfo[] | Block ids. |
+| `headings` | CompactHeadingInfo[] | Markdown headings with line numbers. |
+| `links` | CompactLinkInfo[] | Obsidian wikilinks and safe in-vault Markdown links. |
+| `embeds` | CompactEmbedInfo[] | Obsidian embeds. |
+| `tags` | CompactTagInfo[] | Body tags. |
+| `blocks` | CompactBlockInfo[] | Block ids. |
 
 Important nested shapes:
 
 | Type | Fields |
 | --- | --- |
-| `HeadingInfo` | `text`, `level`, `anchor`, `path`, `source` |
-| `LinkInfo` | `raw`, `target`, `alias`, `reference`, `kind`, `source` |
-| `EmbedInfo` | `raw`, `target`, `reference`, `source` |
-| `TagInfo` | `tag`, `source` |
-| `BlockInfo` | `id`, `source` |
+| `CompactHeadingInfo` | `text`, `level`, `path`, `line` |
+| `CompactLinkInfo` | `target`, `alias`, `reference`, `kind`, `line`, `section` |
+| `CompactEmbedInfo` | `target`, `reference`, `line`, `section` |
+| `CompactTagInfo` | `tag`, `line`, `section` |
+| `CompactBlockInfo` | `id`, `line`, `section` |
 | `ReferenceInfo` | tagged by `kind`: `heading { value }`, `multi_heading { value: string[] }`, or `block_id { value }` |
 
 `kind` for links is `wikilink` or `markdown`.
@@ -239,7 +236,6 @@ Output:
 | `heading` | string | Heading text. |
 | `level` | integer | Markdown heading level. |
 | `heading_path` | string[] | Heading breadcrumb. |
-| `heading_anchor` | string | Generated heading anchor. |
 | `source` | Source | Heading source span. |
 | `children` | OutlineNode[] | Nested child headings. |
 

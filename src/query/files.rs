@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use camino::Utf8PathBuf;
+use chrono::{DateTime, Local};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 
@@ -15,7 +16,6 @@ impl VaultQueries {
     pub fn list_vault_files(&self, options: VaultFilesOptions) -> anyhow::Result<VaultFilesResult> {
         let include = compile_file_globs(&self.vault.config.include)?;
         let exclude = compile_file_globs(&self.vault.config.exclude)?;
-        let mut ignored = Vec::new();
         let mut files = Vec::new();
         let mut directories = BTreeSet::new();
         let mut note_count = 0;
@@ -39,7 +39,6 @@ impl VaultQueries {
 
             let relative_path = self.vault.relative_path(&path);
             if should_ignore_file_path(&relative_path) || exclude.is_match(&relative_path) {
-                ignored.push(relative_path);
                 continue;
             }
 
@@ -70,8 +69,6 @@ impl VaultQueries {
         }
 
         files.sort_by(|a, b| natord::compare(&a.path, &b.path));
-        ignored.sort_by(|a, b| natord::compare(a, b));
-        ignored.dedup();
 
         let summary = VaultFilesSummary {
             notes: note_count,
@@ -84,13 +81,6 @@ impl VaultQueries {
         files.truncate(options.max_files);
 
         Ok(VaultFilesResult {
-            root: self
-                .vault
-                .root
-                .file_name()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| self.vault.root.to_string()),
-            ignored,
             summary,
             files,
             truncated_files,
@@ -120,14 +110,41 @@ impl VaultQueries {
                 .include_readme_outline
                 .then(|| parsed.as_deref().map(note_outline).unwrap_or_default())
                 .filter(|_| path.file_name() == Some("README.md")),
-            size_bytes: metadata.len(),
-            modified_unix_ms: metadata
+            size: human_size(metadata.len()),
+            modified: metadata
                 .modified()
                 .ok()
                 .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis() as u64),
+                .and_then(|duration| local_datetime(duration.as_millis() as u64)),
         })
     }
+}
+
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+
+    if size >= 10.0 {
+        format!("{size:.0} {}", UNITS[unit_index])
+    } else {
+        format!("{size:.1} {}", UNITS[unit_index])
+    }
+}
+
+fn local_datetime(unix_ms: u64) -> Option<String> {
+    let seconds = i64::try_from(unix_ms / 1000).ok()?;
+    let nanos = u32::try_from((unix_ms % 1000) * 1_000_000).ok()?;
+    let datetime: DateTime<Local> = DateTime::from_timestamp(seconds, nanos)?.into();
+    Some(datetime.format("%Y-%m-%d %H:%M:%S %:z").to_string())
 }
 
 fn compile_file_globs(patterns: &[String]) -> anyhow::Result<GlobSet> {

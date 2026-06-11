@@ -81,6 +81,7 @@ pub struct SectionInfo {
     pub heading: String,
     pub heading_level: u8,
     pub heading_path: Vec<String>,
+    #[serde(skip)]
     pub heading_anchor: String,
 }
 

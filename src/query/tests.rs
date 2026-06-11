@@ -107,6 +107,28 @@ fn parse_note_extracts_obsidian_structures_and_sections() {
 }
 
 #[test]
+fn parse_note_result_uses_compact_shared_output() {
+    let (_dir, queries) = fixture();
+    let result = queries.parse_note_result("林动").expect("parse result");
+    assert_eq!(result.path, "林动.md");
+    assert_eq!(result.headings[0].text, "林动");
+    assert_eq!(result.headings[0].line, 10);
+    let link = result
+        .links
+        .iter()
+        .find(|link| link.target == "发动机")
+        .expect("发动机 link");
+    assert_eq!(link.alias.as_deref(), Some("发动机"));
+    assert_eq!(link.section.as_deref(), Some("林动"));
+
+    let value = serde_json::to_value(result).expect("json");
+    assert!(value["links"][0].get("source").is_none());
+    assert!(value["links"][0].get("raw").is_none());
+    assert!(value["headings"][0].get("source").is_none());
+    assert!(value["headings"][0].get("anchor").is_none());
+}
+
+#[test]
 fn parse_note_extracts_safe_relative_markdown_links() {
     let (_dir, queries) = fixture();
     let parsed = queries.parse_note("正文/001").expect("parse");
@@ -201,9 +223,14 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
                 section.heading == "林动"
                     && section.heading_level == 1
                     && section.heading_path.is_none()
-                    && section.heading_anchor.is_none()
             })
     }));
+    let verbose_value = serde_json::to_value(&verbose).expect("verbose json");
+    assert!(
+        verbose_value["tags"][0]["occurrences"][0]["section"]
+            .get("heading_anchor")
+            .is_none()
+    );
     assert!(
         verbose.tags[0]
             .occurrences
@@ -349,6 +376,13 @@ fn note_outline_returns_heading_tree() {
     assert_eq!(
         result.outline[0].children[0].heading_path,
         vec!["发动机".to_string(), "原理".to_string()]
+    );
+    let value = serde_json::to_value(&result).expect("outline json");
+    assert!(value["outline"][0].get("heading_anchor").is_none());
+    assert!(
+        value["outline"][0]["children"][0]["source"]["section"]
+            .get("heading_anchor")
+            .is_none()
     );
 }
 
@@ -523,6 +557,12 @@ fn list_vault_files_returns_flat_gitignore_aware_file_list() {
     );
     assert_eq!(result.summary.attachments, 1);
     assert!(!result.files.iter().any(|file| file.path == "地图.png"));
+    let value = serde_json::to_value(&result).expect("json");
+    assert!(value.get("root").is_none());
+    assert!(value.get("ignored").is_none());
+    assert!(value["files"][0].get("size").is_some());
+    assert!(value["files"][0].get("size_bytes").is_none());
+    assert!(value["files"][0].get("modified_unix_ms").is_none());
 
     let with_attachments = queries
         .list_vault_files(VaultFilesOptions {

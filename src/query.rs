@@ -4,7 +4,10 @@ use camino::Utf8Path;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::parser::{ParsedNote, SectionInfo, SourceSpan, slice_text};
+use crate::parser::{
+    BlockInfo, EmbedInfo, HeadingInfo, LinkInfo, ParsedNote, SectionInfo, SourceSpan, TagInfo,
+    slice_text,
+};
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 
@@ -30,6 +33,173 @@ pub struct ReadNoteResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+/// Compact parse result for tool and CLI output.
+///
+/// The full parser keeps repeated source metadata for internal use, but this
+/// shape avoids repeating the note path and full section object on every item.
+pub struct ParseNoteResult {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontmatter: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headings: Vec<CompactHeadingInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<CompactLinkInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub embeds: Vec<CompactEmbedInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<CompactTagInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<CompactBlockInfo>,
+}
+
+impl From<ParsedNote> for ParseNoteResult {
+    fn from(note: ParsedNote) -> Self {
+        Self {
+            path: note.path,
+            frontmatter: note.frontmatter,
+            headings: note
+                .headings
+                .into_iter()
+                .map(CompactHeadingInfo::from)
+                .collect(),
+            links: note.links.into_iter().map(CompactLinkInfo::from).collect(),
+            embeds: note
+                .embeds
+                .into_iter()
+                .map(CompactEmbedInfo::from)
+                .collect(),
+            tags: note.tags.into_iter().map(CompactTagInfo::from).collect(),
+            blocks: note
+                .blocks
+                .into_iter()
+                .map(CompactBlockInfo::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactHeadingInfo {
+    pub text: String,
+    pub level: u8,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<String>,
+    pub line: u64,
+}
+
+impl From<HeadingInfo> for CompactHeadingInfo {
+    fn from(heading: HeadingInfo) -> Self {
+        Self {
+            text: heading.text,
+            level: heading.level,
+            path: heading.path,
+            line: heading.source.line_start,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactLinkInfo {
+    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference: Option<crate::parser::ReferenceInfo>,
+    #[serde(default)]
+    pub kind: crate::parser::LinkKind,
+    pub line: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+impl From<LinkInfo> for CompactLinkInfo {
+    fn from(link: LinkInfo) -> Self {
+        let (line, section) = compact_source(link.source);
+        Self {
+            target: link.target,
+            alias: link.alias,
+            reference: link.reference,
+            kind: link.kind,
+            line,
+            section,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactEmbedInfo {
+    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference: Option<crate::parser::ReferenceInfo>,
+    pub line: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+impl From<EmbedInfo> for CompactEmbedInfo {
+    fn from(embed: EmbedInfo) -> Self {
+        let (line, section) = compact_source(embed.source);
+        Self {
+            target: embed.target,
+            reference: embed.reference,
+            line,
+            section,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactTagInfo {
+    pub tag: String,
+    pub line: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+impl From<TagInfo> for CompactTagInfo {
+    fn from(tag: TagInfo) -> Self {
+        let (line, section) = compact_source(tag.source);
+        Self {
+            tag: tag.tag,
+            line,
+            section,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactBlockInfo {
+    pub id: String,
+    pub line: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+impl From<BlockInfo> for CompactBlockInfo {
+    fn from(block: BlockInfo) -> Self {
+        let (line, section) = compact_source(block.source);
+        Self {
+            id: block.id,
+            line,
+            section,
+        }
+    }
+}
+
+fn compact_source(source: SourceSpan) -> (u64, Option<String>) {
+    (source.line_start, source.section.map(compact_section))
+}
+
+fn compact_section(section: SectionInfo) -> String {
+    if section.heading_path.is_empty() {
+        section.heading
+    } else {
+        section.heading_path.join(" > ")
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NoteOutlineResult {
     pub note: String,
     pub outline: Vec<OutlineNode>,
@@ -40,7 +210,6 @@ pub struct OutlineNode {
     pub heading: String,
     pub level: u8,
     pub heading_path: Vec<String>,
-    pub heading_anchor: String,
     pub source: SearchSource,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<OutlineNode>,
@@ -203,8 +372,6 @@ pub struct DetailedSection {
     pub heading_level: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heading_path: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub heading_anchor: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -378,10 +545,6 @@ pub struct GraphEdge {
 /// Directory nesting is intentionally omitted because each file path already
 /// carries the useful location context for LLM agents.
 pub struct VaultFilesResult {
-    /// Display name of the vault root directory.
-    pub root: String,
-    /// Paths skipped by default ignore rules or explicit exclude globs when observed.
-    pub ignored: Vec<String>,
     /// Whole-vault counts after ignore/exclude filtering.
     pub summary: VaultFilesSummary,
     /// Visible files, sorted by natural vault-relative path order.
@@ -445,11 +608,11 @@ pub struct VaultFile {
     /// Flat list of README heading titles when include_readme_outline is true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outline: Option<Vec<String>>,
-    /// File size in bytes.
-    pub size_bytes: u64,
-    /// Last modified timestamp in Unix milliseconds when available.
+    /// Human-readable file size using binary units.
+    pub size: String,
+    /// Last modified time in the current system timezone.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modified_unix_ms: Option<u64>,
+    pub modified: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

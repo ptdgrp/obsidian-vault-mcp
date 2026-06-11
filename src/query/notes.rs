@@ -6,8 +6,8 @@ use crate::parser::ParsedNote;
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::{
-    ListNotesResult, NoteSummary, ReadNoteResult, VaultQueries, find_indexed_note, read_and_parse,
-    truncate_utf8,
+    ListNotesResult, NoteSummary, ParseNoteResult, ReadNoteResult, VaultQueries, find_indexed_note,
+    read_and_parse, truncate_utf8,
 };
 
 impl VaultQueries {
@@ -49,6 +49,10 @@ impl VaultQueries {
             .parse_file_cached(&path, self.vault.relative_path(&path))?
             .as_ref()
             .clone())
+    }
+
+    pub fn parse_note_result(&self, note: &str) -> anyhow::Result<ParseNoteResult> {
+        Ok(self.parse_note(note)?.into())
     }
 
     pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveResult> {

@@ -16,9 +16,9 @@ use crate::{
     query::{
         AmbiguousLinksResult, BacklinksResult, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteGraphResult,
-        NoteOutlineResult, OutlinksResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultQueries,
+        NoteOutlineResult, OutlinksResult, ParseNoteResult, ReadNoteResult, ReadSectionResult,
+        SearchRegexResult, SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult,
+        VaultFilesOptions, VaultFilesResult, VaultQueries,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -192,13 +192,13 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Parse one Markdown note into headings, local links, embeds, tags, block ids, frontmatter, and source spans"
+        description = "Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter"
     )]
     fn parse_note(
         &self,
         Parameters(ParseNoteRequest { note }): Parameters<ParseNoteRequest>,
-    ) -> Result<Json<crate::parser::ParsedNote>, String> {
-        run_tool("parse_note", || self.queries().parse_note(&note))
+    ) -> Result<Json<ParseNoteResult>, String> {
+        run_tool("parse_note", || self.queries().parse_note_result(&note))
     }
 
     #[tool(

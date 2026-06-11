@@ -28,7 +28,6 @@ fn build_outline(parsed: &ParsedNote) -> Vec<OutlineNode> {
             heading: heading.text.clone(),
             level: heading.level,
             heading_path: heading.path.clone(),
-            heading_anchor: heading.anchor.clone(),
             source: heading.source.clone().into(),
             children: Vec::new(),
         };
