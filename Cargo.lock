@@ -921,6 +921,7 @@ dependencies = [
  "aho-corasick",
  "anyhow",
  "camino",
+ "chrono",
  "clap",
  "globset",
  "ignore",
