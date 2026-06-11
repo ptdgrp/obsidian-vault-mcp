@@ -99,6 +99,14 @@ enum Command {
         json: bool,
     },
 
+    /// Read one Markdown note body
+    ReadNote {
+        note: String,
+
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Parse one note and print extracted Obsidian structures
     ParseNote {
         note: String,
@@ -285,6 +293,9 @@ async fn main() -> anyhow::Result<()> {
             Command::Serve => run_mcp_server(vault).await?,
         Command::Doctor { json } | Command::ListNotes { json } => {
             print_value(&queries.list_notes()?, json)?;
+        }
+        Command::ReadNote { note, json } => {
+            print_value(&queries.read_note(&note)?, json)?;
         }
         Command::ParseNote { note, json } => {
             print_value(&queries.parse_note(&note)?, json)?;

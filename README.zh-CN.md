@@ -28,6 +28,7 @@ cargo test
 ```sh
 cargo run -- --vault /path/to/vault list-notes --json
 cargo run -- --vault /path/to/vault list-vault-files --json
+cargo run -- --vault /path/to/vault read-note "人物/林动.md" --json
 cargo run -- --vault /path/to/vault parse-note "人物/林动.md" --json
 cargo run -- --vault /path/to/vault get-note-outline "人物/林动.md" --json
 cargo run -- --vault /path/to/vault read-section "人物/林动.md" --heading "身体" --json
