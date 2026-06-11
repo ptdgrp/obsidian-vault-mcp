@@ -311,32 +311,34 @@ Output:
 
 ## ↗ get_outlinks
 
-Get outgoing local links from one note with resolved target status and source
-snippets.
+Get outgoing local links from one note. Defaults to compact location output;
+set `verbose: true` for source spans and snippets.
 
 Input:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `note` | string | Vault-relative path, note stem, or alias. |
+| `verbose` | boolean | `false` | Return detailed source spans and snippets. |
 
 Output:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `note` | string | Resolved note path. |
-| `links` | LinkEvidence[] | Outgoing links. |
+| `links` | CompactLinkEvidence[] \| LinkEvidence[] | Outgoing links. |
 
 ## ↩ get_backlinks
 
-Get backlinks to a note or Obsidian reference with resolved target status and
-source snippets.
+Get backlinks to a note or Obsidian reference. Defaults to compact location
+output; set `verbose: true` for source spans and snippets.
 
 Input:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `target` | string | Note path, stem, alias, or Obsidian reference. |
+| `verbose` | boolean | `false` | Return detailed source spans and snippets. |
 
 Output:
 
@@ -344,8 +346,12 @@ Output:
 | --- | --- | --- |
 | `target` | string | Original target. |
 | `resolution` | Resolve Summary | Resolved target status. |
-| `backlinks` | LinkEvidence[] | Inbound links. |
+| `backlinks` | CompactLinkEvidence[] \| LinkEvidence[] | Inbound links. |
 | `truncated` | boolean | Whether results were truncated. |
+
+`CompactLinkEvidence` has `location`, `target`, optional `alias`, `resolved`,
+and optional `section`. Verbose `LinkEvidence` has `source`, `target`, optional
+`alias`, `resolved`, and `snippet`.
 
 ## # get_tags
 

@@ -86,91 +86,74 @@ enum Command {
     Serve,
 
     /// Check vault config and list readable notes
-    Doctor {
-        #[arg(long)]
-        json: bool,
-    },
+    Doctor,
 
     /// List markdown notes in vault
-    ListNotes {
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "list_notes")]
+    ListNotes,
 
     /// Read one Markdown note body
-    ReadNote {
-        note: String,
-
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "read_note")]
+    ReadNote { note: String },
 
     /// Parse one note and print extracted Obsidian structures
-    ParseNote {
-        note: String,
-
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "parse_note")]
+    ParseNote { note: String },
 
     /// Print one note's heading tree
-    GetNoteOutline {
-        note: String,
-
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "get_note_outline")]
+    GetNoteOutline { note: String },
 
     /// Print a gitignore-aware flat list of visible vault files
+    #[command(name = "list_vault_files")]
     ListVaultFiles {
-        #[arg(long, default_value_t = true)]
+        #[arg(long = "include_files", default_value_t = true)]
         include_files: bool,
 
-        #[arg(long, default_value_t = false)]
+        #[arg(long = "include_attachments", default_value_t = false)]
         include_attachments: bool,
 
-        #[arg(long, default_value_t = false)]
+        #[arg(long = "include_readme_outline", default_value_t = false)]
         include_readme_outline: bool,
 
-        #[arg(long, default_value_t = 100)]
+        #[arg(long = "max_files", default_value_t = 100)]
         max_files: usize,
-
-        #[arg(long)]
-        json: bool,
     },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
-    Resolve {
-        reference: String,
+    #[command(name = "resolve_ref")]
+    ResolveRef { reference: String },
 
-        #[arg(long)]
-        from: Option<String>,
+    /// Get outgoing local links from one note
+    #[command(name = "get_outlinks")]
+    GetOutlinks {
+        note: String,
 
-        #[arg(long)]
-        json: bool,
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
     },
 
     /// Find backlinks to a note or reference
-    Backlinks {
+    #[command(name = "get_backlinks")]
+    GetBacklinks {
         target: String,
 
-        #[arg(long)]
-        json: bool,
+        #[arg(long, default_value_t = false)]
+        verbose: bool,
     },
 
     /// List body and frontmatter tags, optionally filtered by exact tag
+    #[command(name = "get_tags")]
     GetTags {
         #[arg(long)]
         tag: Option<String>,
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
-
-        #[arg(long)]
-        json: bool,
     },
 
     /// Query notes by a top-level frontmatter field
+    #[command(name = "query_frontmatter")]
     QueryFrontmatter {
         field: String,
 
@@ -179,81 +162,75 @@ enum Command {
 
         #[arg(long)]
         value: Option<String>,
-
-        #[arg(long)]
-        json: bool,
     },
 
     /// Literal search
-    Search {
+    #[command(name = "search_text")]
+    SearchText {
         query: String,
 
-        #[arg(long)]
+        #[arg(long = "case_sensitive")]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
+        #[arg(long = "context_lines", default_value_t = 0)]
         context_lines: usize,
-
-        #[arg(long)]
-        json: bool,
     },
 
     /// Regex search
+    #[command(name = "search_regex")]
     SearchRegex {
         pattern: String,
 
-        #[arg(long)]
+        #[arg(long = "case_sensitive")]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
+        #[arg(long = "context_lines", default_value_t = 0)]
         context_lines: usize,
 
-        #[arg(long)]
+        #[arg(long = "path_glob")]
         path_glob: Option<String>,
-
-        #[arg(long)]
-        json: bool,
     },
 
+    /// Collect bounded context around one note
+    #[command(name = "collect_note_context")]
+    CollectNoteContext { note: String },
+
+    /// Resolve a reference, then collect bounded context
+    #[command(name = "collect_reference_context")]
+    CollectReferenceContext { reference: String },
+
     /// Read a heading, block id, or line range from a note
+    #[command(name = "read_section")]
     ReadSection {
         note: String,
 
         #[arg(long)]
         heading: Option<String>,
 
-        #[arg(long)]
+        #[arg(long = "block_id")]
         block_id: Option<String>,
 
-        #[arg(long)]
+        #[arg(long = "line_start")]
         line_start: Option<u64>,
 
-        #[arg(long)]
+        #[arg(long = "line_end")]
         line_end: Option<u64>,
-
-        #[arg(long)]
-        json: bool,
     },
 
     /// Find local links that do not resolve to any note
-    FindUnresolvedLinks {
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "find_unresolved_links")]
+    FindUnresolvedLinks,
 
     /// Find local links that resolve to multiple candidate notes
-    FindAmbiguousLinks {
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "find_ambiguous_links")]
+    FindAmbiguousLinks,
 
     /// Build the full local-link note graph for audit or visualization
-    GetNoteGraph {
-        #[arg(long)]
-        json: bool,
-    },
+    #[command(name = "get_note_graph")]
+    GetNoteGraph,
 
     /// Build a bounded local-link graph neighborhood for normal context use
+    #[command(name = "get_graph_neighborhood")]
     GetGraphNeighborhood {
         target: String,
 
@@ -263,11 +240,8 @@ enum Command {
         #[arg(long, default_value = "both")]
         direction: String,
 
-        #[arg(long, default_value_t = false)]
+        #[arg(long = "include_unresolved", default_value_t = false)]
         include_unresolved: bool,
-
-        #[arg(long)]
-        json: bool,
     },
 }
 
@@ -289,24 +263,23 @@ async fn main() -> anyhow::Result<()> {
 
         match command {
             Command::Serve => run_mcp_server(vault).await?,
-        Command::Doctor { json } | Command::ListNotes { json } => {
-            print_value(&queries.list_notes()?, json)?;
+        Command::Doctor | Command::ListNotes => {
+            print_value(&queries.list_notes()?)?;
         }
-        Command::ReadNote { note, json } => {
-            print_value(&queries.read_note(&note)?, json)?;
+        Command::ReadNote { note } => {
+            print_value(&queries.read_note(&note)?)?;
         }
-        Command::ParseNote { note, json } => {
-            print_value(&queries.parse_note_result(&note)?, json)?;
+        Command::ParseNote { note } => {
+            print_value(&queries.parse_note_result(&note)?)?;
         }
-        Command::GetNoteOutline { note, json } => {
-            print_value(&queries.get_note_outline(&note)?, json)?;
+        Command::GetNoteOutline { note } => {
+            print_value(&queries.get_note_outline(&note)?)?;
         }
         Command::ListVaultFiles {
             include_files,
             include_attachments,
             include_readme_outline,
             max_files,
-            json,
         } => {
             let result = queries.list_vault_files(crate::query::VaultFilesOptions {
                 include_files,
@@ -314,26 +287,24 @@ async fn main() -> anyhow::Result<()> {
                 include_readme_outline,
                 max_files,
             })?;
-            print_value(&result, json)?;
+            print_value(&result)?;
         }
-        Command::Resolve {
-            reference,
-            from: _,
-            json,
-        } => {
-            print_value(&queries.resolve_ref(&reference)?, json)?;
+        Command::ResolveRef { reference } => {
+            print_value(&queries.resolve_ref(&reference)?)?;
         }
-        Command::Backlinks { target, json } => {
-            print_value(&queries.get_backlinks(&target)?, json)?;
+        Command::GetOutlinks { note, verbose } => {
+            print_value(&queries.get_outlinks_output(&note, verbose)?)?;
         }
-        Command::GetTags { tag, verbose, json } => {
-            print_value(&queries.get_tags_output(tag.as_deref(), verbose)?, json)?;
+        Command::GetBacklinks { target, verbose } => {
+            print_value(&queries.get_backlinks_output(&target, verbose)?)?;
+        }
+        Command::GetTags { tag, verbose } => {
+            print_value(&queries.get_tags_output(tag.as_deref(), verbose)?)?;
         }
         Command::QueryFrontmatter {
             field,
             mode,
             value,
-            json,
         } => {
             print_value(
                 &queries.query_frontmatter(crate::query::FrontmatterQueryOptions {
@@ -341,26 +312,20 @@ async fn main() -> anyhow::Result<()> {
                     mode: parse_frontmatter_match_mode(&mode)?,
                     value,
                 })?,
-                json,
             )?;
         }
-        Command::Search {
+        Command::SearchText {
             query,
             case_sensitive,
             context_lines,
-            json,
         } => {
-            print_value(
-                &queries.search_text(&query, case_sensitive, context_lines)?,
-                json,
-            )?;
+            print_value(&queries.search_text(&query, case_sensitive, context_lines)?)?;
         }
         Command::SearchRegex {
             pattern,
             case_sensitive,
             context_lines,
             path_glob,
-            json,
         } => {
             print_value(
                 &queries.search_regex(
@@ -369,8 +334,13 @@ async fn main() -> anyhow::Result<()> {
                     context_lines,
                     path_glob.as_deref(),
                 )?,
-                json,
             )?;
+        }
+        Command::CollectNoteContext { note } => {
+            print_value(&queries.collect_note_context(&note)?)?;
+        }
+        Command::CollectReferenceContext { reference } => {
+            print_value(&queries.collect_reference_context(&reference)?)?;
         }
         Command::ReadSection {
             note,
@@ -378,7 +348,6 @@ async fn main() -> anyhow::Result<()> {
             block_id,
             line_start,
             line_end,
-            json,
         } => {
             let selector = match (heading, block_id, line_start, line_end) {
                 (Some(heading), None, None, None) => {
@@ -399,23 +368,22 @@ async fn main() -> anyhow::Result<()> {
                     ));
                 }
             };
-            print_value(&queries.read_section(&note, selector)?, json)?;
+            print_value(&queries.read_section(&note, selector)?)?;
         }
-        Command::FindUnresolvedLinks { json } => {
-            print_value(&queries.find_unresolved_links()?, json)?;
+        Command::FindUnresolvedLinks => {
+            print_value(&queries.find_unresolved_links()?)?;
         }
-        Command::FindAmbiguousLinks { json } => {
-            print_value(&queries.find_ambiguous_links()?, json)?;
+        Command::FindAmbiguousLinks => {
+            print_value(&queries.find_ambiguous_links()?)?;
         }
-        Command::GetNoteGraph { json } => {
-            print_value(&queries.get_note_graph()?, json)?;
+        Command::GetNoteGraph => {
+            print_value(&queries.get_note_graph()?)?;
         }
         Command::GetGraphNeighborhood {
             target,
             depth,
             direction,
             include_unresolved,
-            json,
         } => {
             print_value(
                 &queries.get_graph_neighborhood(crate::query::GraphNeighborhoodOptions {
@@ -424,7 +392,6 @@ async fn main() -> anyhow::Result<()> {
                     direction: parse_graph_neighborhood_direction(&direction)?,
                     include_unresolved,
                 })?,
-                json,
             )?;
         }
     }
@@ -471,7 +438,7 @@ fn vault_config(cli: &Cli) -> VaultConfig {
     config
 }
 
-fn print_value<T: serde::Serialize>(value: &T, _json: bool) -> anyhow::Result<()> {
+fn print_value<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }

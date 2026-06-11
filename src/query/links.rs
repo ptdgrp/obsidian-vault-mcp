@@ -3,10 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::resolver::{RefResolver, ResolveResult};
 
 use super::{
-    BacklinksResult, CompactTagBucket, CompactTagMatch, CompactTagsResult, DetailedSection,
-    DetailedTagBucket, DetailedTagOccurrence, DetailedTagsResult, FrontmatterMatch,
-    FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult, LinkEvidence,
-    OutlinksResult, TagBucket, TagOccurrence, TagSourceKind, TagsOutput, TagsResult, VaultQueries,
+    BacklinksOutput, BacklinksResult, CompactBacklinksResult, CompactOutlinksResult,
+    CompactTagBucket, CompactTagMatch, CompactTagsResult, DetailedSection, DetailedTagBucket,
+    DetailedTagOccurrence, DetailedTagsResult, FrontmatterMatch, FrontmatterMatchMode,
+    FrontmatterQueryOptions, FrontmatterQueryResult, LinkEvidence, OutlinksOutput, OutlinksResult,
+    TagBucket, TagOccurrence, TagSourceKind, TagsOutput, TagsResult, VaultQueries,
     find_indexed_note, read_snippet,
 };
 
@@ -30,6 +31,15 @@ impl VaultQueries {
             note: indexed.file.relative_path.clone(),
             links,
         })
+    }
+
+    pub fn get_outlinks_output(&self, note: &str, verbose: bool) -> anyhow::Result<OutlinksOutput> {
+        let result = self.get_outlinks(note)?;
+        if verbose {
+            Ok(OutlinksOutput::Verbose(result))
+        } else {
+            Ok(OutlinksOutput::Compact(CompactOutlinksResult::from(result)))
+        }
     }
 
     pub fn get_backlinks(&self, target: &str) -> anyhow::Result<BacklinksResult> {
@@ -69,6 +79,21 @@ impl VaultQueries {
             backlinks,
             truncated,
         })
+    }
+
+    pub fn get_backlinks_output(
+        &self,
+        target: &str,
+        verbose: bool,
+    ) -> anyhow::Result<BacklinksOutput> {
+        let result = self.get_backlinks(target)?;
+        if verbose {
+            Ok(BacklinksOutput::Verbose(result))
+        } else {
+            Ok(BacklinksOutput::Compact(CompactBacklinksResult::from(
+                result,
+            )))
+        }
     }
 
     pub fn get_tags(&self, tag: Option<&str>) -> anyhow::Result<TagsResult> {

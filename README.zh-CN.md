@@ -26,23 +26,27 @@ cargo test
 ## CLI 示例
 
 ```sh
-cargo run -- --vault /path/to/vault list-notes --json
-cargo run -- --vault /path/to/vault list-vault-files --json
-cargo run -- --vault /path/to/vault read-note "人物/林动.md" --json
-cargo run -- --vault /path/to/vault parse-note "人物/林动.md" --json
-cargo run -- --vault /path/to/vault get-note-outline "人物/林动.md" --json
-cargo run -- --vault /path/to/vault read-section "人物/林动.md" --heading "身体" --json
-cargo run -- --vault /path/to/vault resolve '[[林动#身体]]' --json
-cargo run -- --vault /path/to/vault backlinks '[[林动]]' --json
-cargo run -- --vault /path/to/vault search "求生本能" --json
-cargo run -- --vault /path/to/vault search-regex "林动.{0,20}代偿" --path-glob "正文/**/*.md" --json
-cargo run -- --vault /path/to/vault get-tags --tag "状态/身体" --json
-cargo run -- --vault /path/to/vault query-frontmatter phase --mode equals --value active --json
-cargo run -- --vault /path/to/vault query-frontmatter arc --mode regex --value "引擎.*" --json
-cargo run -- --vault /path/to/vault find-unresolved-links --json
-cargo run -- --vault /path/to/vault find-ambiguous-links --json
-cargo run -- --vault /path/to/vault get-note-graph --json
-cargo run -- --vault /path/to/vault get-graph-neighborhood "林动" --depth 1 --direction both --json
+cargo run -- --vault /path/to/vault list_notes
+cargo run -- --vault /path/to/vault list_vault_files
+cargo run -- --vault /path/to/vault read_note "人物/林动.md"
+cargo run -- --vault /path/to/vault parse_note "人物/林动.md"
+cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
+cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
+cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
+cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
+cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
+cargo run -- --vault /path/to/vault search_text "求生本能"
+cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
+cargo run -- --vault /path/to/vault get_tags --tag "状态/身体"
+cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
+cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
+cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
+cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]'
+cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
+cargo run -- --vault /path/to/vault find_unresolved_links
+cargo run -- --vault /path/to/vault find_ambiguous_links
+cargo run -- --vault /path/to/vault get_note_graph
+cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
 ```
 
 启动 MCP server：

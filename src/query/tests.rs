@@ -342,6 +342,34 @@ fn backlinks_include_source_section() {
 }
 
 #[test]
+fn link_outputs_default_to_compact_and_support_verbose() {
+    let (_dir, queries) = fixture();
+
+    let compact = queries
+        .get_backlinks_output("林动", false)
+        .expect("compact backlinks");
+    let compact_value = serde_json::to_value(compact).expect("compact json");
+    assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md:5");
+    assert_eq!(compact_value["backlinks"][0]["section"], "发动机 > 原理");
+    assert!(compact_value["backlinks"][0].get("source").is_none());
+    assert!(compact_value["backlinks"][0].get("snippet").is_none());
+
+    let verbose = queries
+        .get_backlinks_output("林动", true)
+        .expect("verbose backlinks");
+    let verbose_value = serde_json::to_value(verbose).expect("verbose json");
+    assert_eq!(verbose_value["backlinks"][0]["source"]["path"], "发动机.md");
+    assert!(verbose_value["backlinks"][0].get("snippet").is_some());
+
+    let outlinks = queries
+        .get_outlinks_output("林动", false)
+        .expect("compact outlinks");
+    let outlinks_value = serde_json::to_value(outlinks).expect("outlinks json");
+    assert_eq!(outlinks_value["links"][0]["location"], "林动.md:14");
+    assert!(outlinks_value["links"][0].get("source").is_none());
+}
+
+#[test]
 fn truncation_preserves_utf8_boundaries() {
     let text = "林动abc";
     assert_eq!(truncate_utf8(text, 4), "林");

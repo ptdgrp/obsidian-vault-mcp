@@ -14,9 +14,9 @@ use serde::Deserialize;
 
 use crate::{
     query::{
-        AmbiguousLinksResult, BacklinksResult, ContextResult, FrontmatterQueryOptions,
+        AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteGraphResult,
-        NoteOutlineResult, OutlinksResult, ParseNoteResult, ReadNoteResult, ReadSectionResult,
+        NoteOutlineResult, OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult,
         SearchRegexResult, SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult,
         VaultFilesOptions, VaultFilesResult, VaultQueries,
     },
@@ -90,6 +90,9 @@ pub struct ResolveRefRequest {
 pub struct BacklinksRequest {
     /// Note path, stem, alias, or Obsidian reference to find inbound links for.
     pub target: String,
+    /// Return detailed source spans and snippets when true. Defaults to compact output.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -97,6 +100,9 @@ pub struct BacklinksRequest {
 pub struct OutlinksRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
+    /// Return detailed source spans and snippets when true. Defaults to compact output.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -277,23 +283,27 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Get outgoing local links from one note with resolved target status and source snippets"
+        description = "Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets"
     )]
     fn get_outlinks(
         &self,
-        Parameters(OutlinksRequest { note }): Parameters<OutlinksRequest>,
-    ) -> Result<Json<OutlinksResult>, String> {
-        run_tool("get_outlinks", || self.queries().get_outlinks(&note))
+        Parameters(OutlinksRequest { note, verbose }): Parameters<OutlinksRequest>,
+    ) -> Result<Json<OutlinksOutput>, String> {
+        run_tool("get_outlinks", || {
+            self.queries().get_outlinks_output(&note, verbose)
+        })
     }
 
     #[tool(
-        description = "Get backlinks to a note or Obsidian reference with resolved target status and source snippets"
+        description = "Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets"
     )]
     fn get_backlinks(
         &self,
-        Parameters(BacklinksRequest { target }): Parameters<BacklinksRequest>,
-    ) -> Result<Json<BacklinksResult>, String> {
-        run_tool("get_backlinks", || self.queries().get_backlinks(&target))
+        Parameters(BacklinksRequest { target, verbose }): Parameters<BacklinksRequest>,
+    ) -> Result<Json<BacklinksOutput>, String> {
+        run_tool("get_backlinks", || {
+            self.queries().get_backlinks_output(&target, verbose)
+        })
     }
 
     #[tool(

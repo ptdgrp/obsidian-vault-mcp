@@ -297,6 +297,87 @@ impl From<ResolveResult> for ResolveSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum BacklinksOutput {
+    Compact(CompactBacklinksResult),
+    Verbose(BacklinksResult),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum OutlinksOutput {
+    Compact(CompactOutlinksResult),
+    Verbose(OutlinksResult),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactBacklinksResult {
+    pub target: String,
+    pub resolution: ResolveSummary,
+    pub backlinks: Vec<CompactLinkEvidence>,
+    pub truncated: bool,
+}
+
+impl From<BacklinksResult> for CompactBacklinksResult {
+    fn from(result: BacklinksResult) -> Self {
+        Self {
+            target: result.target,
+            resolution: result.resolution,
+            backlinks: result
+                .backlinks
+                .into_iter()
+                .map(CompactLinkEvidence::from)
+                .collect(),
+            truncated: result.truncated,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactOutlinksResult {
+    pub note: String,
+    pub links: Vec<CompactLinkEvidence>,
+}
+
+impl From<OutlinksResult> for CompactOutlinksResult {
+    fn from(result: OutlinksResult) -> Self {
+        Self {
+            note: result.note,
+            links: result
+                .links
+                .into_iter()
+                .map(CompactLinkEvidence::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CompactLinkEvidence {
+    pub location: String,
+    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    pub resolved: ResolveSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+impl From<LinkEvidence> for CompactLinkEvidence {
+    fn from(evidence: LinkEvidence) -> Self {
+        let location = link_location(&evidence.source);
+        let section = evidence.source.section.map(compact_section);
+        Self {
+            location,
+            target: evidence.target,
+            alias: evidence.alias,
+            resolved: evidence.resolved,
+            section,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BacklinksResult {
     pub target: String,
     pub resolution: ResolveSummary,
@@ -319,6 +400,14 @@ pub struct LinkEvidence {
     pub resolved: ResolveSummary,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub snippet: String,
+}
+
+fn link_location(source: &SearchSource) -> String {
+    if source.line_start == source.line_end {
+        format!("{}:{}", source.path, source.line_start)
+    } else {
+        format!("{}:{}-{}", source.path, source.line_start, source.line_end)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
