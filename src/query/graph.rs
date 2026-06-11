@@ -4,7 +4,7 @@ use crate::resolver::{RefResolver, ResolveResult};
 
 use super::{
     AmbiguousLinksResult, GraphEdge, GraphNeighborhoodDirection, GraphNeighborhoodOptions,
-    GraphNode, LinkEvidence, NoteGraphResult, UnresolvedLinksResult, VaultQueries, read_snippet,
+    GraphNode, LinkEvidence, UnresolvedLinksResult, VaultGraphResult, VaultQueries, read_snippet,
 };
 
 impl VaultQueries {
@@ -60,13 +60,13 @@ impl VaultQueries {
         Ok(AmbiguousLinksResult { links, truncated })
     }
 
-    pub fn get_note_graph(&self) -> anyhow::Result<NoteGraphResult> {
+    pub fn get_vault_graph(&self) -> anyhow::Result<VaultGraphResult> {
         let notes = self.index_notes()?;
         let nodes = graph_nodes(&notes);
         let mut edges = graph_edges(&notes);
         let truncated = edges.len() > self.vault.config.max_results;
         edges.truncate(self.vault.config.max_results);
-        Ok(NoteGraphResult {
+        Ok(VaultGraphResult {
             nodes,
             edges,
             truncated,
@@ -76,7 +76,7 @@ impl VaultQueries {
     pub fn get_graph_neighborhood(
         &self,
         options: GraphNeighborhoodOptions,
-    ) -> anyhow::Result<NoteGraphResult> {
+    ) -> anyhow::Result<VaultGraphResult> {
         let notes = self.index_notes()?;
         let center = match RefResolver::resolve(&options.target, &notes) {
             ResolveResult::Resolved { path, .. } => path,
@@ -144,7 +144,7 @@ impl VaultQueries {
             .filter_map(|path| nodes_by_path.get(&path).cloned())
             .collect();
 
-        Ok(NoteGraphResult {
+        Ok(VaultGraphResult {
             nodes,
             edges,
             truncated,

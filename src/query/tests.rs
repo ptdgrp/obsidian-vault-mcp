@@ -449,9 +449,9 @@ fn ambiguous_links_are_reported() {
 }
 
 #[test]
-fn note_graph_contains_nodes_and_edges() {
+fn vault_graph_contains_nodes_and_edges() {
     let (_dir, queries) = fixture();
-    let result = queries.get_note_graph().expect("graph");
+    let result = queries.get_vault_graph().expect("graph");
     assert!(result.nodes.iter().any(|node| node.path == "林动.md"));
     assert!(result.nodes.iter().any(|node| node.path == "发动机.md"));
     assert!(

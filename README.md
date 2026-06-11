@@ -54,7 +54,7 @@ cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]
 cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
 cargo run -- --vault /path/to/vault find_unresolved_links
 cargo run -- --vault /path/to/vault find_ambiguous_links
-cargo run -- --vault /path/to/vault get_note_graph
+cargo run -- --vault /path/to/vault get_vault_graph
 cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
 ```
 
@@ -156,7 +156,7 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `find_ambiguous_links`
 - `get_graph_neighborhood` - bounded graph context around one note; prefer this
   for normal agent use
-- `get_note_graph` - full local-link graph for audit, visualization, or
+- `get_vault_graph` - full local-link graph for audit, visualization, or
   debugging
 
 Every snippet-like result includes a `source` object with path, line range, and
@@ -182,7 +182,7 @@ not returned by MCP tools.
   local-link context. This includes
   Obsidian wikilinks and Markdown links whose relative path stays inside the
   vault.
-- Use `get_note_graph` only when the full graph is explicitly needed for audit,
+- Use `get_vault_graph` only when the full graph is explicitly needed for audit,
   visualization, debugging, or global health checks.
 - Use `find_unresolved_links` and `find_ambiguous_links` as health checks before
   larger analysis.

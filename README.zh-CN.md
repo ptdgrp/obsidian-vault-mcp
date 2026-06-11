@@ -12,7 +12,7 @@
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
 - 遵守 `.gitignore`、`.git/info/exclude`、父目录规则，以及每个子目录自己的 `.gitignore`。
 - 返回源码位置，包括 vault-relative path、行号范围和最近标题，便于 agent 引用证据。
-- 支持 Obsidian wikilink、安全的相对 Markdown link、alias、heading、block id、tag、backlink、outlink 和 note graph。
+- 支持 Obsidian wikilink、安全的相对 Markdown link、alias、heading、block id、tag、backlink、outlink 和 vault graph。
 
 它不会推断“人物”“组织”“章节”等业务领域类型。目录名、文件路径和 Markdown 标题才是语义来源；agent 应该基于这些证据继续推理，而不是让 MCP server 替它猜。
 
@@ -45,7 +45,7 @@ cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]
 cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
 cargo run -- --vault /path/to/vault find_unresolved_links
 cargo run -- --vault /path/to/vault find_ambiguous_links
-cargo run -- --vault /path/to/vault get_note_graph
+cargo run -- --vault /path/to/vault get_vault_graph
 cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
 ```
 
@@ -156,7 +156,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `find_unresolved_links`：查找无法解析的本地链接。
 - `find_ambiguous_links`：查找解析到多个 note 的本地链接。
 - `get_graph_neighborhood`：围绕一个 note 或 reference 返回限定深度的 graph 邻域；常规 agent 上下文优先用它。
-- `get_note_graph`：返回全量本地链接 note graph；用于审计、可视化、调试或全局健康检查。
+- `get_vault_graph`：返回全量本地链接 vault graph；用于审计、可视化、调试或全局健康检查。
 
 ## 推荐使用顺序
 
@@ -170,7 +170,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 
 搜索工具默认返回轻量片段：路径、行号范围、最近标题和简短预览。除非显式传 `context_lines`，否则不会把大量上下文塞回给 agent。
 
-vault 较大时，优先用 `get_graph_neighborhood`，不要直接取全量 `get_note_graph`。它支持 `depth`、`direction` 和 `include_unresolved`，适合围绕一个 note 拉近邻上下文。这里的链接包括 Obsidian wikilink，以及相对路径没有越出 vault 的 Markdown link。只有在需要全图审计、可视化、调试或全局健康检查时，才使用 `get_note_graph`。
+vault 较大时，优先用 `get_graph_neighborhood`，不要直接取全量 `get_vault_graph`。它支持 `depth`、`direction` 和 `include_unresolved`，适合围绕一个 note 拉近邻上下文。这里的链接包括 Obsidian wikilink，以及相对路径没有越出 vault 的 Markdown link。只有在需要全图审计、可视化、调试或全局健康检查时，才使用 `get_vault_graph`。
 
 ## 安全边界
 

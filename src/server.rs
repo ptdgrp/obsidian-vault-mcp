@@ -15,10 +15,10 @@ use serde::Deserialize;
 use crate::{
     query::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
-        FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteGraphResult,
-        NoteOutlineResult, OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult,
-        SearchRegexResult, SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult,
-        VaultFilesOptions, VaultFilesResult, VaultQueries,
+        FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteOutlineResult,
+        OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
+        SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult, VaultFilesOptions,
+        VaultFilesResult, VaultGraphResult, VaultQueries,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -393,8 +393,11 @@ impl ObsidianVaultMcp {
     #[tool(
         description = "Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context"
     )]
-    fn get_note_graph(&self, _: Parameters<EmptyRequest>) -> Result<Json<NoteGraphResult>, String> {
-        run_tool("get_note_graph", || self.queries().get_note_graph())
+    fn get_vault_graph(
+        &self,
+        _: Parameters<EmptyRequest>,
+    ) -> Result<Json<VaultGraphResult>, String> {
+        run_tool("get_vault_graph", || self.queries().get_vault_graph())
     }
 
     #[tool(
@@ -403,7 +406,7 @@ impl ObsidianVaultMcp {
     fn get_graph_neighborhood(
         &self,
         Parameters(request): Parameters<GraphNeighborhoodRequest>,
-    ) -> Result<Json<NoteGraphResult>, String> {
+    ) -> Result<Json<VaultGraphResult>, String> {
         run_tool("get_graph_neighborhood", || {
             self.queries().get_graph_neighborhood(request)
         })

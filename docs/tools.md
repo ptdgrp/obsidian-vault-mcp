@@ -26,7 +26,7 @@ server is read-only.
 | ? | `find_unresolved_links` | Links with no visible target. |
 | ! | `find_ambiguous_links` | Links with multiple targets. |
 | 🕸️ | `get_graph_neighborhood` | Bounded local-link graph. |
-| 🗺️ | `get_note_graph` | Full local-link graph. |
+| 🗺️ | `get_vault_graph` | Full local-link graph. |
 
 ## Common Types
 
@@ -540,7 +540,7 @@ Output:
 ## 🕸️ get_graph_neighborhood
 
 Return a bounded local-link graph neighborhood around one note or reference.
-Prefer this over `get_note_graph` for normal agent context.
+Prefer this over `get_vault_graph` for normal agent context.
 
 Input:
 
@@ -578,7 +578,7 @@ Output:
 | `alias` | string \| null | Link alias/display text. |
 | `status` | string | Link resolution status. |
 
-## 🗺️ get_note_graph
+## 🗺️ get_vault_graph
 
 Build the full visible-note local-link graph for audit, visualization, or
 debugging.

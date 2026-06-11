@@ -578,7 +578,7 @@ pub struct AmbiguousLinksResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct NoteGraphResult {
+pub struct VaultGraphResult {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
     pub truncated: bool,

@@ -89,43 +89,36 @@ enum Command {
     Doctor,
 
     /// List markdown notes in vault
-    #[command(name = "list_notes")]
     ListNotes,
 
     /// Read one Markdown note body
-    #[command(name = "read_note")]
     ReadNote { note: String },
 
     /// Parse one note and print extracted Obsidian structures
-    #[command(name = "parse_note")]
     ParseNote { note: String },
 
     /// Print one note's heading tree
-    #[command(name = "get_note_outline")]
     GetNoteOutline { note: String },
 
     /// Print a gitignore-aware flat list of visible vault files
-    #[command(name = "list_vault_files")]
     ListVaultFiles {
-        #[arg(long = "include_files", default_value_t = true)]
+        #[arg(long, default_value_t = true)]
         include_files: bool,
 
-        #[arg(long = "include_attachments", default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         include_attachments: bool,
 
-        #[arg(long = "include_readme_outline", default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         include_readme_outline: bool,
 
-        #[arg(long = "max_files", default_value_t = 100)]
+        #[arg(long, default_value_t = 100)]
         max_files: usize,
     },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
-    #[command(name = "resolve_ref")]
     ResolveRef { reference: String },
 
     /// Get outgoing local links from one note
-    #[command(name = "get_outlinks")]
     GetOutlinks {
         note: String,
 
@@ -134,7 +127,6 @@ enum Command {
     },
 
     /// Find backlinks to a note or reference
-    #[command(name = "get_backlinks")]
     GetBacklinks {
         target: String,
 
@@ -143,7 +135,6 @@ enum Command {
     },
 
     /// List body and frontmatter tags, optionally filtered by exact tag
-    #[command(name = "get_tags")]
     GetTags {
         #[arg(long)]
         tag: Option<String>,
@@ -153,7 +144,6 @@ enum Command {
     },
 
     /// Query notes by a top-level frontmatter field
-    #[command(name = "query_frontmatter")]
     QueryFrontmatter {
         field: String,
 
@@ -165,72 +155,63 @@ enum Command {
     },
 
     /// Literal search
-    #[command(name = "search_text")]
     SearchText {
         query: String,
 
-        #[arg(long = "case_sensitive")]
+        #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long = "context_lines", default_value_t = 0)]
+        #[arg(long, default_value_t = 0)]
         context_lines: usize,
     },
 
     /// Regex search
-    #[command(name = "search_regex")]
     SearchRegex {
         pattern: String,
 
-        #[arg(long = "case_sensitive")]
+        #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long = "context_lines", default_value_t = 0)]
+        #[arg(long, default_value_t = 0)]
         context_lines: usize,
 
-        #[arg(long = "path_glob")]
+        #[arg(long)]
         path_glob: Option<String>,
     },
 
     /// Collect bounded context around one note
-    #[command(name = "collect_note_context")]
     CollectNoteContext { note: String },
 
     /// Resolve a reference, then collect bounded context
-    #[command(name = "collect_reference_context")]
     CollectReferenceContext { reference: String },
 
     /// Read a heading, block id, or line range from a note
-    #[command(name = "read_section")]
     ReadSection {
         note: String,
 
         #[arg(long)]
         heading: Option<String>,
 
-        #[arg(long = "block_id")]
+        #[arg(long)]
         block_id: Option<String>,
 
-        #[arg(long = "line_start")]
+        #[arg(long)]
         line_start: Option<u64>,
 
-        #[arg(long = "line_end")]
+        #[arg(long)]
         line_end: Option<u64>,
     },
 
     /// Find local links that do not resolve to any note
-    #[command(name = "find_unresolved_links")]
     FindUnresolvedLinks,
 
     /// Find local links that resolve to multiple candidate notes
-    #[command(name = "find_ambiguous_links")]
     FindAmbiguousLinks,
 
-    /// Build the full local-link note graph for audit or visualization
-    #[command(name = "get_note_graph")]
-    GetNoteGraph,
+    /// Build the full local-link vault graph for audit or visualization
+    GetVaultGraph,
 
     /// Build a bounded local-link graph neighborhood for normal context use
-    #[command(name = "get_graph_neighborhood")]
     GetGraphNeighborhood {
         target: String,
 
@@ -240,7 +221,7 @@ enum Command {
         #[arg(long, default_value = "both")]
         direction: String,
 
-        #[arg(long = "include_unresolved", default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         include_unresolved: bool,
     },
 }
@@ -376,8 +357,8 @@ async fn main() -> anyhow::Result<()> {
         Command::FindAmbiguousLinks => {
             print_value(&queries.find_ambiguous_links()?)?;
         }
-        Command::GetNoteGraph => {
-            print_value(&queries.get_note_graph()?)?;
+        Command::GetVaultGraph => {
+            print_value(&queries.get_vault_graph()?)?;
         }
         Command::GetGraphNeighborhood {
             target,
