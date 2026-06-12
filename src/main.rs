@@ -20,6 +20,7 @@ use crate::server::run_mcp_server;
 use crate::vault::{Vault, VaultConfig};
 
 #[derive(clap::Parser)]
+#[command(version, about, long_about = None)]
 struct Cli {
     /// Vault root directory
     #[arg(long, env = "OBSIDIAN_VAULT_MCP_ROOT")]
