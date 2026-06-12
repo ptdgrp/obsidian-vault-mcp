@@ -1,3 +1,4 @@
+mod docs;
 mod parser;
 mod query;
 mod resolver;
@@ -22,7 +23,7 @@ use crate::vault::{Vault, VaultConfig};
 struct Cli {
     /// Vault root directory
     #[arg(long, env = "OBSIDIAN_VAULT_MCP_ROOT")]
-    vault: Utf8PathBuf,
+    vault: Option<Utf8PathBuf>,
 
     /// Optional config file
     #[arg(long, env = "OBSIDIAN_VAULT_MCP_CONFIG")]
@@ -84,6 +85,17 @@ struct Cli {
 enum Command {
     /// Run MCP server over stdio
     Serve,
+
+    /// Generate docs from the MCP tool schemas
+    GenerateDocs {
+        /// Check whether docs/tools.md is up to date without writing it
+        #[arg(long, default_value_t = false)]
+        check: bool,
+
+        /// Output markdown file
+        #[arg(long, default_value = "docs/tools.md")]
+        output: Utf8PathBuf,
+    },
 
     /// Check vault config and list readable notes
     Doctor,
@@ -234,15 +246,32 @@ async fn main() -> anyhow::Result<()> {
         &cli.otel_service_name,
         &cli.otel_log_level,
     )?;
-    let vault_path = cli.vault.clone();
     let config = vault_config(&cli);
     let command = cli.command.unwrap_or(Command::Serve);
     let result = async {
+        if let Command::GenerateDocs { check, output } = command {
+            let content = crate::docs::render_docs(
+                &crate::server::ObsidianVaultMcp::tool_definitions(),
+            )?;
+            if check {
+                crate::docs::check_tools_markdown(output, &content)?;
+            } else {
+                crate::docs::write_tools_markdown(output, &content)?;
+            }
+            return anyhow::Ok(());
+        }
+
+        let vault_path = cli.vault.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "--vault is required for this command; set OBSIDIAN_VAULT_MCP_ROOT or pass --vault"
+            )
+        })?;
         let vault = Vault::open(vault_path, config)?;
         let queries = crate::query::VaultQueries::new(vault.clone());
 
         match command {
             Command::Serve => run_mcp_server(vault).await?,
+            Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
         Command::Doctor | Command::ListNotes => {
             print_value(&queries.list_notes()?)?;
         }
@@ -407,15 +436,16 @@ fn parse_frontmatter_match_mode(input: &str) -> anyhow::Result<crate::query::Fro
 }
 
 fn vault_config(cli: &Cli) -> VaultConfig {
-    let mut config = VaultConfig::default();
-    config.include = cli.include.clone();
-    config.exclude = cli.exclude.clone();
-    config.follow_symlinks = cli.follow_symlinks;
-    config.max_output_bytes = cli.max_output_bytes;
-    config.max_results = cli.max_results;
-    config.parse_cache_ttl_secs = cli.parse_cache_ttl_secs;
-    config.parse_cache_max_entries = cli.parse_cache_max_entries;
-    config
+    VaultConfig {
+        include: cli.include.clone(),
+        exclude: cli.exclude.clone(),
+        follow_symlinks: cli.follow_symlinks,
+        max_output_bytes: cli.max_output_bytes,
+        max_results: cli.max_results,
+        parse_cache_ttl_secs: cli.parse_cache_ttl_secs,
+        parse_cache_max_entries: cli.parse_cache_max_entries,
+        ..Default::default()
+    }
 }
 
 fn print_value<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {

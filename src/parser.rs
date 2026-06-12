@@ -393,7 +393,9 @@ fn is_external_or_absolute_url(url: &str) -> bool {
     url.starts_with('/')
         || url.starts_with('\\')
         || url.starts_with("//")
-        || url.starts_with('#').then_some(false).unwrap_or_else(|| {
+        || if url.starts_with('#') {
+            false
+        } else {
             url.find(':').is_some_and(|colon| {
                 let before_colon = &url[..colon];
                 !before_colon.is_empty()
@@ -405,7 +407,7 @@ fn is_external_or_absolute_url(url: &str) -> bool {
                         .chars()
                         .all(|char| char.is_ascii_alphanumeric() || matches!(char, '+' | '-' | '.'))
             })
-        })
+        }
 }
 
 fn normalize_relative_markdown_path(current_path: &str, link_path: &str) -> Option<String> {

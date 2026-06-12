@@ -55,10 +55,9 @@ impl VaultQueries {
         let mut outlink_items = Vec::new();
         for link in &current.parsed.links {
             if let ResolveResult::Resolved { path, .. } = RefResolver::resolve(&link.target, notes)
+                && let Some(note) = notes.iter().find(|note| note.file.relative_path == path)
             {
-                if let Some(note) = notes.iter().find(|note| note.file.relative_path == path) {
-                    outlink_items.push(context_item(&note.file, &mut budget, &mut omitted));
-                }
+                outlink_items.push(context_item(&note.file, &mut budget, &mut omitted));
             }
         }
         if !outlink_items.is_empty() {

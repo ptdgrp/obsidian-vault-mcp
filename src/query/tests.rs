@@ -195,7 +195,7 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
         compact.tags[0]
             .notes
             .iter()
-            .any(|note| note.note == "林动.md:12"
+            .any(|note| note.note == "林动.md#L12"
                 && note.source_kind == TagSourceKind::Body
                 && note.section.as_deref() == Some("林动"))
     );
@@ -213,7 +213,7 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
         .list_tags_output(Some("状态/身体"), true)
         .expect("verbose tags");
     assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
-        occurrence.location == "林动.md:12"
+        occurrence.location == "林动.md#L12"
             && occurrence.section.as_ref().is_some_and(|section| {
                 section.heading == "林动"
                     && section.heading_level == 1

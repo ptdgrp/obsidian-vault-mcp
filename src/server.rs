@@ -6,7 +6,7 @@ use rmcp::{
         router::tool::ToolRouter,
         wrapper::{Json, Parameters},
     },
-    model::{ServerCapabilities, ServerInfo},
+    model::{ServerCapabilities, ServerInfo, Tool},
     tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
@@ -57,6 +57,10 @@ impl ObsidianVaultMcp {
 
     fn queries(&self) -> VaultQueries {
         self.state.queries.clone()
+    }
+
+    pub fn tool_definitions() -> Vec<Tool> {
+        Self::tool_router().list_all()
     }
 }
 

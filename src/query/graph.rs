@@ -120,10 +120,11 @@ impl VaultQueries {
                     GraphNeighborhoodDirection::Both if edge.to == path => Some(edge.from.clone()),
                     _ => None,
                 };
-                if let Some(next) = next {
-                    if nodes_by_path.contains_key(&next) && visited.insert(next.clone()) {
-                        queue.push_back((next, depth + 1));
-                    }
+                if let Some(next) = next
+                    && nodes_by_path.contains_key(&next)
+                    && visited.insert(next.clone())
+                {
+                    queue.push_back((next, depth + 1));
                 }
             }
         }
