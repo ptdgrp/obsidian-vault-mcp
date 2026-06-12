@@ -41,3 +41,15 @@ walkdir = "2.5.0"
 insta = "1"
 tempfile = "3"
 pretty_assertions = "1"
+
+
+[profile.release]
+strip = true
+lto = true
+opt-level = 3
+panic = "abort"
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
