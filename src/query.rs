@@ -1,3 +1,16 @@
+mod cache;
+mod context;
+mod files;
+mod graph;
+mod links;
+mod notes;
+mod outline;
+mod search;
+mod section;
+
+#[cfg(test)]
+mod tests;
+
 use std::{fs, sync::Arc};
 
 use camino::Utf8Path;
@@ -297,36 +310,22 @@ impl From<ResolveResult> for ResolveSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum BacklinksOutput {
-    Compact(CompactBacklinksResult),
-    Verbose(BacklinksResult),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum OutlinksOutput {
-    Compact(CompactOutlinksResult),
-    Verbose(OutlinksResult),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactBacklinksResult {
+pub struct BacklinksOutput {
     pub target: String,
     pub resolution: ResolveSummary,
-    pub backlinks: Vec<CompactLinkEvidence>,
+    pub backlinks: Vec<LinkEvidenceOutput>,
     pub truncated: bool,
 }
 
-impl From<BacklinksResult> for CompactBacklinksResult {
-    fn from(result: BacklinksResult) -> Self {
+impl BacklinksOutput {
+    pub fn from_result(result: BacklinksResult, verbose: bool) -> Self {
         Self {
             target: result.target,
             resolution: result.resolution,
             backlinks: result
                 .backlinks
                 .into_iter()
-                .map(CompactLinkEvidence::from)
+                .map(|evidence| LinkEvidenceOutput::from_evidence(evidence, verbose))
                 .collect(),
             truncated: result.truncated,
         }
@@ -334,26 +333,26 @@ impl From<BacklinksResult> for CompactBacklinksResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactOutlinksResult {
+pub struct OutlinksOutput {
     pub note: String,
-    pub links: Vec<CompactLinkEvidence>,
+    pub links: Vec<LinkEvidenceOutput>,
 }
 
-impl From<OutlinksResult> for CompactOutlinksResult {
-    fn from(result: OutlinksResult) -> Self {
+impl OutlinksOutput {
+    pub fn from_result(result: OutlinksResult, verbose: bool) -> Self {
         Self {
             note: result.note,
             links: result
                 .links
                 .into_iter()
-                .map(CompactLinkEvidence::from)
+                .map(|evidence| LinkEvidenceOutput::from_evidence(evidence, verbose))
                 .collect(),
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactLinkEvidence {
+pub struct LinkEvidenceOutput {
     pub location: String,
     pub target: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -361,18 +360,29 @@ pub struct CompactLinkEvidence {
     pub resolved: ResolveSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SearchSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
-impl From<LinkEvidence> for CompactLinkEvidence {
-    fn from(evidence: LinkEvidence) -> Self {
+impl LinkEvidenceOutput {
+    pub fn from_evidence(evidence: LinkEvidence, verbose: bool) -> Self {
         let location = link_location(&evidence.source);
-        let section = evidence.source.section.map(compact_section);
+        let section = evidence
+            .source
+            .section
+            .as_ref()
+            .cloned()
+            .map(compact_section);
         Self {
             location,
             target: evidence.target,
             alias: evidence.alias,
             resolved: evidence.resolved,
             section,
+            source: verbose.then_some(evidence.source),
+            snippet: verbose.then_some(evidence.snippet),
         }
     }
 }
@@ -416,34 +426,12 @@ pub struct TagsResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactTagsResult {
-    pub tags: Vec<CompactTagBucket>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactTagBucket {
-    pub tag: String,
-    pub notes: Vec<CompactTagMatch>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CompactTagMatch {
     /// Vault-relative path, with :line suffix for body tags.
     pub note: String,
     pub source_kind: TagSourceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct DetailedTagsResult {
-    pub tags: Vec<DetailedTagBucket>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct DetailedTagBucket {
-    pub tag: String,
-    pub occurrences: Vec<DetailedTagOccurrence>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -464,10 +452,16 @@ pub struct DetailedSection {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum TagsOutput {
-    Compact(CompactTagsResult),
-    Verbose(DetailedTagsResult),
+pub struct TagsOutput {
+    pub tags: Vec<TagOutputBucket>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TagOutputBucket {
+    pub tag: String,
+    pub notes: Vec<CompactTagMatch>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub occurrences: Vec<DetailedTagOccurrence>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -797,16 +791,3 @@ fn default_true() -> bool {
 fn is_zero(value: &usize) -> bool {
     *value == 0
 }
-
-mod cache;
-mod context;
-mod files;
-mod graph;
-mod links;
-mod notes;
-mod outline;
-mod search;
-mod section;
-
-#[cfg(test)]
-mod tests;

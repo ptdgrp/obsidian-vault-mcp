@@ -144,7 +144,7 @@ fn local_datetime(unix_ms: u64) -> Option<String> {
     let seconds = i64::try_from(unix_ms / 1000).ok()?;
     let nanos = u32::try_from((unix_ms % 1000) * 1_000_000).ok()?;
     let datetime: DateTime<Local> = DateTime::from_timestamp(seconds, nanos)?.into();
-    Some(datetime.format("%Y-%m-%d %H:%M:%S %:z").to_string())
+    Some(datetime.format("%Y-%m-%d %H:%M:%S").to_string())
 }
 
 fn compile_file_globs(patterns: &[String]) -> anyhow::Result<GlobSet> {

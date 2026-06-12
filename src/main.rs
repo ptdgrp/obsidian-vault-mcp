@@ -136,7 +136,6 @@ enum Command {
 
     /// List body and frontmatter tags, optionally filtered by exact tag
     ListTags {
-        #[arg(long)]
         tag: Option<String>,
 
         #[arg(long, default_value_t = false)]

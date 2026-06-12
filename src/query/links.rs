@@ -3,12 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::resolver::{RefResolver, ResolveResult};
 
 use super::{
-    BacklinksOutput, BacklinksResult, CompactBacklinksResult, CompactOutlinksResult,
-    CompactTagBucket, CompactTagMatch, CompactTagsResult, DetailedSection, DetailedTagBucket,
-    DetailedTagOccurrence, DetailedTagsResult, FrontmatterMatch, FrontmatterMatchMode,
-    FrontmatterQueryOptions, FrontmatterQueryResult, LinkEvidence, OutlinksOutput, OutlinksResult,
-    TagBucket, TagOccurrence, TagSourceKind, TagsOutput, TagsResult, VaultQueries,
-    find_indexed_note, read_snippet,
+    BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
+    FrontmatterMatch, FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult,
+    LinkEvidence, OutlinksOutput, OutlinksResult, TagBucket, TagOccurrence, TagOutputBucket,
+    TagSourceKind, TagsOutput, TagsResult, VaultQueries, find_indexed_note, read_snippet,
 };
 
 impl VaultQueries {
@@ -35,11 +33,7 @@ impl VaultQueries {
 
     pub fn get_outlinks_output(&self, note: &str, verbose: bool) -> anyhow::Result<OutlinksOutput> {
         let result = self.get_outlinks(note)?;
-        if verbose {
-            Ok(OutlinksOutput::Verbose(result))
-        } else {
-            Ok(OutlinksOutput::Compact(CompactOutlinksResult::from(result)))
-        }
+        Ok(OutlinksOutput::from_result(result, verbose))
     }
 
     pub fn get_backlinks(&self, target: &str) -> anyhow::Result<BacklinksResult> {
@@ -87,13 +81,7 @@ impl VaultQueries {
         verbose: bool,
     ) -> anyhow::Result<BacklinksOutput> {
         let result = self.get_backlinks(target)?;
-        if verbose {
-            Ok(BacklinksOutput::Verbose(result))
-        } else {
-            Ok(BacklinksOutput::Compact(CompactBacklinksResult::from(
-                result,
-            )))
-        }
+        Ok(BacklinksOutput::from_result(result, verbose))
     }
 
     pub fn list_tags(&self, tag: Option<&str>) -> anyhow::Result<TagsResult> {
@@ -144,11 +132,7 @@ impl VaultQueries {
 
     pub fn list_tags_output(&self, tag: Option<&str>, verbose: bool) -> anyhow::Result<TagsOutput> {
         let result = self.list_tags(tag)?;
-        if verbose {
-            Ok(TagsOutput::Verbose(detailed_tags(result)))
-        } else {
-            Ok(TagsOutput::Compact(compact_tags(result)))
-        }
+        Ok(tags_output(result, verbose))
     }
 
     pub fn query_frontmatter(
@@ -258,16 +242,22 @@ fn normalize_tag(tag: &str) -> String {
     tag.trim().trim_start_matches('#').to_string()
 }
 
-fn compact_tags(result: TagsResult) -> CompactTagsResult {
-    CompactTagsResult {
+fn tags_output(result: TagsResult, verbose: bool) -> TagsOutput {
+    TagsOutput {
         tags: result
             .tags
             .into_iter()
             .map(|bucket| {
                 let tag = bucket.tag.clone();
-                CompactTagBucket {
+                let occurrences = if verbose {
+                    detailed_tag_occurrences(bucket.occurrences.clone())
+                } else {
+                    Vec::new()
+                };
+                TagOutputBucket {
                     tag,
                     notes: compact_tag_matches(bucket),
+                    occurrences,
                 }
             })
             .collect(),
@@ -299,7 +289,7 @@ fn compact_tag_matches(bucket: TagBucket) -> Vec<CompactTagMatch> {
             let note = occurrence
                 .source
                 .as_ref()
-                .map(|source| format!("{}:{}", source.path, source.line_start))
+                .map(source_location)
                 .unwrap_or(occurrence.note);
             CompactTagMatch {
                 note,
@@ -308,19 +298,6 @@ fn compact_tag_matches(bucket: TagBucket) -> Vec<CompactTagMatch> {
             }
         })
         .collect()
-}
-
-fn detailed_tags(result: TagsResult) -> DetailedTagsResult {
-    DetailedTagsResult {
-        tags: result
-            .tags
-            .into_iter()
-            .map(|bucket| DetailedTagBucket {
-                tag: bucket.tag,
-                occurrences: detailed_tag_occurrences(bucket.occurrences),
-            })
-            .collect(),
-    }
 }
 
 fn detailed_tag_occurrences(occurrences: Vec<TagOccurrence>) -> Vec<DetailedTagOccurrence> {
@@ -356,9 +333,12 @@ fn detailed_section(section: crate::parser::SectionInfo) -> DetailedSection {
 
 fn source_location(source: &super::SearchSource) -> String {
     if source.line_start == source.line_end {
-        format!("{}:{}", source.path, source.line_start)
+        format!("{}#L{}", source.path, source.line_start)
     } else {
-        format!("{}:{}-{}", source.path, source.line_start, source.line_end)
+        format!(
+            "{}#L{}-L{}",
+            source.path, source.line_start, source.line_end
+        )
     }
 }
 

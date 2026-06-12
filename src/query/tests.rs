@@ -190,9 +190,6 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
     let compact = queries
         .list_tags_output(Some("状态/身体"), false)
         .expect("compact tags");
-    let TagsOutput::Compact(compact) = compact else {
-        panic!("expected compact tag output");
-    };
     assert_eq!(compact.tags.len(), 1);
     assert!(
         compact.tags[0]
@@ -210,13 +207,11 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
                 && note.source_kind == TagSourceKind::Frontmatter
                 && note.section.is_none())
     );
+    assert!(compact.tags[0].occurrences.is_empty());
 
     let verbose = queries
         .list_tags_output(Some("状态/身体"), true)
         .expect("verbose tags");
-    let TagsOutput::Verbose(verbose) = verbose else {
-        panic!("expected verbose tag output");
-    };
     assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
         occurrence.location == "林动.md:12"
             && occurrence.section.as_ref().is_some_and(|section| {
@@ -367,6 +362,17 @@ fn link_outputs_default_to_compact_and_support_verbose() {
     let outlinks_value = serde_json::to_value(outlinks).expect("outlinks json");
     assert_eq!(outlinks_value["links"][0]["location"], "林动.md:14");
     assert!(outlinks_value["links"][0].get("source").is_none());
+}
+
+#[test]
+fn mcp_output_schemas_have_object_roots() {
+    for schema in [
+        serde_json::to_value(schemars::schema_for!(OutlinksOutput)).expect("outlinks schema"),
+        serde_json::to_value(schemars::schema_for!(BacklinksOutput)).expect("backlinks schema"),
+        serde_json::to_value(schemars::schema_for!(TagsOutput)).expect("tags schema"),
+    ] {
+        assert_eq!(schema["type"], "object");
+    }
 }
 
 #[test]
