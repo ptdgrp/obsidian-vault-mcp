@@ -28,6 +28,7 @@ impl VaultQueries {
         links.sort_by(|a, b| {
             natord::compare(&a.source.path, &b.source.path)
                 .then(a.source.line_start.cmp(&b.source.line_start))
+                .then(a.source.line_end.cmp(&b.source.line_end))
         });
         let truncated = links.len() > self.vault.config.max_results;
         links.truncate(self.vault.config.max_results);
@@ -54,6 +55,7 @@ impl VaultQueries {
         links.sort_by(|a, b| {
             natord::compare(&a.source.path, &b.source.path)
                 .then(a.source.line_start.cmp(&b.source.line_start))
+                .then(a.source.line_end.cmp(&b.source.line_end))
         });
         let truncated = links.len() > self.vault.config.max_results;
         links.truncate(self.vault.config.max_results);

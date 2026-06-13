@@ -5,8 +5,10 @@ use markdown::{
     link::Link,
     reference::Reference,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -48,6 +50,27 @@ pub enum LinkKind {
     Markdown,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TagScope {
+    #[default]
+    Note,
+    Frontmatter,
+    Body,
+    Section,
+    Line,
+}
+
+impl TagScope {
+    pub fn includes_frontmatter_tags(self) -> bool {
+        matches!(self, Self::Note | Self::Frontmatter | Self::Body)
+    }
+
+    pub fn includes_body_tag(self, tag_scope: Self) -> bool {
+        matches!(self, Self::Note) || self == tag_scope
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmbedInfo {
     pub raw: String,
@@ -59,6 +82,7 @@ pub struct EmbedInfo {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TagInfo {
     pub tag: String,
+    pub scope: TagScope,
     pub source: SourceSpan,
 }
 
@@ -85,7 +109,7 @@ pub struct SectionInfo {
     pub heading_anchor: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct SourceSpan {
     pub path: String,
     pub line_start: u64,
@@ -95,6 +119,57 @@ pub struct SourceSpan {
     #[serde(skip)]
     pub byte_end: usize,
     pub section: Option<SectionInfo>,
+}
+
+impl SourceSpan {
+    pub fn path_with_line_ref(&self) -> String {
+        path_with_line_ref(&self.path, self.line_start, self.line_end)
+    }
+}
+
+impl Serialize for SourceSpan {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("SourceSpan", 2)?;
+        state.serialize_field("path", &self.path_with_line_ref())?;
+        state.serialize_field("section", &self.section)?;
+        state.end()
+    }
+}
+
+impl JsonSchema for SourceSpan {
+    fn schema_name() -> Cow<'static, str> {
+        "SourceSpan".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let section_schema = serde_json::to_value(generator.subschema_for::<Option<SectionInfo>>())
+            .expect("section schema");
+
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Vault-relative path with Obsidian-style line reference, e.g. note.md#L1 or note.md#L1-L99."
+                },
+                "section": section_schema
+            },
+            "required": ["path", "section"]
+        })
+        .try_into()
+        .expect("source span schema")
+    }
+}
+
+pub fn path_with_line_ref(path: &str, line_start: u64, line_end: u64) -> String {
+    if line_start == line_end {
+        format!("{path}#L{line_start}")
+    } else {
+        format!("{path}#L{line_start}-L{line_end}")
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -126,6 +201,8 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
     };
 
     let mut heading_stack: Vec<HeadingInfo> = Vec::new();
+    let mut body_scope_seen = false;
+    let mut section_tag_window = SectionTagWindow::Closed;
     for index in active_node_indices(document) {
         let node = &document.tree[index];
         match &node.body {
@@ -151,6 +228,11 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 };
                 heading_stack.push(info.clone());
                 parsed.headings.push(info);
+                body_scope_seen = true;
+                section_tag_window = SectionTagWindow::Open {
+                    text_seen: false,
+                    tag_seen: false,
+                };
             }
             MarkdownNode::Link(link) => {
                 let source = source_for_node(&path, text, document, index, &heading_stack);
@@ -194,10 +276,34 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
             }
             MarkdownNode::Tag(tag) => {
                 let source = source_for_node(&path, text, document, index, &heading_stack);
+                let scope = if is_inside_heading(document, index) {
+                    TagScope::Section
+                } else if !body_scope_seen {
+                    TagScope::Body
+                } else if section_tag_window.accepts_tag() {
+                    section_tag_window.mark_tag_seen();
+                    TagScope::Section
+                } else {
+                    TagScope::Line
+                };
                 parsed.tags.push(TagInfo {
                     tag: tag.clone(),
+                    scope,
                     source,
                 });
+            }
+            MarkdownNode::Text(value) => {
+                if !is_inside_heading(document, index) {
+                    section_tag_window.mark_text_seen(value);
+                }
+            }
+            MarkdownNode::SoftBreak | MarkdownNode::HardBreak => {
+                if !is_inside_heading(document, index) {
+                    section_tag_window.mark_break();
+                }
+            }
+            MarkdownNode::Paragraph => {
+                section_tag_window.mark_section_boundary();
             }
             MarkdownNode::Code(code) => {
                 if matches!(code.as_ref(), Code::Fenced(_) | Code::Indented(_)) {
@@ -216,6 +322,74 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
     }
 
     parsed
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SectionTagWindow {
+    Closed,
+    Open { text_seen: bool, tag_seen: bool },
+}
+
+impl SectionTagWindow {
+    fn accepts_tag(self) -> bool {
+        matches!(self, Self::Open { .. })
+    }
+
+    fn mark_tag_seen(&mut self) {
+        if let Self::Open { tag_seen, .. } = self {
+            *tag_seen = true;
+        }
+    }
+
+    fn mark_text_seen(&mut self, value: &str) {
+        let Self::Open {
+            text_seen,
+            tag_seen,
+        } = self
+        else {
+            return;
+        };
+
+        if value.trim().is_empty() {
+            return;
+        }
+        if *tag_seen {
+            return;
+        }
+
+        if *text_seen {
+            *self = Self::Closed;
+            return;
+        }
+
+        *text_seen = true;
+    }
+
+    fn mark_break(&mut self) {
+        if matches!(self, Self::Open { tag_seen: true, .. }) {
+            *self = Self::Closed;
+        }
+    }
+
+    fn mark_section_boundary(&mut self) {
+        if matches!(self, Self::Open { tag_seen: true, .. }) {
+            *self = Self::Closed;
+        }
+    }
+}
+
+fn is_inside_heading(document: &Document, index: usize) -> bool {
+    let mut current = index;
+    loop {
+        if matches!(document.tree[current].body, MarkdownNode::Heading(_)) {
+            return true;
+        }
+        let parent = document.tree.get_parent(current);
+        if parent == current || parent == 0 {
+            return false;
+        }
+        current = parent;
+    }
 }
 
 fn active_node_indices(document: &Document) -> Vec<usize> {

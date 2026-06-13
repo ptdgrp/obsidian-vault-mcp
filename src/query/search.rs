@@ -147,6 +147,7 @@ impl VaultQueries {
         matches.sort_by(|a, b| {
             natord::compare(&a.source.path, &b.source.path)
                 .then(a.source.line_start.cmp(&b.source.line_start))
+                .then(a.source.line_end.cmp(&b.source.line_end))
         });
         Ok((matches, truncated))
     }

@@ -147,9 +147,18 @@ enum Command {
         verbose: bool,
     },
 
-    /// List body and frontmatter tags, optionally filtered by exact tag
+    /// List unique body and frontmatter tag names
     ListTags {
-        tag: Option<String>,
+        #[arg(long, default_value = "note")]
+        scope: String,
+    },
+
+    /// Locate selected body or frontmatter tags
+    GetTags {
+        tags: Vec<String>,
+
+        #[arg(long, default_value = "note")]
+        scope: String,
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
@@ -197,7 +206,7 @@ enum Command {
     /// Resolve a reference, then collect bounded context
     CollectReferenceContext { reference: String },
 
-    /// Read a heading, block id, or line range from a note
+    /// Read a heading, block id, or line reference from a note
     ReadSection {
         note: String,
 
@@ -208,10 +217,7 @@ enum Command {
         block_id: Option<String>,
 
         #[arg(long)]
-        line_start: Option<u64>,
-
-        #[arg(long)]
-        line_end: Option<u64>,
+        line: Option<String>,
     },
 
     /// Find local links that do not resolve to any note
@@ -251,9 +257,8 @@ async fn main() -> anyhow::Result<()> {
     let command = cli.command.unwrap_or(Command::Serve);
     let result = async {
         if let Command::GenerateDocs { check, output } = command {
-            let content = crate::docs::render_docs(
-                &crate::server::ObsidianVaultMcp::tool_definitions(),
-            )?;
+            let content =
+                crate::docs::render_docs(&crate::server::ObsidianVaultMcp::tool_definitions())?;
             if check {
                 crate::docs::check_tools_markdown(output, &content)?;
             } else {
@@ -273,139 +278,145 @@ async fn main() -> anyhow::Result<()> {
         match command {
             Command::Serve => run_mcp_server(vault).await?,
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
-        Command::Doctor | Command::ListNotes => {
-            print_value(&queries.list_notes()?)?;
-        }
-        Command::ReadNote { note } => {
-            print_value(&queries.read_note(&note)?)?;
-        }
-        Command::ParseNote { note } => {
-            print_value(&queries.parse_note_result(&note)?)?;
-        }
-        Command::GetNoteOutline { note } => {
-            print_value(&queries.get_note_outline(&note)?)?;
-        }
-        Command::ListVaultFiles {
-            include_files,
-            include_attachments,
-            include_readme_outline,
-            max_files,
-        } => {
-            let result = queries.list_vault_files(crate::query::VaultFilesOptions {
+            Command::Doctor | Command::ListNotes => {
+                print_value(&queries.list_notes()?)?;
+            }
+            Command::ReadNote { note } => {
+                print_value(&queries.read_note(&note)?)?;
+            }
+            Command::ParseNote { note } => {
+                print_value(&queries.parse_note_result(&note)?)?;
+            }
+            Command::GetNoteOutline { note } => {
+                print_value(&queries.get_note_outline(&note)?)?;
+            }
+            Command::ListVaultFiles {
                 include_files,
                 include_attachments,
                 include_readme_outline,
                 max_files,
-            })?;
-            print_value(&result)?;
-        }
-        Command::ResolveRef { reference } => {
-            print_value(&queries.resolve_ref(&reference)?)?;
-        }
-        Command::GetOutlinks { note, verbose } => {
-            print_value(&queries.get_outlinks_output(&note, verbose)?)?;
-        }
-        Command::GetBacklinks { target, verbose } => {
-            print_value(&queries.get_backlinks_output(&target, verbose)?)?;
-        }
-        Command::ListTags { tag, verbose } => {
-            print_value(&queries.list_tags_output(tag.as_deref(), verbose)?)?;
-        }
-        Command::QueryFrontmatter {
-            field,
-            mode,
-            value,
-        } => {
-            print_value(
-                &queries.query_frontmatter(crate::query::FrontmatterQueryOptions {
-                    field,
-                    mode: parse_frontmatter_match_mode(&mode)?,
-                    value,
-                })?,
-            )?;
-        }
-        Command::SearchText {
-            query,
-            case_sensitive,
-            context_lines,
-        } => {
-            print_value(&queries.search_text(&query, case_sensitive, context_lines)?)?;
-        }
-        Command::SearchRegex {
-            pattern,
-            case_sensitive,
-            context_lines,
-            path_glob,
-        } => {
-            print_value(
-                &queries.search_regex(
+            } => {
+                let result = queries.list_vault_files(crate::query::VaultFilesOptions {
+                    include_files,
+                    include_attachments,
+                    include_readme_outline,
+                    max_files,
+                })?;
+                print_value(&result)?;
+            }
+            Command::ResolveRef { reference } => {
+                print_value(&queries.resolve_ref(&reference)?)?;
+            }
+            Command::GetOutlinks { note, verbose } => {
+                print_value(&queries.get_outlinks_output(&note, verbose)?)?;
+            }
+            Command::GetBacklinks { target, verbose } => {
+                print_value(&queries.get_backlinks_output(&target, verbose)?)?;
+            }
+            Command::ListTags { scope } => {
+                print_value(&queries.list_tags(parse_tag_scope(&scope)?)?)?;
+            }
+            Command::GetTags {
+                tags,
+                scope,
+                verbose,
+            } => {
+                if tags.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide at least one tag; use list_tags to discover tag names"
+                    ));
+                }
+                print_value(&queries.get_tags(&tags, parse_tag_scope(&scope)?, verbose)?)?;
+            }
+            Command::QueryFrontmatter { field, mode, value } => {
+                print_value(&queries.query_frontmatter(
+                    crate::query::FrontmatterQueryOptions {
+                        field,
+                        mode: parse_frontmatter_match_mode(&mode)?,
+                        value,
+                    },
+                )?)?;
+            }
+            Command::SearchText {
+                query,
+                case_sensitive,
+                context_lines,
+            } => {
+                print_value(&queries.search_text(&query, case_sensitive, context_lines)?)?;
+            }
+            Command::SearchRegex {
+                pattern,
+                case_sensitive,
+                context_lines,
+                path_glob,
+            } => {
+                print_value(&queries.search_regex(
                     &pattern,
                     case_sensitive,
                     context_lines,
                     path_glob.as_deref(),
-                )?,
-            )?;
-        }
-        Command::CollectNoteContext { note } => {
-            print_value(&queries.collect_note_context(&note)?)?;
-        }
-        Command::CollectReferenceContext { reference } => {
-            print_value(&queries.collect_reference_context(&reference)?)?;
-        }
-        Command::ReadSection {
-            note,
-            heading,
-            block_id,
-            line_start,
-            line_end,
-        } => {
-            let selector = match (heading, block_id, line_start, line_end) {
-                (Some(heading), None, None, None) => {
-                    crate::query::SectionSelector::Heading { heading }
-                }
-                (None, Some(block_id), None, None) => {
-                    crate::query::SectionSelector::Block { block_id }
-                }
-                (None, None, Some(line_start), Some(line_end)) => {
-                    crate::query::SectionSelector::Lines {
-                        line_start,
-                        line_end,
+                )?)?;
+            }
+            Command::CollectNoteContext { note } => {
+                print_value(&queries.collect_note_context(&note)?)?;
+            }
+            Command::CollectReferenceContext { reference } => {
+                print_value(&queries.collect_reference_context(&reference)?)?;
+            }
+            Command::ReadSection {
+                note,
+                heading,
+                block_id,
+                line,
+            } => {
+                let selector = match (heading, block_id, line) {
+                    (Some(heading), None, None) => {
+                        crate::query::SectionSelector::Heading { heading }
                     }
-                }
-                _ => {
-                    return Err(anyhow::anyhow!(
-                        "provide exactly one selector: --heading, --block-id, or --line-start with --line-end"
-                    ));
-                }
-            };
-            print_value(&queries.read_section(&note, selector)?)?;
+                    (None, Some(block_id), None) => {
+                        crate::query::SectionSelector::Block { block_id }
+                    }
+                    (None, None, Some(line)) => {
+                        let (line_start, line_end) = parse_line_range(&line)?;
+                        crate::query::SectionSelector::Lines {
+                            line_start,
+                            line_end,
+                        }
+                    }
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "provide exactly one selector: --heading, --block-id, or --line"
+                        ));
+                    }
+                };
+                print_value(&queries.read_section(&note, selector)?)?;
+            }
+            Command::FindUnresolvedLinks => {
+                print_value(&queries.find_unresolved_links()?)?;
+            }
+            Command::FindAmbiguousLinks => {
+                print_value(&queries.find_ambiguous_links()?)?;
+            }
+            Command::GetVaultGraph => {
+                print_value(&queries.get_vault_graph()?)?;
+            }
+            Command::GetGraphNeighborhood {
+                target,
+                depth,
+                direction,
+                include_unresolved,
+            } => {
+                print_value(&queries.get_graph_neighborhood(
+                    crate::query::GraphNeighborhoodOptions {
+                        target,
+                        depth,
+                        direction: parse_graph_neighborhood_direction(&direction)?,
+                        include_unresolved,
+                    },
+                )?)?;
+            }
         }
-        Command::FindUnresolvedLinks => {
-            print_value(&queries.find_unresolved_links()?)?;
-        }
-        Command::FindAmbiguousLinks => {
-            print_value(&queries.find_ambiguous_links()?)?;
-        }
-        Command::GetVaultGraph => {
-            print_value(&queries.get_vault_graph()?)?;
-        }
-        Command::GetGraphNeighborhood {
-            target,
-            depth,
-            direction,
-            include_unresolved,
-        } => {
-            print_value(
-                &queries.get_graph_neighborhood(crate::query::GraphNeighborhoodOptions {
-                    target,
-                    depth,
-                    direction: parse_graph_neighborhood_direction(&direction)?,
-                    include_unresolved,
-                })?,
-            )?;
-        }
-    }
-    anyhow::Ok(())
+        anyhow::Ok(())
     }
     .await;
     telemetry.shutdown();
@@ -421,6 +432,43 @@ fn parse_graph_neighborhood_direction(
         "both" => Ok(crate::query::GraphNeighborhoodDirection::Both),
         _ => Err(anyhow::anyhow!(
             "invalid graph neighborhood direction: {input}; expected one of: both, out, in"
+        )),
+    }
+}
+
+fn parse_line_range(value: &str) -> anyhow::Result<(u64, u64)> {
+    let value = value.trim();
+    let value = value.strip_prefix('#').unwrap_or(value);
+    let value = value.strip_prefix('L').unwrap_or(value);
+
+    let (start, end) = match value.split_once("-L") {
+        Some((start, end)) => (start, Some(end)),
+        None => (value, None),
+    };
+    let line_start = start
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("line must use #L1 or #L1-L99 format"))?;
+    let line_end = end
+        .unwrap_or(start)
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("line must use #L1 or #L1-L99 format"))?;
+
+    if line_start == 0 || line_end < line_start {
+        return Err(anyhow::anyhow!("invalid line range"));
+    }
+
+    Ok((line_start, line_end))
+}
+
+fn parse_tag_scope(input: &str) -> anyhow::Result<crate::query::TagScope> {
+    match input {
+        "note" => Ok(crate::query::TagScope::Note),
+        "frontmatter" => Ok(crate::query::TagScope::Frontmatter),
+        "body" => Ok(crate::query::TagScope::Body),
+        "section" => Ok(crate::query::TagScope::Section),
+        "line" => Ok(crate::query::TagScope::Line),
+        other => Err(anyhow::anyhow!(
+            "invalid tag scope '{other}'; expected note, frontmatter, body, section, or line"
         )),
     }
 }

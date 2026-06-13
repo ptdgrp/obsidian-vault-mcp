@@ -5,8 +5,9 @@ use crate::resolver::{RefResolver, ResolveResult};
 use super::{
     BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
     FrontmatterMatch, FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult,
-    LinkEvidence, OutlinksOutput, OutlinksResult, TagBucket, TagOccurrence, TagOutputBucket,
-    TagSourceKind, TagsOutput, TagsResult, VaultQueries, find_indexed_note, read_snippet,
+    GetTagsResult, LinkEvidence, ListTagsResult, OutlinksOutput, OutlinksResult, TagBucket,
+    TagOccurrence, TagOutputBucket, TagScope, TagSourceKind, TagsResult, VaultQueries,
+    find_indexed_note, read_snippet,
 };
 
 impl VaultQueries {
@@ -64,6 +65,7 @@ impl VaultQueries {
         backlinks.sort_by(|a, b| {
             natord::compare(&a.source.path, &b.source.path)
                 .then(a.source.line_start.cmp(&b.source.line_start))
+                .then(a.source.line_end.cmp(&b.source.line_end))
         });
         let truncated = backlinks.len() > self.vault.config.max_results;
         backlinks.truncate(self.vault.config.max_results);
@@ -84,37 +86,58 @@ impl VaultQueries {
         Ok(BacklinksOutput::from_result(result, verbose))
     }
 
-    pub fn list_tags(&self, tag: Option<&str>) -> anyhow::Result<TagsResult> {
+    pub fn list_tags(&self, scope: TagScope) -> anyhow::Result<ListTagsResult> {
+        let result = self.collect_tags(None, scope)?;
+        Ok(ListTagsResult {
+            tags: result.tags.into_iter().map(|bucket| bucket.tag).collect(),
+        })
+    }
+
+    pub fn get_tags(
+        &self,
+        tags: &[String],
+        scope: TagScope,
+        verbose: bool,
+    ) -> anyhow::Result<GetTagsResult> {
+        let result = self.collect_tags(Some(tags), scope)?;
+        Ok(tags_output(result, verbose))
+    }
+
+    fn collect_tags(&self, tags: Option<&[String]>, scope: TagScope) -> anyhow::Result<TagsResult> {
         let mut buckets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut occurrences: BTreeMap<String, Vec<TagOccurrence>> = BTreeMap::new();
         for note in self.index_notes()? {
             for found in &note.parsed.tags {
-                if tag_matches(tag, &found.tag) {
-                    buckets
-                        .entry(found.tag.clone())
-                        .or_default()
-                        .insert(note.file.relative_path.clone());
-                    occurrences
-                        .entry(found.tag.clone())
-                        .or_default()
-                        .push(TagOccurrence {
-                            note: note.file.relative_path.clone(),
-                            source_kind: TagSourceKind::Body,
-                            source: Some(found.source.clone().into()),
-                        });
+                if scope.includes_body_tag(found.scope) {
+                    if tag_matches(tags, &found.tag) {
+                        buckets
+                            .entry(found.tag.clone())
+                            .or_default()
+                            .insert(note.file.relative_path.clone());
+                        occurrences
+                            .entry(found.tag.clone())
+                            .or_default()
+                            .push(TagOccurrence {
+                                note: note.file.relative_path.clone(),
+                                source_kind: tag_source_kind(found.scope),
+                                source: Some(found.source.clone().into()),
+                            });
+                    }
                 }
             }
-            for found in frontmatter_tags(note.parsed.frontmatter.as_ref()) {
-                if tag_matches(tag, &found) {
-                    buckets
-                        .entry(found.clone())
-                        .or_default()
-                        .insert(note.file.relative_path.clone());
-                    occurrences.entry(found).or_default().push(TagOccurrence {
-                        note: note.file.relative_path.clone(),
-                        source_kind: TagSourceKind::Frontmatter,
-                        source: None,
-                    });
+            if scope.includes_frontmatter_tags() {
+                for found in frontmatter_tags(note.parsed.frontmatter.as_ref()) {
+                    if tag_matches(tags, &found) {
+                        buckets
+                            .entry(found.clone())
+                            .or_default()
+                            .insert(note.file.relative_path.clone());
+                        occurrences.entry(found).or_default().push(TagOccurrence {
+                            note: note.file.relative_path.clone(),
+                            source_kind: TagSourceKind::Frontmatter,
+                            source: None,
+                        });
+                    }
                 }
             }
         }
@@ -128,11 +151,6 @@ impl VaultQueries {
                 })
                 .collect(),
         })
-    }
-
-    pub fn list_tags_output(&self, tag: Option<&str>, verbose: bool) -> anyhow::Result<TagsOutput> {
-        let result = self.list_tags(tag)?;
-        Ok(tags_output(result, verbose))
     }
 
     pub fn query_frontmatter(
@@ -204,8 +222,9 @@ impl MetadataMatcher {
     }
 }
 
-fn tag_matches(wanted: Option<&str>, found: &str) -> bool {
-    wanted.is_none_or(|wanted| normalize_tag(wanted) == normalize_tag(found))
+fn tag_matches(wanted: Option<&[String]>, found: &str) -> bool {
+    let found = normalize_tag(found);
+    wanted.is_none_or(|wanted| wanted.iter().any(|tag| normalize_tag(tag) == found))
 }
 
 fn frontmatter_tags(frontmatter: Option<&serde_json::Value>) -> Vec<String> {
@@ -242,8 +261,16 @@ fn normalize_tag(tag: &str) -> String {
     tag.trim().trim_start_matches('#').to_string()
 }
 
-fn tags_output(result: TagsResult, verbose: bool) -> TagsOutput {
-    TagsOutput {
+fn tag_source_kind(scope: TagScope) -> TagSourceKind {
+    match scope {
+        TagScope::Note | TagScope::Frontmatter | TagScope::Body => TagSourceKind::Body,
+        TagScope::Section => TagSourceKind::Section,
+        TagScope::Line => TagSourceKind::Line,
+    }
+}
+
+fn tags_output(result: TagsResult, verbose: bool) -> GetTagsResult {
+    GetTagsResult {
         tags: result
             .tags
             .into_iter()

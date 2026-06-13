@@ -11,20 +11,22 @@ mod section;
 #[cfg(test)]
 mod tests;
 
-use std::{fs, sync::Arc};
+use std::{borrow::Cow, fs, sync::Arc};
 
 use camino::Utf8Path;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 use crate::parser::{
     BlockInfo, EmbedInfo, HeadingInfo, LinkInfo, ParsedNote, SectionInfo, SourceSpan, TagInfo,
-    slice_text,
+    path_with_line_ref, slice_text,
 };
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 
 use self::cache::ParseCache;
+
+pub use crate::parser::TagScope;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesResult {
@@ -251,16 +253,35 @@ pub struct TextMatch {
     pub snippet: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct SearchSource {
-    /// Vault-relative note path.
+    /// Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99.
     pub path: String,
     /// 1-based start line.
+    #[serde(skip)]
+    #[schemars(skip)]
     pub line_start: u64,
     /// 1-based end line.
+    #[serde(skip)]
+    #[schemars(skip)]
     pub line_end: u64,
     /// Nearest containing heading, when available.
     pub section: Option<SectionInfo>,
+}
+
+impl Serialize for SearchSource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("SearchSource", 2)?;
+        state.serialize_field(
+            "path",
+            &path_with_line_ref(&self.path, self.line_start, self.line_end),
+        )?;
+        state.serialize_field("section", &self.section)?;
+        state.end()
+    }
 }
 
 impl From<SourceSpan> for SearchSource {
@@ -414,9 +435,12 @@ pub struct LinkEvidence {
 
 fn link_location(source: &SearchSource) -> String {
     if source.line_start == source.line_end {
-        format!("{}:{}", source.path, source.line_start)
+        format!("{}#L{}", source.path, source.line_start)
     } else {
-        format!("{}:{}-{}", source.path, source.line_start, source.line_end)
+        format!(
+            "{}#L{}-L{}",
+            source.path, source.line_start, source.line_end
+        )
     }
 }
 
@@ -426,24 +450,30 @@ pub struct TagsResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListTagsResult {
+    /// Unique tag names available in the requested scope.
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CompactTagMatch {
-    /// Vault-relative path, with :line suffix for body tags.
+    /// Vault-relative path, with #L line reference for body tags.
     pub note: String,
     pub source_kind: TagSourceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct DetailedTagOccurrence {
-    /// Vault-relative path, with :line or :start-end suffix when line data exists.
+    /// Vault-relative path, with #L line reference when line data exists.
     pub location: String,
     pub source_kind: TagSourceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<DetailedSection>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct DetailedSection {
     pub heading: String,
     pub heading_level: u8,
@@ -452,7 +482,7 @@ pub struct DetailedSection {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct TagsOutput {
+pub struct GetTagsResult {
     pub tags: Vec<TagOutputBucket>,
 }
 
@@ -472,7 +502,7 @@ pub struct TagBucket {
     pub occurrences: Vec<TagOccurrence>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct TagOccurrence {
     pub note: String,
     pub source_kind: TagSourceKind,
@@ -484,6 +514,8 @@ pub struct TagOccurrence {
 #[serde(rename_all = "snake_case")]
 pub enum TagSourceKind {
     Body,
+    Section,
+    Line,
     Frontmatter,
 }
 
@@ -551,12 +583,80 @@ pub struct ReadSectionResult {
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SectionSelector {
     Heading { heading: String },
     Block { block_id: String },
     Lines { line_start: u64, line_end: u64 },
+}
+
+impl Serialize for SectionSelector {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            SectionSelector::Heading { heading } => {
+                let mut state = serializer.serialize_struct("SectionSelector", 2)?;
+                state.serialize_field("kind", "heading")?;
+                state.serialize_field("heading", heading)?;
+                state.end()
+            }
+            SectionSelector::Block { block_id } => {
+                let mut state = serializer.serialize_struct("SectionSelector", 2)?;
+                state.serialize_field("kind", "block")?;
+                state.serialize_field("block_id", block_id)?;
+                state.end()
+            }
+            SectionSelector::Lines {
+                line_start: _,
+                line_end: _,
+            } => {
+                let mut state = serializer.serialize_struct("SectionSelector", 1)?;
+                state.serialize_field("kind", "lines")?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl JsonSchema for SectionSelector {
+    fn schema_name() -> Cow<'static, str> {
+        "SectionSelector".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        serde_json::json!({
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "const": "heading" },
+                        "heading": { "type": "string" }
+                    },
+                    "required": ["kind", "heading"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "const": "block" },
+                        "block_id": { "type": "string" }
+                    },
+                    "required": ["kind", "block_id"]
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "const": "lines" }
+                    },
+                    "required": ["kind"]
+                }
+            ]
+        })
+        .try_into()
+        .expect("section selector schema")
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

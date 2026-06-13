@@ -15,10 +15,10 @@ use serde::Deserialize;
 use crate::{
     query::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
-        FrontmatterQueryResult, GraphNeighborhoodOptions, ListNotesResult, NoteOutlineResult,
-        OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagsOutput, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultGraphResult, VaultQueries,
+        FrontmatterQueryResult, GetTagsResult, GraphNeighborhoodOptions, ListNotesResult,
+        ListTagsResult, NoteOutlineResult, OutlinksOutput, ParseNoteResult, ReadNoteResult,
+        ReadSectionResult, SearchRegexResult, SearchTextResult, SectionSelector, TagScope,
+        UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult, VaultGraphResult, VaultQueries,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -111,9 +111,20 @@ pub struct OutlinksRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for listing tags.
+pub struct ListTagsRequest {
+    /// Scope to search: note, frontmatter, body, section, or line. Defaults to note.
+    #[serde(default)]
+    pub scope: TagScope,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for locating tags.
 pub struct TagsRequest {
-    /// Optional exact tag filter. Both "状态/身体" and "#状态/身体" are accepted.
-    pub tag: Option<String>,
+    /// Exact tags to locate. Both "状态/身体" and "#状态/身体" are accepted.
+    pub tags: Vec<String>,
+    /// Scope to search: note, frontmatter, body, section, or line. Defaults to note.
+    #[serde(default)]
+    pub scope: TagScope,
     /// Return detailed section metadata when true. Defaults to compact LLM-friendly output.
     #[serde(default)]
     pub verbose: bool,
@@ -166,9 +177,64 @@ pub struct ContextReferenceRequest {
 pub struct ReadSectionRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Exactly one selector: heading, block id, or line range.
-    #[serde(flatten)]
-    pub selector: SectionSelector,
+    /// Heading text, heading anchor, or slash-separated heading path.
+    pub heading: Option<String>,
+    /// Block id without the leading caret.
+    pub block_id: Option<String>,
+    /// Github-style line reference, e.g. #L1 or #L1-L99.
+    pub line: Option<String>,
+}
+
+impl ReadSectionRequest {
+    fn into_parts(self) -> Result<(String, SectionSelector), String> {
+        let Self {
+            note,
+            heading,
+            block_id,
+            line,
+        } = self;
+
+        let selector = match (heading, block_id, line) {
+            (Some(heading), None, None) => SectionSelector::Heading { heading },
+            (None, Some(block_id), None) => SectionSelector::Block { block_id },
+            (None, None, Some(line)) => {
+                let (line_start, line_end) = parse_line_range(&line)?;
+                SectionSelector::Lines {
+                    line_start,
+                    line_end,
+                }
+            }
+            _ => {
+                return Err("provide exactly one selector: heading, block_id, or line".to_string());
+            }
+        };
+
+        Ok((note, selector))
+    }
+}
+
+fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
+    let value = value.trim();
+    let value = value.strip_prefix('#').unwrap_or(value);
+    let value = value.strip_prefix('L').unwrap_or(value);
+
+    let (start, end) = match value.split_once("-L") {
+        Some((start, end)) => (start, Some(end)),
+        None => (value, None),
+    };
+    let line_start = start
+        .parse::<u64>()
+        .map_err(|_| "line must use #L1 or #L1-L99 format".to_string())?;
+    let line_end = end
+        .unwrap_or(start)
+        .parse::<u64>()
+        .map_err(|_| "line must use #L1 or #L1-L99 format".to_string())?;
+
+    if line_start == 0 || line_end < line_start {
+        return Err("invalid line range".to_string());
+    }
+
+    Ok((line_start, line_end))
 }
 
 pub type VaultFilesRequest = VaultFilesOptions;
@@ -311,14 +377,33 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "List tags across body tag nodes and frontmatter tags. Defaults to compact note[:line] output; set verbose=true for detailed de-duplicated section metadata"
+        description = "List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags"
     )]
     fn list_tags(
         &self,
-        Parameters(TagsRequest { tag, verbose }): Parameters<TagsRequest>,
-    ) -> Result<Json<TagsOutput>, String> {
-        run_tool("list_tags", || {
-            self.queries().list_tags_output(tag.as_deref(), verbose)
+        Parameters(ListTagsRequest { scope }): Parameters<ListTagsRequest>,
+    ) -> Result<Json<ListTagsResult>, String> {
+        run_tool("list_tags", || self.queries().list_tags(scope))
+    }
+
+    #[tool(
+        description = "Locate selected tags and return note or line references; use read_section on returned paths to inspect context"
+    )]
+    fn get_tags(
+        &self,
+        Parameters(TagsRequest {
+            tags,
+            scope,
+            verbose,
+        }): Parameters<TagsRequest>,
+    ) -> Result<Json<GetTagsResult>, String> {
+        if tags.is_empty() {
+            return Err(
+                "provide at least one tag; use list_tags to discover tag names".to_string(),
+            );
+        }
+        run_tool("get_tags", || {
+            self.queries().get_tags(&tags, scope, verbose)
         })
     }
 
@@ -359,12 +444,13 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read exactly one heading section, block id, or line range from a note with source span"
+        description = "Read exactly one heading section, block id, or line reference from a note with source span"
     )]
     fn read_section(
         &self,
-        Parameters(ReadSectionRequest { note, selector }): Parameters<ReadSectionRequest>,
+        Parameters(request): Parameters<ReadSectionRequest>,
     ) -> Result<Json<ReadSectionResult>, String> {
+        let (note, selector) = request.into_parts()?;
         run_tool("read_section", || {
             self.queries().read_section(&note, selector)
         })
@@ -451,5 +537,67 @@ fn run_tool<T>(
             );
             Err(message)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ObsidianVaultMcp, ReadSectionRequest};
+    use crate::query::SectionSelector;
+
+    const FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS: [&str; 6] =
+        ["oneOf", "anyOf", "allOf", "enum", "const", "not"];
+
+    #[test]
+    fn all_tool_input_schemas_have_plain_object_roots() {
+        for tool in ObsidianVaultMcp::tool_definitions() {
+            assert_eq!(
+                tool.input_schema
+                    .get("type")
+                    .and_then(|value| value.as_str()),
+                Some("object"),
+                "{} input schema must have an object root",
+                tool.name
+            );
+
+            for key in FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS {
+                assert!(
+                    !tool.input_schema.contains_key(key),
+                    "{} input schema must not have top-level {key}",
+                    tool.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn read_section_request_schema_has_plain_object_root() {
+        let schema =
+            serde_json::to_value(schemars::schema_for!(ReadSectionRequest)).expect("schema json");
+
+        assert_eq!(schema["type"], "object");
+        for key in FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS {
+            assert!(schema.get(key).is_none());
+        }
+    }
+
+    #[test]
+    fn read_section_request_accepts_obsidian_line_reference() {
+        let (_, selector) = ReadSectionRequest {
+            note: "note.md".to_string(),
+            heading: None,
+            block_id: None,
+            line: Some("#L3-L5".to_string()),
+        }
+        .into_parts()
+        .expect("line selector");
+
+        assert!(matches!(
+            selector,
+            SectionSelector::Lines {
+                line_start: 3,
+                line_end: 5
+            }
+        ));
     }
 }

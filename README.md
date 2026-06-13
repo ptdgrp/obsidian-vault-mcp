@@ -17,7 +17,7 @@ This service is intentionally mechanical:
   and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
   scanning visible files
-- returns source spans and heading sections so an LLM can cite evidence
+- returns Obsidian-style line references and heading sections so an LLM can cite evidence
 
 It does not infer story domains such as "character", "organization", or
 "chapter". File paths and Markdown headings are the source of meaning. The
@@ -46,12 +46,14 @@ cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
 cargo run -- --vault /path/to/vault search_text "求生本能"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault list_tags --tag "状态/身体"
+cargo run -- --vault /path/to/vault list_tags
+cargo run -- --vault /path/to/vault get_tags "状态/身体"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
 cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]'
 cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
+cargo run -- --vault /path/to/vault read_section "人物/林动.md" --line '#L1-L20'
 cargo run -- --vault /path/to/vault find_unresolved_links
 cargo run -- --vault /path/to/vault find_ambiguous_links
 cargo run -- --vault /path/to/vault get_vault_graph
@@ -146,7 +148,8 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `resolve_ref`
 - `get_outlinks`
 - `get_backlinks`
-- `list_tags` - body tag nodes and frontmatter `tag`/`tags`
+- `list_tags` - unique body and frontmatter tag names
+- `get_tags` - note and line references for selected tags
 - `query_frontmatter` - query a top-level frontmatter field by explicit
   `exists`, `equals`, or `regex` mode
 - `collect_note_context`
@@ -159,9 +162,10 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `get_vault_graph` - full local-link graph for audit, visualization, or
   debugging
 
-Every snippet-like result includes a `source` object with path, line range, and
-nearest heading `section` when available. Byte offsets are internal only and are
-not returned by MCP tools.
+Every snippet-like result includes a `source` object with `path` containing an
+Obsidian-style line reference, such as `人物/林动.md#L1-L20`, and nearest heading
+`section` when available. Byte offsets are internal only and are not returned by
+MCP tools.
 
 ## Tool Use Guide
 
@@ -171,12 +175,13 @@ not returned by MCP tools.
   reading the whole note.
 - Use `search_text` for literal recall and `search_regex` for structured phrase
   patterns such as chapter ranges, years, or recurring motifs.
-- Use `list_tags` for both body tag nodes and frontmatter tags. Use
+- Use `list_tags` to discover body and frontmatter tag names, then `get_tags`
+  to locate selected tags before reading context with `read_section`. Use
   `query_frontmatter` when the condition is a metadata field such as
   `phase: active`; choose `exists`, `equals`, or `regex` explicitly.
-- Search tools return lightweight navigation results by default: path, line
-  range, nearest section, and a short preview. They omit byte offsets and return
-  only the matching line unless `context_lines` is explicitly set.
+- Search tools return lightweight navigation results by default: path with line
+  reference, nearest section, and a short preview. They omit byte offsets and
+  return only the matching line unless `context_lines` is explicitly set.
 - Use `resolve_ref` before trusting an Obsidian reference target if ambiguity matters.
 - Use `get_outlinks`, `get_backlinks`, and `get_graph_neighborhood` for focused
   local-link context. This includes

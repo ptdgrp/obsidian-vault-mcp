@@ -11,7 +11,7 @@
 - 使用内存级 Markdown 解析缓存，按路径、文件大小和修改时间失效。
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
 - 遵守 `.gitignore`、`.git/info/exclude`、父目录规则，以及每个子目录自己的 `.gitignore`。
-- 返回源码位置，包括 vault-relative path、行号范围和最近标题，便于 agent 引用证据。
+- 返回源码位置，包括 vault-relative path、Obsidian 风格行引用（如 `#L1-L20`）和最近标题，便于 agent 引用证据。
 - 支持 Obsidian wikilink、安全的相对 Markdown link、alias、heading、block id、tag、backlink、outlink 和 vault graph。
 
 它不会推断“人物”“组织”“章节”等业务领域类型。目录名、文件路径和 Markdown 标题才是语义来源；agent 应该基于这些证据继续推理，而不是让 MCP server 替它猜。
@@ -37,12 +37,14 @@ cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
 cargo run -- --vault /path/to/vault search_text "求生本能"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault list_tags --tag "状态/身体"
+cargo run -- --vault /path/to/vault list_tags
+cargo run -- --vault /path/to/vault get_tags "状态/身体"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
 cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]'
 cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
+cargo run -- --vault /path/to/vault read_section "人物/林动.md" --line '#L1-L20'
 cargo run -- --vault /path/to/vault find_unresolved_links
 cargo run -- --vault /path/to/vault find_ambiguous_links
 cargo run -- --vault /path/to/vault get_vault_graph
@@ -141,15 +143,16 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `list_notes`：列出可见 Markdown note。
 - `list_vault_files`：返回可见文件路径清单。
 - `read_note`：读取一个 Markdown note 全文。
-- `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑行号定位。
+- `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑路径定位。
 - `get_note_outline`：返回一个 note 的标题树。
-- `read_section`：读取一个标题、block id 或行号范围。
+- `read_section`：读取一个标题、block id 或 `#L1-L20` 行引用。
 - `search_text`：字面量搜索。
 - `search_regex`：Rust regex 搜索，可用 path glob 限定范围。
 - `resolve_ref`：解析 Obsidian reference，例如 `[[Note#Heading]]`。
 - `get_outlinks`：获取一个 note 的出链。
 - `get_backlinks`：获取一个 note 或 reference 的反链。
-- `list_tags`：列出正文 tag 节点和 frontmatter `tag` / `tags`，或列出某个标签下的 note。
+- `list_tags`：列出正文 tag 节点和 frontmatter `tag` / `tags` 中出现过的标签名。
+- `get_tags`：返回指定标签出现的 note 或行引用，便于继续用 `read_section` 读取上下文。
 - `query_frontmatter`：按顶层 frontmatter 字段查询 note，模式必须显式指定为 `exists`、`equals` 或 `regex`。
 - `collect_note_context`：收集一个 note 的当前内容、出链和反链上下文。
 - `collect_reference_context`：先解析 reference，再收集上下文。
@@ -164,11 +167,11 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 2. 用 `list_notes` 获取 note 路径和标题的轻量清单。
 3. 用 `get_note_outline` 定位要读取的标题。
 4. 用 `read_section` 读取需要的局部内容，避免整篇塞进上下文。
-5. 用 `list_tags` 查询正文标签和 frontmatter 标签；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
+5. 用 `list_tags` 先列出正文标签和 frontmatter 标签名，再用 `get_tags` 查询选中标签的位置；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
 6. 用 `resolve_ref`、`get_outlinks`、`get_backlinks` 和 `get_graph_neighborhood` 处理明确的本地链接关系。
 7. 大范围分析前，先用 `find_unresolved_links` 和 `find_ambiguous_links` 做 vault 健康检查。
 
-搜索工具默认返回轻量片段：路径、行号范围、最近标题和简短预览。除非显式传 `context_lines`，否则不会把大量上下文塞回给 agent。
+搜索工具默认返回轻量片段：带行引用的路径、最近标题和简短预览。除非显式传 `context_lines`，否则不会把大量上下文塞回给 agent。
 
 vault 较大时，优先用 `get_graph_neighborhood`，不要直接取全量 `get_vault_graph`。它支持 `depth`、`direction` 和 `include_unresolved`，适合围绕一个 note 拉近邻上下文。这里的链接包括 Obsidian wikilink，以及相对路径没有越出 vault 的 Markdown link。只有在需要全图审计、可视化、调试或全局健康检查时，才使用 `get_vault_graph`。
 

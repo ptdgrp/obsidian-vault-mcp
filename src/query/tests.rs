@@ -21,6 +21,11 @@ fn fixture() -> (tempfile::TempDir, VaultQueries) {
         "# 第一章\n\n## 代偿\n\n林动在雨里完成第一次代偿。\n\n[发动机普通链接](../发动机.md)\n\n[越界链接](../../outside.md)\n",
     )
     .expect("write chapter");
+    fs::write(
+        dir.path().join("河流.md"),
+        "# 卡尔特兰河\n\nThe Kaltram #河流\n发源于北方雪山冰川，最终注入东部开拓州的内陆盐湖盆地中。 #设定\n",
+    )
+    .expect("write river note");
     fs::create_dir(dir.path().join("正文/场景")).expect("empty scene dir");
     fs::write(dir.path().join("地图.png"), b"png").expect("write attachment");
     fs::write(
@@ -68,7 +73,7 @@ fn vault_path_cannot_escape_root() {
 fn list_notes_ignores_hidden_paths() {
     let (_dir, queries) = fixture();
     let notes = queries.list_notes().expect("list notes");
-    assert_eq!(notes.notes.len(), 5);
+    assert_eq!(notes.notes.len(), 6);
     assert!(
         !notes
             .notes
@@ -148,57 +153,22 @@ fn parse_note_extracts_safe_relative_markdown_links() {
 }
 
 #[test]
-fn tags_include_body_tags_and_frontmatter_tags() {
+fn list_tags_returns_unique_tag_names() {
     let (_dir, queries) = fixture();
-    let result = queries.list_tags(None).expect("tags");
-    let protagonist = result
-        .tags
-        .iter()
-        .find(|bucket| bucket.tag == "主角")
-        .expect("frontmatter tag");
-    assert_eq!(protagonist.notes, vec!["林动.md".to_string()]);
-    assert!(
-        protagonist
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
-    );
-
-    let body_and_frontmatter = result
-        .tags
-        .iter()
-        .find(|bucket| bucket.tag == "状态/身体")
-        .expect("shared tag");
-    assert_eq!(body_and_frontmatter.notes, vec!["林动.md".to_string()]);
-    assert!(
-        body_and_frontmatter
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.source_kind == TagSourceKind::Body)
-    );
-    assert!(
-        body_and_frontmatter
-            .occurrences
-            .iter()
-            .any(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
-    );
+    let result = queries.list_tags(TagScope::Note).expect("tags");
+    assert!(result.tags.contains(&"主角".to_string()));
+    assert!(result.tags.contains(&"状态/身体".to_string()));
+    assert!(result.tags.contains(&"河流".to_string()));
+    assert!(result.tags.contains(&"设定".to_string()));
 }
 
 #[test]
-fn tags_default_output_is_compact_and_verbose_keeps_sources() {
+fn get_tags_returns_locations_and_verbose_sources() {
     let (_dir, queries) = fixture();
     let compact = queries
-        .list_tags_output(Some("状态/身体"), false)
+        .get_tags(&["状态/身体".to_string()], TagScope::Note, false)
         .expect("compact tags");
     assert_eq!(compact.tags.len(), 1);
-    assert!(
-        compact.tags[0]
-            .notes
-            .iter()
-            .any(|note| note.note == "林动.md#L12"
-                && note.source_kind == TagSourceKind::Body
-                && note.section.as_deref() == Some("林动"))
-    );
     assert!(
         compact.tags[0]
             .notes
@@ -210,7 +180,7 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
     assert!(compact.tags[0].occurrences.is_empty());
 
     let verbose = queries
-        .list_tags_output(Some("状态/身体"), true)
+        .get_tags(&["状态/身体".to_string()], TagScope::Note, true)
         .expect("verbose tags");
     assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
         occurrence.location == "林动.md#L12"
@@ -232,6 +202,49 @@ fn tags_default_output_is_compact_and_verbose_keeps_sources() {
             .iter()
             .all(|occurrence| !occurrence.location.is_empty())
     );
+}
+
+#[test]
+fn tags_scope_filters_frontmatter_and_body_sources() {
+    let (_dir, queries) = fixture();
+
+    let frontmatter = queries
+        .get_tags(&["状态/身体".to_string()], TagScope::Frontmatter, true)
+        .expect("frontmatter tags");
+    assert_eq!(frontmatter.tags.len(), 1);
+    assert!(
+        frontmatter.tags[0]
+            .occurrences
+            .iter()
+            .all(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
+    );
+
+    let body = queries
+        .get_tags(&["状态/身体".to_string()], TagScope::Body, true)
+        .expect("body tags");
+    assert_eq!(body.tags.len(), 1);
+    assert!(
+        body.tags[0]
+            .occurrences
+            .iter()
+            .all(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
+    );
+
+    let section = queries
+        .get_tags(&["河流".to_string()], TagScope::Section, true)
+        .expect("section tags");
+    assert_eq!(section.tags.len(), 1);
+    assert!(section.tags[0].occurrences.iter().any(|occurrence| {
+        occurrence.source_kind == TagSourceKind::Section && occurrence.location == "河流.md#L3"
+    }));
+
+    let line = queries
+        .get_tags(&["设定".to_string()], TagScope::Line, true)
+        .expect("line tags");
+    assert_eq!(line.tags.len(), 1);
+    assert!(line.tags[0].occurrences.iter().any(|occurrence| {
+        occurrence.source_kind == TagSourceKind::Line && occurrence.location == "河流.md#L4"
+    }));
 }
 
 #[test]
@@ -344,7 +357,7 @@ fn link_outputs_default_to_compact_and_support_verbose() {
         .get_backlinks_output("林动", false)
         .expect("compact backlinks");
     let compact_value = serde_json::to_value(compact).expect("compact json");
-    assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md:5");
+    assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md#L5");
     assert_eq!(compact_value["backlinks"][0]["section"], "发动机 > 原理");
     assert!(compact_value["backlinks"][0].get("source").is_none());
     assert!(compact_value["backlinks"][0].get("snippet").is_none());
@@ -353,14 +366,27 @@ fn link_outputs_default_to_compact_and_support_verbose() {
         .get_backlinks_output("林动", true)
         .expect("verbose backlinks");
     let verbose_value = serde_json::to_value(verbose).expect("verbose json");
-    assert_eq!(verbose_value["backlinks"][0]["source"]["path"], "发动机.md");
+    assert_eq!(
+        verbose_value["backlinks"][0]["source"]["path"],
+        "发动机.md#L5"
+    );
+    assert!(
+        verbose_value["backlinks"][0]["source"]
+            .get("lines")
+            .is_none()
+    );
+    assert!(
+        verbose_value["backlinks"][0]["source"]
+            .get("line_start")
+            .is_none()
+    );
     assert!(verbose_value["backlinks"][0].get("snippet").is_some());
 
     let outlinks = queries
         .get_outlinks_output("林动", false)
         .expect("compact outlinks");
     let outlinks_value = serde_json::to_value(outlinks).expect("outlinks json");
-    assert_eq!(outlinks_value["links"][0]["location"], "林动.md:14");
+    assert_eq!(outlinks_value["links"][0]["location"], "林动.md#L14");
     assert!(outlinks_value["links"][0].get("source").is_none());
 }
 
@@ -369,7 +395,8 @@ fn mcp_output_schemas_have_object_roots() {
     for schema in [
         serde_json::to_value(schemars::schema_for!(OutlinksOutput)).expect("outlinks schema"),
         serde_json::to_value(schemars::schema_for!(BacklinksOutput)).expect("backlinks schema"),
-        serde_json::to_value(schemars::schema_for!(TagsOutput)).expect("tags schema"),
+        serde_json::to_value(schemars::schema_for!(ListTagsResult)).expect("list tags schema"),
+        serde_json::to_value(schemars::schema_for!(GetTagsResult)).expect("get tags schema"),
     ] {
         assert_eq!(schema["type"], "object");
     }
@@ -428,6 +455,8 @@ fn regex_search_supports_path_glob_and_sections() {
         .expect("regex search");
     assert_eq!(result.matches.len(), 1);
     assert_eq!(result.matches[0].source.path, "正文/001.md");
+    let value = serde_json::to_value(&result).expect("regex search json");
+    assert_eq!(value["matches"][0]["source"]["path"], "正文/001.md#L4-L6");
     assert_eq!(
         result.matches[0]
             .source
@@ -559,7 +588,7 @@ fn list_vault_files_returns_flat_gitignore_aware_file_list() {
     let result = queries
         .list_vault_files(VaultFilesOptions::default())
         .expect("list vault files");
-    assert_eq!(result.summary.notes, 5);
+    assert_eq!(result.summary.notes, 6);
     assert_eq!(result.summary.attachments, 1);
     assert!(
         !result
