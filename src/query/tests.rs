@@ -248,6 +248,41 @@ fn tags_scope_filters_frontmatter_and_body_sources() {
 }
 
 #[test]
+fn list_categories_returns_unique_folder_names() {
+    let (_dir, queries) = fixture();
+    let result = queries.list_categories().expect("categories");
+    assert!(result.categories.contains(&"正文".to_string()));
+    assert!(result.categories.contains(&"资料".to_string()));
+    assert!(!result.categories.contains(&".obsidian".to_string()));
+    assert!(!result.categories.contains(&"ignored-dir".to_string()));
+}
+
+#[test]
+fn get_categories_returns_matching_note_files() {
+    let (_dir, queries) = fixture();
+    let result = queries
+        .get_categories(&["正文".to_string()])
+        .expect("category files");
+    assert_eq!(result.categories.len(), 1);
+    assert_eq!(result.categories[0].category, "正文");
+    assert!(
+        result.categories[0]
+            .files
+            .contains(&"正文/README.md".to_string())
+    );
+    assert!(
+        result.categories[0]
+            .files
+            .contains(&"正文/001.md".to_string())
+    );
+    assert!(
+        !result.categories[0]
+            .files
+            .contains(&"ignored-dir/ignored.md".to_string())
+    );
+}
+
+#[test]
 fn frontmatter_query_supports_exists_equals_and_regex_modes() {
     let (_dir, queries) = fixture();
     let exists = queries
@@ -397,6 +432,10 @@ fn mcp_output_schemas_have_object_roots() {
         serde_json::to_value(schemars::schema_for!(BacklinksOutput)).expect("backlinks schema"),
         serde_json::to_value(schemars::schema_for!(ListTagsResult)).expect("list tags schema"),
         serde_json::to_value(schemars::schema_for!(GetTagsResult)).expect("get tags schema"),
+        serde_json::to_value(schemars::schema_for!(ListCategoriesResult))
+            .expect("list categories schema"),
+        serde_json::to_value(schemars::schema_for!(GetCategoriesResult))
+            .expect("get categories schema"),
     ] {
         assert_eq!(schema["type"], "object");
     }

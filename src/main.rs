@@ -164,6 +164,12 @@ enum Command {
         verbose: bool,
     },
 
+    /// List unique folder-derived category names
+    ListCategories,
+
+    /// Locate selected folder-derived categories
+    GetCategories { categories: Vec<String> },
+
     /// Query notes by a top-level frontmatter field
     QueryFrontmatter {
         field: String,
@@ -327,6 +333,17 @@ async fn main() -> anyhow::Result<()> {
                     ));
                 }
                 print_value(&queries.get_tags(&tags, parse_tag_scope(&scope)?, verbose)?)?;
+            }
+            Command::ListCategories => {
+                print_value(&queries.list_categories()?)?;
+            }
+            Command::GetCategories { categories } => {
+                if categories.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide at least one category; use list_categories to discover category names"
+                    ));
+                }
+                print_value(&queries.get_categories(&categories)?)?;
             }
             Command::QueryFrontmatter { field, mode, value } => {
                 print_value(&queries.query_frontmatter(

@@ -15,11 +15,13 @@ server is read-only.
 | `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
 | `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
 | `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
+| `get_categories` | Locate selected folder-derived categories and return matching Markdown note files |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
 | `get_note_outline` | Return one note's heading tree without body text; use before selecting a section |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
 | `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
+| `list_categories` | List unique folder-derived category names; use get_categories to locate selected categories |
 | `list_notes` | List visible Markdown notes with path and first heading title |
 | `list_tags` | List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
@@ -317,6 +319,33 @@ Nested types:
 | `heading` | `string` | yes |  |
 | `heading_level` | `integer` | yes |  |
 | `heading_path` | `string[]` | yes |  |
+
+
+## 🔧 `get_categories`
+
+Locate selected folder-derived categories and return matching Markdown note files
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `categories` | `string[]` | yes | Exact folder-derived category names to locate. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `categories` | `CategoryOutputBucket[]` | yes |  |
+
+Nested types:
+
+### `CategoryOutputBucket`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `category` | `string` | yes |  |
+| `files` | `string[]` | yes | Vault-relative Markdown note paths in this folder-derived category. |
 
 
 ## 🔧 `get_graph_neighborhood`
@@ -625,6 +654,22 @@ Nested types:
 | `heading` | `string` | yes |  |
 | `heading_level` | `integer` | yes |  |
 | `heading_path` | `string[]` | yes |  |
+
+
+## 🔧 `list_categories`
+
+List unique folder-derived category names; use get_categories to locate selected categories
+
+Input:
+
+Type: `object`
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `categories` | `string[]` | yes | Unique folder-derived category names. |
 
 
 ## 🔧 `list_notes`

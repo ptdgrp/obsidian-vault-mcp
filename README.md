@@ -48,6 +48,8 @@ cargo run -- --vault /path/to/vault search_text "求生本能"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
 cargo run -- --vault /path/to/vault list_tags
 cargo run -- --vault /path/to/vault get_tags "状态/身体"
+cargo run -- --vault /path/to/vault list_categories
+cargo run -- --vault /path/to/vault get_categories "人物"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
@@ -150,6 +152,8 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `get_backlinks`
 - `list_tags` - unique body and frontmatter tag names
 - `get_tags` - note and line references for selected tags
+- `list_categories` - unique folder-derived category names
+- `get_categories` - Markdown note files for selected folder-derived categories
 - `query_frontmatter` - query a top-level frontmatter field by explicit
   `exists`, `equals`, or `regex` mode
 - `collect_note_context`
@@ -177,6 +181,8 @@ MCP tools.
   patterns such as chapter ranges, years, or recurring motifs.
 - Use `list_tags` to discover body and frontmatter tag names, then `get_tags`
   to locate selected tags before reading context with `read_section`. Use
+  `list_categories` and `get_categories` when folder names act as implicit
+  categories such as `人物`, `正文`, or `设定`.
   `query_frontmatter` when the condition is a metadata field such as
   `phase: active`; choose `exists`, `equals`, or `regex` explicitly.
 - Search tools return lightweight navigation results by default: path with line

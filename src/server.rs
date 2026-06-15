@@ -15,10 +15,11 @@ use serde::Deserialize;
 use crate::{
     query::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
-        FrontmatterQueryResult, GetTagsResult, GraphNeighborhoodOptions, ListNotesResult,
-        ListTagsResult, NoteOutlineResult, OutlinksOutput, ParseNoteResult, ReadNoteResult,
-        ReadSectionResult, SearchRegexResult, SearchTextResult, SectionSelector, TagScope,
-        UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult, VaultGraphResult, VaultQueries,
+        FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
+        ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, OutlinksOutput,
+        ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult, SearchTextResult,
+        SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
+        VaultGraphResult, VaultQueries,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -128,6 +129,13 @@ pub struct TagsRequest {
     /// Return detailed section metadata when true. Defaults to compact LLM-friendly output.
     #[serde(default)]
     pub verbose: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for locating folder-derived categories.
+pub struct CategoriesRequest {
+    /// Exact folder-derived category names to locate.
+    pub categories: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -404,6 +412,34 @@ impl ObsidianVaultMcp {
         }
         run_tool("get_tags", || {
             self.queries().get_tags(&tags, scope, verbose)
+        })
+    }
+
+    #[tool(
+        description = "List unique folder-derived category names; use get_categories to locate selected categories"
+    )]
+    fn list_categories(
+        &self,
+        _: Parameters<EmptyRequest>,
+    ) -> Result<Json<ListCategoriesResult>, String> {
+        run_tool("list_categories", || self.queries().list_categories())
+    }
+
+    #[tool(
+        description = "Locate selected folder-derived categories and return matching Markdown note files"
+    )]
+    fn get_categories(
+        &self,
+        Parameters(CategoriesRequest { categories }): Parameters<CategoriesRequest>,
+    ) -> Result<Json<GetCategoriesResult>, String> {
+        if categories.is_empty() {
+            return Err(
+                "provide at least one category; use list_categories to discover category names"
+                    .to_string(),
+            );
+        }
+        run_tool("get_categories", || {
+            self.queries().get_categories(&categories)
         })
     }
 

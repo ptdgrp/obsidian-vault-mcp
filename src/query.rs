@@ -1,4 +1,5 @@
 mod cache;
+mod categories;
 mod context;
 mod files;
 mod graph;
@@ -484,6 +485,24 @@ pub struct DetailedSection {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetTagsResult {
     pub tags: Vec<TagOutputBucket>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListCategoriesResult {
+    /// Unique folder-derived category names.
+    pub categories: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetCategoriesResult {
+    pub categories: Vec<CategoryOutputBucket>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CategoryOutputBucket {
+    pub category: String,
+    /// Vault-relative Markdown note paths in this folder-derived category.
+    pub files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
