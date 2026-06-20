@@ -260,13 +260,15 @@ fn default_context_lines() -> usize {
 
 #[tool_router]
 impl ObsidianVaultMcp {
-    #[tool(description = "List visible Markdown notes with path and first heading title")]
+    #[tool(
+        description = "List visible Markdown notes with path, first heading title, and human-readable size"
+    )]
     fn list_notes(&self, _: Parameters<EmptyRequest>) -> Result<Json<ListNotesResult>, String> {
         run_tool("list_notes", || self.queries().list_notes())
     }
 
     #[tool(
-        description = "Read one Markdown note body by path, stem, or alias; use when exact source text is needed"
+        description = "Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step."
     )]
     fn read_note(
         &self,

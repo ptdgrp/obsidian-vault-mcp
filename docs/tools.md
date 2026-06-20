@@ -22,12 +22,12 @@ server is read-only.
 | `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
 | `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
 | `list_categories` | List unique folder-derived category names; use get_categories to locate selected categories |
-| `list_notes` | List visible Markdown notes with path and first heading title |
+| `list_notes` | List visible Markdown notes with path, first heading title, and human-readable size |
 | `list_tags` | List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `parse_note` | Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read one Markdown note body by path, stem, or alias; use when exact source text is needed |
+| `read_note` | Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step. |
 | `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
 | `resolve_ref` | Resolve an Obsidian reference such as [[Note#Heading]] to a note, heading, or block without guessing ambiguous targets |
 | `search_regex` | Search visible Markdown notes with a Rust regular expression and return section-aware snippets |
@@ -674,7 +674,7 @@ Output:
 
 ## 🔧 `list_notes`
 
-List visible Markdown notes with path and first heading title
+List visible Markdown notes with path, first heading title, and human-readable size
 
 Input:
 
@@ -694,6 +694,7 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | yes |  |
+| `size` | `string` | yes | Human-readable file size using binary units. |
 | `title` | `string \| null` | no |  |
 
 
@@ -921,7 +922,7 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read one Markdown note body by path, stem, or alias; use when exact source text is needed
+Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step.
 
 Input:
 
@@ -935,6 +936,7 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `content` | `string` | yes |  |
+| `next_step` | `string \| null` | no | How to retrieve omitted content when `truncated` is true. |
 | `path` | `string` | yes |  |
 | `truncated` | `boolean` | yes |  |
 

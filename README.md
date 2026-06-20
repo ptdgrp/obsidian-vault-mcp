@@ -37,7 +37,7 @@ cargo test
 cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files --max_files 100
 cargo run -- --vault /path/to/vault --parse-cache-ttl-secs 600 --parse-cache-max-entries 1024 serve
-cargo run -- --vault /path/to/vault read_note "人物/林动.md"
+cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
 cargo run -- --vault /path/to/vault parse_note "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
@@ -174,9 +174,15 @@ MCP tools.
 ## Tool Use Guide
 
 - Start with `list_vault_files` to understand the visible file paths.
-- Use `list_notes` when only note paths and titles are needed.
+- Use `list_notes` when note paths, titles, and human-readable sizes are needed.
 - Use `get_note_outline` before `read_section` to select a heading without
   reading the whole note.
+- `read_note` is a bounded fallback for exact source text: it returns at most
+  4 KiB by default (and never exceeds `max_output_bytes`). When it is
+  truncated, either increase `max-read-note-bytes` or follow its `next_step`
+  with `get_note_outline` and `read_section`.
+  `max-read-note-bytes` accepts bytes or binary `b`, `k`, and `m` suffixes,
+  including decimals such as `12.4k`; fractional byte counts round up.
 - Use `search_text` for literal recall and `search_regex` for structured phrase
   patterns such as chapter ranges, years, or recurring motifs.
 - Use `list_tags` to discover body and frontmatter tag names, then `get_tags`

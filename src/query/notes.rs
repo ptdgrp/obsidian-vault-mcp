@@ -5,10 +5,13 @@ use rayon::prelude::*;
 use crate::parser::ParsedNote;
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
+use super::files::human_size;
 use super::{
     ListNotesResult, NoteSummary, ParseNoteResult, ReadNoteResult, VaultQueries, find_indexed_note,
     read_and_parse, truncate_utf8,
 };
+
+const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline, then read_section with a heading or line selector for the remaining content. To read a larger prefix, increase max-read-note-bytes.";
 
 impl VaultQueries {
     pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
@@ -23,6 +26,7 @@ impl VaultQueries {
             notes.push(NoteSummary {
                 path: file.relative_path,
                 title,
+                size: human_size(file.size_bytes),
             });
         }
         Ok(ListNotesResult { notes })
@@ -32,14 +36,20 @@ impl VaultQueries {
         let path = self.resolve_note_path(note)?;
         let mut content = fs::read_to_string(&path)?;
         let mut truncated = false;
-        if content.len() > self.vault.config.max_output_bytes {
-            content = truncate_utf8(&content, self.vault.config.max_output_bytes).to_string();
+        let budget = self
+            .vault
+            .config
+            .max_read_note_bytes
+            .min(self.vault.config.max_output_bytes);
+        if content.len() > budget {
+            content = truncate_utf8(&content, budget).to_string();
             truncated = true;
         }
         Ok(ReadNoteResult {
             path: self.vault.relative_path(&path),
             content,
             truncated,
+            next_step: truncated.then_some(READ_NOTE_NEXT_STEP.to_string()),
         })
     }
 

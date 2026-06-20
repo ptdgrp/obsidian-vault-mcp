@@ -39,6 +39,8 @@ pub struct NoteSummary {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Human-readable file size using binary units.
+    pub size: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -46,6 +48,9 @@ pub struct ReadNoteResult {
     pub path: String,
     pub content: String,
     pub truncated: bool,
+    /// How to retrieve omitted content when `truncated` is true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_step: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

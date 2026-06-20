@@ -28,7 +28,7 @@ cargo test
 ```sh
 cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files
-cargo run -- --vault /path/to/vault read_note "人物/林动.md"
+cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
 cargo run -- --vault /path/to/vault parse_note "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
@@ -140,9 +140,9 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 
 详细 input/output 契约见 [docs/tools.md](docs/tools.md)。
 
-- `list_notes`：列出可见 Markdown note。
+- `list_notes`：列出可见 Markdown note、首个标题和可读大小。
 - `list_vault_files`：返回可见文件路径清单。
-- `read_note`：读取一个 Markdown note 全文。
+- `read_note`：读取一个 Markdown note 的受限前缀。
 - `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑路径定位。
 - `get_note_outline`：返回一个 note 的标题树。
 - `read_section`：读取一个标题、block id 或 `#L1-L20` 行引用。
@@ -164,9 +164,15 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 ## 推荐使用顺序
 
 1. 用 `list_vault_files` 先看可见文件路径。
-2. 用 `list_notes` 获取 note 路径和标题的轻量清单。
+2. 用 `list_notes` 获取 note 路径、标题和可读大小的轻量清单。
 3. 用 `get_note_outline` 定位要读取的标题。
 4. 用 `read_section` 读取需要的局部内容，避免整篇塞进上下文。
+   `read_note` 只作为精确原文的受限兜底：默认最多返回 4 KiB，且不会超过
+   `max_output_bytes`；若返回 `truncated: true`，可以提高
+   `max-read-note-bytes`，或按 `next_step` 继续用 `get_note_outline` 和
+   `read_section`。
+   `max-read-note-bytes` 支持裸字节数或二进制 `b`、`k`、`m` 后缀，也支持
+   `12.4k` 这样的写法；无法整除字节时向上取整。
 5. 用 `list_tags` 先列出正文标签和 frontmatter 标签名，再用 `get_tags` 查询选中标签的位置；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
 6. 用 `resolve_ref`、`get_outlinks`、`get_backlinks` 和 `get_graph_neighborhood` 处理明确的本地链接关系。
 7. 大范围分析前，先用 `find_unresolved_links` 和 `find_ambiguous_links` 做 vault 健康检查。

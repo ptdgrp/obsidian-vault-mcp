@@ -120,7 +120,7 @@ impl VaultQueries {
     }
 }
 
-fn human_size(bytes: u64) -> String {
+pub(super) fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     if bytes < 1024 {
         return format!("{bytes} B");

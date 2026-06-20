@@ -5,7 +5,7 @@ use tempfile::tempdir;
 
 use super::*;
 use crate::resolver::ResolveResult;
-use crate::vault::{Vault, VaultConfig, VaultError};
+use crate::vault::{DEFAULT_MAX_READ_NOTE_BYTES, Vault, VaultConfig, VaultError};
 
 fn fixture() -> (tempfile::TempDir, VaultQueries) {
     let dir = tempdir().expect("tempdir");
@@ -88,6 +88,17 @@ fn list_notes_ignores_hidden_paths() {
             .iter()
             .any(|note| note.path == "资料/ignored-here.md")
     );
+    assert_eq!(
+        notes
+            .notes
+            .iter()
+            .find(|note| note.path == "发动机.md")
+            .expect("发动机 note")
+            .size,
+        format!("{} B", "# 发动机\n\n## 原理\n\n链接到 [[林动]]\n".len())
+    );
+    let value = serde_json::to_value(notes).expect("list notes json");
+    assert!(value["notes"][0].get("preview").is_none());
 }
 
 #[test]
@@ -445,6 +456,25 @@ fn mcp_output_schemas_have_object_roots() {
 fn truncation_preserves_utf8_boundaries() {
     let text = "林动abc";
     assert_eq!(truncate_utf8(text, 4), "林");
+}
+
+#[test]
+fn read_note_uses_its_own_budget_and_directs_to_section_reads() {
+    let (_dir, mut queries) = fixture();
+    queries.vault.config.max_read_note_bytes = "# 发动机\n".len();
+
+    assert_eq!(DEFAULT_MAX_READ_NOTE_BYTES, 4 * 1024);
+
+    let result = queries.read_note("发动机.md").expect("read note");
+
+    assert_eq!(result.content, "# 发动机\n");
+    assert!(result.truncated);
+    assert_eq!(
+        result.next_step.as_deref(),
+        Some(
+            "Use get_note_outline, then read_section with a heading or line selector for the remaining content. To read a larger prefix, increase max-read-note-bytes."
+        )
+    );
 }
 
 #[test]

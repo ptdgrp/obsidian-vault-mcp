@@ -1,3 +1,4 @@
+mod byte_size;
 mod docs;
 mod parser;
 mod query;
@@ -17,7 +18,8 @@ use tracing_subscriber::{
 };
 
 use crate::server::run_mcp_server;
-use crate::vault::{Vault, VaultConfig};
+use crate::vault::{DEFAULT_MAX_READ_NOTE_BYTES, Vault, VaultConfig};
+use byte_size::parse_byte_size;
 
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
@@ -45,6 +47,14 @@ struct Cli {
     /// Max bytes returned by a single tool call
     #[arg(long, default_value_t = 262_144)]
     max_output_bytes: usize,
+
+    /// Max bytes returned by read_note; accepts b, k, and m suffixes with decimals
+    #[arg(
+        long,
+        default_value_t = DEFAULT_MAX_READ_NOTE_BYTES,
+        value_parser = parse_byte_size
+    )]
+    max_read_note_bytes: usize,
 
     /// Max search results
     #[arg(long, default_value_t = 50)]
@@ -507,6 +517,7 @@ fn vault_config(cli: &Cli) -> VaultConfig {
         exclude: cli.exclude.clone(),
         follow_symlinks: cli.follow_symlinks,
         max_output_bytes: cli.max_output_bytes,
+        max_read_note_bytes: cli.max_read_note_bytes,
         max_results: cli.max_results,
         parse_cache_ttl_secs: cli.parse_cache_ttl_secs,
         parse_cache_max_entries: cli.parse_cache_max_entries,
