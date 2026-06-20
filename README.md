@@ -177,6 +177,9 @@ MCP tools.
 - Use `list_notes` when note paths, titles, and human-readable sizes are needed.
 - Use `get_note_outline` before `read_section` to select a heading without
   reading the whole note.
+- `collect_note_context` and `collect_reference_context` return grouped note
+  navigation only. Use `get_note_outline` and `read_section` to inspect a
+  selected note.
 - `read_note` is a bounded fallback for exact source text: it returns at most
   4 KiB by default (and never exceeds `max_output_bytes`). When it is
   truncated, either increase `max-read-note-bytes` or follow its `next_step`

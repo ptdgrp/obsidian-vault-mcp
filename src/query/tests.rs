@@ -459,6 +459,33 @@ fn truncation_preserves_utf8_boundaries() {
 }
 
 #[test]
+fn collect_note_context_returns_navigation_items_without_content() {
+    let (_dir, queries) = fixture();
+
+    let result = queries.collect_note_context("林动.md").expect("context");
+
+    let current = &result.groups[0].items[0];
+    assert_eq!(current.path, "林动.md");
+    assert_eq!(current.title.as_deref(), Some("林动"));
+    let value = serde_json::to_value(&result).expect("context json");
+    assert!(value["groups"][0]["items"][0].get("content").is_none());
+    assert!(value["groups"][0]["items"][0].get("source").is_none());
+}
+
+#[test]
+fn collect_reference_context_returns_navigation_items_without_content() {
+    let (_dir, queries) = fixture();
+
+    let result = queries
+        .collect_reference_context("[[林动]]")
+        .expect("reference context");
+
+    assert_eq!(result.groups[0].items[0].path, "林动.md");
+    let value = serde_json::to_value(&result).expect("context json");
+    assert!(value["groups"][0]["items"][0].get("content").is_none());
+}
+
+#[test]
 fn read_note_uses_its_own_budget_and_directs_to_section_reads() {
     let (_dir, mut queries) = fixture();
     queries.vault.config.max_read_note_bytes = "# 发动机\n".len();

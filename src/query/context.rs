@@ -1,12 +1,7 @@
-use std::fs;
-
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
-use crate::vault::NoteFile;
 
-use super::{
-    ContextGroup, ContextItem, ContextResult, SearchSource, VaultQueries, find_indexed_note,
-    truncate_utf8,
-};
+use super::files::human_size;
+use super::{ContextGroup, ContextItem, ContextResult, VaultQueries, find_indexed_note};
 
 impl VaultQueries {
     pub fn collect_note_context(&self, note: &str) -> anyhow::Result<ContextResult> {
@@ -43,21 +38,30 @@ impl VaultQueries {
                 omitted_count: 0,
             });
         };
-        let mut budget = self.vault.config.max_output_bytes;
+        let max_items = self.vault.config.max_results;
+        let mut returned = 1;
         let mut omitted = 0;
         let mut groups = Vec::new();
 
         groups.push(ContextGroup {
             kind: "current".to_string(),
-            items: vec![context_item(&current.file, &mut budget, &mut omitted)],
+            items: vec![context_item(current)],
         });
 
         let mut outlink_items = Vec::new();
+        let mut append_item = |items: &mut Vec<ContextItem>, note: &IndexedNote| {
+            if returned < max_items {
+                items.push(context_item(note));
+                returned += 1;
+            } else {
+                omitted += 1;
+            }
+        };
         for link in &current.parsed.links {
             if let ResolveResult::Resolved { path, .. } = RefResolver::resolve(&link.target, notes)
                 && let Some(note) = notes.iter().find(|note| note.file.relative_path == path)
             {
-                outlink_items.push(context_item(&note.file, &mut budget, &mut omitted));
+                append_item(&mut outlink_items, note);
             }
         }
         if !outlink_items.is_empty() {
@@ -78,7 +82,7 @@ impl VaultQueries {
                 .iter()
                 .any(|link| RefResolver::link_matches(&link.target, path, notes))
             {
-                backlink_items.push(context_item(&note.file, &mut budget, &mut omitted));
+                append_item(&mut backlink_items, note);
             }
         }
         if !backlink_items.is_empty() {
@@ -97,29 +101,14 @@ impl VaultQueries {
     }
 }
 
-fn context_item(file: &NoteFile, budget: &mut usize, omitted: &mut usize) -> ContextItem {
-    let content = fs::read_to_string(&file.path).unwrap_or_default();
-    if *budget == 0 {
-        *omitted += 1;
-        return ContextItem {
-            source: SearchSource {
-                path: file.relative_path.clone(),
-                line_start: 1,
-                line_end: 1,
-                section: None,
-            },
-            content: String::new(),
-        };
-    }
-    let clipped = truncate_utf8(&content, *budget).to_string();
-    *budget = budget.saturating_sub(clipped.len());
+fn context_item(note: &IndexedNote) -> ContextItem {
     ContextItem {
-        source: SearchSource {
-            path: file.relative_path.clone(),
-            line_start: 1,
-            line_end: content.lines().count().max(1) as u64,
-            section: None,
-        },
-        content: clipped,
+        path: note.file.relative_path.clone(),
+        title: note
+            .parsed
+            .headings
+            .first()
+            .map(|heading| heading.text.clone()),
+        size: human_size(note.file.size_bytes),
     }
 }

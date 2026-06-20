@@ -594,8 +594,11 @@ pub struct ContextGroup {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ContextItem {
-    pub source: SearchSource,
-    pub content: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Human-readable file size using binary units.
+    pub size: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

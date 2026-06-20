@@ -458,7 +458,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Collect bounded context grouped as current note, outlinks, and backlinks"
+        description = "Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content"
     )]
     fn collect_note_context(
         &self,
@@ -470,7 +470,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Resolve a reference, then collect bounded context grouped as current note, outlinks, and backlinks"
+        description = "Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content"
     )]
     fn collect_reference_context(
         &self,

@@ -154,8 +154,8 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `list_tags`：列出正文 tag 节点和 frontmatter `tag` / `tags` 中出现过的标签名。
 - `get_tags`：返回指定标签出现的 note 或行引用，便于继续用 `read_section` 读取上下文。
 - `query_frontmatter`：按顶层 frontmatter 字段查询 note，模式必须显式指定为 `exists`、`equals` 或 `regex`。
-- `collect_note_context`：收集一个 note 的当前内容、出链和反链上下文。
-- `collect_reference_context`：先解析 reference，再收集上下文。
+- `collect_note_context`：按当前 note、出链和反链聚合可导航条目。
+- `collect_reference_context`：先解析 reference，再聚合可导航条目。
 - `find_unresolved_links`：查找无法解析的本地链接。
 - `find_ambiguous_links`：查找解析到多个 note 的本地链接。
 - `get_graph_neighborhood`：围绕一个 note 或 reference 返回限定深度的 graph 邻域；常规 agent 上下文优先用它。
@@ -173,6 +173,8 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
    `read_section`。
    `max-read-note-bytes` 支持裸字节数或二进制 `b`、`k`、`m` 后缀，也支持
    `12.4k` 这样的写法；无法整除字节时向上取整。
+   `collect_note_context` 和 `collect_reference_context` 只返回按关系分组的
+   note 导航条目；选定目标后，再用 `get_note_outline` 和 `read_section` 读取。
 5. 用 `list_tags` 先列出正文标签和 frontmatter 标签名，再用 `get_tags` 查询选中标签的位置；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
 6. 用 `resolve_ref`、`get_outlinks`、`get_backlinks` 和 `get_graph_neighborhood` 处理明确的本地链接关系。
 7. 大范围分析前，先用 `find_unresolved_links` 和 `find_ambiguous_links` 做 vault 健康检查。

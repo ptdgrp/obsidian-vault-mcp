@@ -10,8 +10,8 @@ server is read-only.
 
 | Tool | Description |
 | --- | --- |
-| `collect_note_context` | Collect bounded context grouped as current note, outlinks, and backlinks |
-| `collect_reference_context` | Resolve a reference, then collect bounded context grouped as current note, outlinks, and backlinks |
+| `collect_note_context` | Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content |
+| `collect_reference_context` | Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content |
 | `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
 | `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
 | `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
@@ -35,7 +35,7 @@ server is read-only.
 
 ## 🔧 `collect_note_context`
 
-Collect bounded context grouped as current note, outlinks, and backlinks
+Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content
 
 Input:
 
@@ -66,28 +66,14 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `content` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `path` | `string` | yes |  |
+| `size` | `string` | yes | Human-readable file size using binary units. |
+| `title` | `string \| null` | no |  |
 
 
 ## 🔧 `collect_reference_context`
 
-Resolve a reference, then collect bounded context grouped as current note, outlinks, and backlinks
+Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content
 
 Input:
 
@@ -118,23 +104,9 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `content` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `path` | `string` | yes |  |
+| `size` | `string` | yes | Human-readable file size using binary units. |
+| `title` | `string \| null` | no |  |
 
 
 ## 🔧 `find_ambiguous_links`
