@@ -80,7 +80,7 @@ impl VaultQueries {
         Ok(notes)
     }
 
-    pub(super) fn resolve_note_path(&self, note: &str) -> anyhow::Result<camino::Utf8PathBuf> {
+    pub(crate) fn resolve_note_path(&self, note: &str) -> anyhow::Result<camino::Utf8PathBuf> {
         if let Ok((path, _)) = self.vault.read_note(note) {
             return Ok(path);
         }

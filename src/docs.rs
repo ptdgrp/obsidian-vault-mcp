@@ -11,7 +11,7 @@ pub fn render_docs(tools: &[Tool]) -> anyhow::Result<String> {
     output.push_str(
         "`obsidian-vault-mcp`. All paths are vault-relative unless stated otherwise. The\n",
     );
-    output.push_str("server is read-only.\n\n");
+    output.push_str("server supports structural section edits as well as read operations.\n\n");
 
     output.push_str("## Tool Index\n\n");
     output.push_str("| Tool | Description |\n");

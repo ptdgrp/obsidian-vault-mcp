@@ -4,14 +4,16 @@
 
 This document describes the public MCP tool contract exposed by
 `obsidian-vault-mcp`. All paths are vault-relative unless stated otherwise. The
-server is read-only.
+server supports structural section edits as well as read operations.
 
 ## Tool Index
 
 | Tool | Description |
 | --- | --- |
+| `append_section` | Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching. |
 | `collect_note_context` | Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content |
 | `collect_reference_context` | Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content |
+| `delete_section` | Delete exactly one heading, block, or line section. This uses structural selection, not text matching. |
 | `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
 | `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
 | `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
@@ -29,9 +31,37 @@ server is read-only.
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_note` | Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step. |
 | `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
+| `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
+| `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
+| `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
+| `replace_section` | Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching. |
 | `resolve_ref` | Resolve an Obsidian reference such as [[Note#Heading]] to a note, heading, or block without guessing ambiguous targets |
 | `search_regex` | Search visible Markdown notes with a Rust regular expression and return section-aware snippets |
 | `search_text` | Search literal text across visible Markdown notes and return section-aware snippets |
+
+## 🔧 `append_section`
+
+Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
+| `content` | `string` | yes | Text appended at the selected section boundary. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
+| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `line_end` | `integer` | yes |  |
+| `line_start` | `integer` | yes |  |
+| `note` | `string` | yes |  |
+
 
 ## 🔧 `collect_note_context`
 
@@ -107,6 +137,29 @@ Nested types:
 | `path` | `string` | yes |  |
 | `size` | `string` | yes | Human-readable file size using binary units. |
 | `title` | `string \| null` | no |  |
+
+
+## 🔧 `delete_section`
+
+Delete exactly one heading, block, or line section. This uses structural selection, not text matching.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
+| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `line_end` | `integer` | yes |  |
+| `line_start` | `integer` | yes |  |
+| `note` | `string` | yes |  |
 
 
 ## 🔧 `find_ambiguous_links`
@@ -961,6 +1014,98 @@ Nested types:
 | --- | --- | --- | --- |
 | `path` | `string` | yes | Vault-relative path with Obsidian-style line reference, e.g. note.md#L1 or note.md#L1-L99. |
 | `section` | `SectionInfo \| null` | yes |  |
+
+
+## 🔧 `rename_block_id`
+
+Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
+| `new_block_id` | `string` | yes | Replacement block id without the leading caret. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `old_block_id` | `string` | yes | Existing block id without the leading caret. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes |  |
+| `dry_run` | `boolean` | yes |  |
+| `updated_references` | `integer` | yes |  |
+
+
+## 🔧 `rename_heading`
+
+Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
+| `new_heading` | `string` | yes | Replacement heading text. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `old_heading` | `string` | yes | Current heading text or anchor. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes |  |
+| `dry_run` | `boolean` | yes |  |
+| `updated_references` | `integer` | yes |  |
+
+
+## 🔧 `rename_note`
+
+Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
+| `new_path` | `string` | yes | New vault-relative Markdown path. Parent directories are created when applying. |
+| `note` | `string` | yes | Existing vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes |  |
+| `dry_run` | `boolean` | yes |  |
+| `updated_references` | `integer` | yes |  |
+
+
+## 🔧 `replace_section`
+
+Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
+| `content` | `string` | yes | Replacement content for the entire selected section. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
+| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `line_end` | `integer` | yes |  |
+| `line_start` | `integer` | yes |  |
+| `note` | `string` | yes |  |
 
 
 ## 🔧 `resolve_ref`

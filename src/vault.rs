@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::Write};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MAX_READ_NOTE_BYTES: usize = 4 * 1024;
 
-/// A read-only, bounded view over an Obsidian-style Markdown vault.
-/// Vault 是一个只读、受限、可即时扫描的 Obsidian Markdown 工作空间。
+/// A bounded view over an Obsidian-style Markdown vault with atomic note writes.
+/// Vault 是一个受限、可即时扫描并支持原子笔记写入的 Obsidian Markdown 工作空间。
 #[derive(Clone, Debug)]
 pub struct Vault {
     pub root: Utf8PathBuf,
@@ -61,6 +61,24 @@ impl Vault {
         }
         let content = fs::read_to_string(&path).map_err(|err| VaultError::Io(err.to_string()))?;
         Ok((path, content))
+    }
+
+    pub fn write_note_atomic(&self, path: &Utf8Path, content: &str) -> Result<(), VaultError> {
+        if !path.starts_with(&self.root) {
+            return Err(VaultError::PathEscapesVault);
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| VaultError::Io("note has no parent directory".to_string()))?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|err| VaultError::Io(err.to_string()))?;
+        temporary
+            .write_all(content.as_bytes())
+            .map_err(|err| VaultError::Io(err.to_string()))?;
+        temporary
+            .persist(path)
+            .map_err(|err| VaultError::Io(err.error.to_string()))?;
+        Ok(())
     }
 
     pub fn list_notes(&self) -> Result<Vec<NoteFile>, VaultError> {

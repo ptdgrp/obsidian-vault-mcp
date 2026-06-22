@@ -2,7 +2,7 @@
 
 [中文 README](./README.zh-CN.md)
 
-Read-only MCP server for Obsidian-style Markdown vaults.
+MCP server for Obsidian-style Markdown vaults with structural section edits.
 
 This service is intentionally mechanical:
 
@@ -12,7 +12,7 @@ This service is intentionally mechanical:
   modified time
 - expires parse cache entries after 10 minutes by default and caps the cache at
   1024 parsed notes
-- does not write notes
+- edits notes only through explicit section operations; each write is atomic
 - ignores hidden dot paths by default, such as `.obsidian/`, `.git/`, `.agents/`,
   and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
@@ -159,6 +159,11 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `collect_note_context`
 - `collect_reference_context`
 - `read_section`
+- `append_section` - append content at a selected section boundary
+- `patch_section` - replace a relative line range inside a selected section
+- `replace_section` - replace one complete selected section
+- `delete_section` - delete one complete selected section
+- `rename_heading` - preview or apply a heading rename and update uniquely resolved wikilinks
 - `find_unresolved_links`
 - `find_ambiguous_links`
 - `get_graph_neighborhood` - bounded graph context around one note; prefer this
@@ -177,6 +182,13 @@ MCP tools.
 - Use `list_notes` when note paths, titles, and human-readable sizes are needed.
 - Use `get_note_outline` before `read_section` to select a heading without
   reading the whole note.
+- For edits, read the target with `read_section`, then use `append_section`,
+  `patch_section`, `replace_section`, or `delete_section`. `patch_section`
+  takes 1-based line numbers relative to the returned section, so it does not
+  rely on a fragile old-text match.
+- Use `rename_heading` for a heading rename rather than `replace_section`.
+  It defaults to `dry_run: true`; inspect `changed_notes` and
+  `updated_references`, then call it again with `dry_run: false` to apply.
 - `collect_note_context` and `collect_reference_context` return grouped note
   navigation only. Use `get_note_outline` and `read_section` to inspect a
   selected note.
@@ -209,9 +221,11 @@ MCP tools.
 
 ## Safety Boundary
 
-The server is read-only. It has no database, no vector index, no file watcher,
-and no disk-backed cache. Each tool call checks current file metadata before
-reusing a parsed Markdown document from memory, so changed files are reparsed.
+The server has no database, vector index, file watcher, or disk-backed cache.
+It reads the vault by default and writes only through the four explicit,
+structure-selected section operations. Each tool call checks current file
+metadata before reusing a parsed Markdown document from memory, so changed
+files are reparsed.
 Cached parse entries expire after `--parse-cache-ttl-secs` seconds and are also
 bounded by `--parse-cache-max-entries`.
 Hidden dot paths are ignored by default so Obsidian config, git data, and agent

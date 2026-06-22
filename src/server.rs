@@ -1,18 +1,5 @@
-use std::{sync::Arc, time::Instant};
-
-use rmcp::{
-    ServerHandler, ServiceExt,
-    handler::server::{
-        router::tool::ToolRouter,
-        wrapper::{Json, Parameters},
-    },
-    model::{ServerCapabilities, ServerInfo, Tool},
-    tool, tool_handler, tool_router,
-};
-use schemars::JsonSchema;
-use serde::Deserialize;
-
 use crate::{
+    mutation::{EditSectionResult, RenameResult, VaultMutations},
     query::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
@@ -24,6 +11,18 @@ use crate::{
     resolver::ResolveResult,
     vault::Vault,
 };
+use rmcp::{
+    ServerHandler, ServiceExt,
+    handler::server::{
+        router::tool::ToolRouter,
+        wrapper::{Json, Parameters},
+    },
+    model::{ServerCapabilities, ServerInfo, Tool},
+    tool, tool_handler, tool_router,
+};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use std::{sync::Arc, time::Instant};
 
 pub async fn run_mcp_server(vault: Vault) -> anyhow::Result<()> {
     let service = ObsidianVaultMcp::new(vault);
@@ -44,13 +43,16 @@ pub struct ObsidianVaultMcp {
 #[derive(Clone)]
 pub struct AppState {
     pub queries: VaultQueries,
+    pub mutations: VaultMutations,
 }
 
 impl ObsidianVaultMcp {
     pub fn new(vault: Vault) -> Self {
+        let queries = VaultQueries::new(vault);
         Self {
             state: Arc::new(AppState {
-                queries: VaultQueries::new(vault),
+                mutations: VaultMutations::new(queries.clone()),
+                queries,
             }),
             tool_router: Self::tool_router(),
         }
@@ -58,6 +60,10 @@ impl ObsidianVaultMcp {
 
     fn queries(&self) -> VaultQueries {
         self.state.queries.clone()
+    }
+
+    fn mutations(&self) -> VaultMutations {
+        self.state.mutations.clone()
     }
 
     pub fn tool_definitions() -> Vec<Tool> {
@@ -195,30 +201,115 @@ pub struct ReadSectionRequest {
 
 impl ReadSectionRequest {
     fn into_parts(self) -> Result<(String, SectionSelector), String> {
-        let Self {
-            note,
-            heading,
-            block_id,
-            line,
-        } = self;
-
-        let selector = match (heading, block_id, line) {
-            (Some(heading), None, None) => SectionSelector::Heading { heading },
-            (None, Some(block_id), None) => SectionSelector::Block { block_id },
-            (None, None, Some(line)) => {
-                let (line_start, line_end) = parse_line_range(&line)?;
-                SectionSelector::Lines {
-                    line_start,
-                    line_end,
-                }
-            }
-            _ => {
-                return Err("provide exactly one selector: heading, block_id, or line".to_string());
-            }
-        };
-
-        Ok((note, selector))
+        section_parts(self.note, self.heading, self.block_id, self.line)
     }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for appending content at the end of one selected section.
+pub struct AppendSectionRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Heading text, heading anchor, or slash-separated heading path.
+    pub heading: Option<String>,
+    /// Block id without the leading caret.
+    pub block_id: Option<String>,
+    /// Github-style line reference, e.g. #L1-L99.
+    pub line: Option<String>,
+    /// Text appended at the selected section boundary.
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for replacing an entire selected section.
+pub struct ReplaceSectionRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Heading text, heading anchor, or slash-separated heading path.
+    pub heading: Option<String>,
+    /// Block id without the leading caret.
+    pub block_id: Option<String>,
+    /// Github-style line reference, e.g. #L1-L99.
+    pub line: Option<String>,
+    /// Replacement content for the entire selected section.
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for deleting an entire selected section.
+pub struct DeleteSectionRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Heading text, heading anchor, or slash-separated heading path.
+    pub heading: Option<String>,
+    /// Block id without the leading caret.
+    pub block_id: Option<String>,
+    /// Github-style line reference, e.g. #L1-L99.
+    pub line: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for safely renaming one heading and its uniquely resolved wikilink references.
+pub struct RenameHeadingRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Current heading text or anchor.
+    pub old_heading: String,
+    /// Replacement heading text.
+    pub new_heading: String,
+    /// Preview changed notes and references without writing. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for moving a note and repairing its uniquely resolved wikilinks.
+pub struct RenameNoteRequest {
+    /// Existing vault-relative path, note stem, or alias.
+    pub note: String,
+    /// New vault-relative Markdown path. Parent directories are created when applying.
+    pub new_path: String,
+    /// Preview changed notes and references without writing. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for safely renaming one block id and its uniquely resolved wikilink references.
+pub struct RenameBlockIdRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Existing block id without the leading caret.
+    pub old_block_id: String,
+    /// Replacement block id without the leading caret.
+    pub new_block_id: String,
+    /// Preview changed notes and references without writing. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+pub(crate) fn section_parts(
+    note: String,
+    heading: Option<String>,
+    block_id: Option<String>,
+    line: Option<String>,
+) -> Result<(String, SectionSelector), String> {
+    let selector = match (heading, block_id, line) {
+        (Some(heading), None, None) => SectionSelector::Heading { heading },
+        (None, Some(block_id), None) => SectionSelector::Block { block_id },
+        (None, None, Some(line)) => {
+            let (line_start, line_end) = parse_line_range(&line)?;
+            SectionSelector::Lines {
+                line_start,
+                line_end,
+            }
+        }
+        _ => {
+            return Err("provide exactly one selector: heading, block_id, or line".to_string());
+        }
+    };
+
+    Ok((note, selector))
 }
 
 fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
@@ -256,6 +347,10 @@ pub struct ResolveRefToolResult {
 
 fn default_context_lines() -> usize {
     0
+}
+
+fn default_dry_run() -> bool {
+    true
 }
 
 #[tool_router]
@@ -495,6 +590,114 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
+        description = "Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching."
+    )]
+    fn append_section(
+        &self,
+        Parameters(AppendSectionRequest {
+            note,
+            heading,
+            block_id,
+            line,
+            content,
+        }): Parameters<AppendSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        let (note, selector) = section_parts(note, heading, block_id, line)?;
+        run_tool("append_section", || {
+            self.mutations().append_section(&note, selector, &content)
+        })
+    }
+
+    #[tool(
+        description = "Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching."
+    )]
+    fn replace_section(
+        &self,
+        Parameters(ReplaceSectionRequest {
+            note,
+            heading,
+            block_id,
+            line,
+            content,
+        }): Parameters<ReplaceSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        let (note, selector) = section_parts(note, heading, block_id, line)?;
+        run_tool("replace_section", || {
+            self.mutations().replace_section(&note, selector, &content)
+        })
+    }
+
+    #[tool(
+        description = "Delete exactly one heading, block, or line section. This uses structural selection, not text matching."
+    )]
+    fn delete_section(
+        &self,
+        Parameters(DeleteSectionRequest {
+            note,
+            heading,
+            block_id,
+            line,
+        }): Parameters<DeleteSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        let (note, selector) = section_parts(note, heading, block_id, line)?;
+        run_tool("delete_section", || {
+            self.mutations().delete_section(&note, selector)
+        })
+    }
+
+    #[tool(
+        description = "Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default."
+    )]
+    fn rename_heading(
+        &self,
+        Parameters(RenameHeadingRequest {
+            note,
+            old_heading,
+            new_heading,
+            dry_run,
+        }): Parameters<RenameHeadingRequest>,
+    ) -> Result<Json<RenameResult>, String> {
+        run_tool("rename_heading", || {
+            self.mutations()
+                .rename_heading(&note, &old_heading, &new_heading, dry_run)
+        })
+    }
+
+    #[tool(
+        description = "Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply."
+    )]
+    fn rename_note(
+        &self,
+        Parameters(RenameNoteRequest {
+            note,
+            new_path,
+            dry_run,
+        }): Parameters<RenameNoteRequest>,
+    ) -> Result<Json<RenameResult>, String> {
+        run_tool("rename_note", || {
+            self.mutations().rename_note(&note, &new_path, dry_run)
+        })
+    }
+
+    #[tool(
+        description = "Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply."
+    )]
+    fn rename_block_id(
+        &self,
+        Parameters(RenameBlockIdRequest {
+            note,
+            old_block_id,
+            new_block_id,
+            dry_run,
+        }): Parameters<RenameBlockIdRequest>,
+    ) -> Result<Json<RenameResult>, String> {
+        run_tool("rename_block_id", || {
+            self.mutations()
+                .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
+        })
+    }
+
+    #[tool(
         description = "Find local links that do not resolve to any visible note; use as a vault health check"
     )]
     fn find_unresolved_links(
@@ -544,8 +747,9 @@ impl ObsidianVaultMcp {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for ObsidianVaultMcp {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Read-only Obsidian vault structure tools for LLM agents.")
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+            "Obsidian vault structure tools for LLM agents, including structural section edits.",
+        )
     }
 }
 

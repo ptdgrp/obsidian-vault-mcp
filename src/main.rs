@@ -1,5 +1,6 @@
 mod byte_size;
 mod docs;
+mod mutation;
 mod parser;
 mod query;
 mod resolver;
@@ -17,7 +18,7 @@ use tracing_subscriber::{
     EnvFilter, Layer as _, Registry, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::server::run_mcp_server;
+use crate::server::{run_mcp_server, section_parts};
 use crate::vault::{DEFAULT_MAX_READ_NOTE_BYTES, Vault, VaultConfig};
 use byte_size::parse_byte_size;
 
@@ -258,6 +259,99 @@ enum Command {
         #[arg(long, default_value_t = false)]
         include_unresolved: bool,
     },
+    /// Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
+    AppendSection {
+        /// Vault-relative path, note stem, or alias.
+        note: String,
+
+        /// Heading text, heading anchor, or slash-separated heading path.
+        #[arg(long)]
+        heading: Option<String>,
+
+        /// Block id without the leading caret.
+        #[arg(long)]
+        block_id: Option<String>,
+
+        /// Github-style line reference, e.g. #L1-L99.
+        #[arg(long)]
+        line: Option<String>,
+
+        /// Replacement text for the relative line range.
+        content: String,
+    },
+    /// Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching.
+    ReplaceSection {
+        /// Vault-relative path, note stem, or alias.
+        note: String,
+
+        /// Heading text, heading anchor, or slash-separated heading path.
+        #[arg(long)]
+        heading: Option<String>,
+
+        /// Block id without the leading caret.
+        #[arg(long)]
+        block_id: Option<String>,
+
+        /// Github-style line reference, e.g. #L1-L99.
+        #[arg(long)]
+        line: Option<String>,
+
+        /// Replacement text for the relative line range.
+        content: String,
+    },
+    /// Delete exactly one heading, block, or line section. This uses structural selection, not text matching.
+    DeleteSection {
+        /// Vault-relative path, note stem, or alias.
+        note: String,
+
+        /// Heading text, heading anchor, or slash-separated heading path.
+        #[arg(long)]
+        heading: Option<String>,
+
+        /// Block id without the leading caret.
+        #[arg(long)]
+        block_id: Option<String>,
+
+        /// Github-style line reference, e.g. #L1-L99.
+        #[arg(long)]
+        line: Option<String>,
+    },
+    /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
+    RenameHeading {
+        /// Vault-relative path, note stem, or alias.
+        note: String,
+        /// Current heading text or anchor.
+        #[arg(long)]
+        old_heading: String,
+        /// Replacement heading text.
+        #[arg(long)]
+        new_heading: String,
+        /// Preview changed notes and references without writing. Defaults to true.
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
+    /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
+    RenameNote {
+        /// Existing vault-relative path, note stem, or alias.
+        note: String,
+        /// New vault-relative Markdown path. Parent directories are created when applying.
+        new_path: String,
+        /// Preview changed notes and references without writing. Defaults to true.
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
+    /// Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply.
+    RenameBlockId {
+        /// Vault-relative path, note stem, or alias.
+        note: String,
+        /// Existing block id without the leading caret.
+        old_block_id: String,
+        /// Replacement block id without the leading caret.
+        new_block_id: String,
+        /// Preview changed notes and references without writing. Defaults to true.
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
 }
 
 #[tokio::main]
@@ -290,6 +384,7 @@ async fn main() -> anyhow::Result<()> {
         })?;
         let vault = Vault::open(vault_path, config)?;
         let queries = crate::query::VaultQueries::new(vault.clone());
+        let mutations = crate::mutation::VaultMutations::new(queries.clone());
 
         match command {
             Command::Serve => run_mcp_server(vault).await?,
@@ -396,26 +491,7 @@ async fn main() -> anyhow::Result<()> {
                 block_id,
                 line,
             } => {
-                let selector = match (heading, block_id, line) {
-                    (Some(heading), None, None) => {
-                        crate::query::SectionSelector::Heading { heading }
-                    }
-                    (None, Some(block_id), None) => {
-                        crate::query::SectionSelector::Block { block_id }
-                    }
-                    (None, None, Some(line)) => {
-                        let (line_start, line_end) = parse_line_range(&line)?;
-                        crate::query::SectionSelector::Lines {
-                            line_start,
-                            line_end,
-                        }
-                    }
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "provide exactly one selector: --heading, --block-id, or --line"
-                        ));
-                    }
-                };
+                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
                 print_value(&queries.read_section(&note, selector)?)?;
             }
             Command::FindUnresolvedLinks => {
@@ -442,6 +518,27 @@ async fn main() -> anyhow::Result<()> {
                     },
                 )?)?;
             }
+            Command::AppendSection { note, heading, block_id, line, content } => {
+                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
+                print_value(&mutations.append_section(&note, selector, &content)?)?
+            }
+            Command::ReplaceSection { note, heading, block_id, line, content } => {
+                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
+                print_value(&mutations.replace_section(&note, selector, &content)?)?
+            }
+            Command::DeleteSection { note, heading, block_id, line } => {
+                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
+                print_value(&mutations.delete_section(&note, selector)?)?
+            }
+            Command::RenameHeading { note, old_heading, new_heading, dry_run } => {
+                print_value(&mutations.rename_heading(&note, &old_heading, &new_heading, dry_run)?)?
+            }
+            Command::RenameNote { note, new_path, dry_run } => {
+                print_value(&mutations.rename_note(&note, &new_path, dry_run)?)?
+            }
+            Command::RenameBlockId { note, old_block_id, new_block_id, dry_run } => {
+                print_value(&mutations.rename_block_id(&note, &old_block_id, &new_block_id, dry_run)?)?
+            }
         }
         anyhow::Ok(())
     }
@@ -461,30 +558,6 @@ fn parse_graph_neighborhood_direction(
             "invalid graph neighborhood direction: {input}; expected one of: both, out, in"
         )),
     }
-}
-
-fn parse_line_range(value: &str) -> anyhow::Result<(u64, u64)> {
-    let value = value.trim();
-    let value = value.strip_prefix('#').unwrap_or(value);
-    let value = value.strip_prefix('L').unwrap_or(value);
-
-    let (start, end) = match value.split_once("-L") {
-        Some((start, end)) => (start, Some(end)),
-        None => (value, None),
-    };
-    let line_start = start
-        .parse::<u64>()
-        .map_err(|_| anyhow::anyhow!("line must use #L1 or #L1-L99 format"))?;
-    let line_end = end
-        .unwrap_or(start)
-        .parse::<u64>()
-        .map_err(|_| anyhow::anyhow!("line must use #L1 or #L1-L99 format"))?;
-
-    if line_start == 0 || line_end < line_start {
-        return Err(anyhow::anyhow!("invalid line range"));
-    }
-
-    Ok((line_start, line_end))
 }
 
 fn parse_tag_scope(input: &str) -> anyhow::Result<crate::query::TagScope> {

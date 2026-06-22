@@ -56,6 +56,12 @@ impl ParseCache {
         Ok(parsed)
     }
 
+    pub fn invalidate(&self, relative_path: &str) {
+        if let Ok(mut entries) = self.entries.write() {
+            entries.remove(relative_path);
+        }
+    }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries

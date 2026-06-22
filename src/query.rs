@@ -7,7 +7,7 @@ mod links;
 mod notes;
 mod outline;
 mod search;
-mod section;
+pub(crate) mod section;
 
 #[cfg(test)]
 mod tests;
@@ -838,7 +838,7 @@ pub enum VaultFileKind {
 #[derive(Clone, Debug)]
 pub struct VaultQueries {
     pub vault: Vault,
-    parse_cache: Arc<ParseCache>,
+    pub(crate) parse_cache: Arc<ParseCache>,
 }
 
 impl VaultQueries {
@@ -850,7 +850,7 @@ impl VaultQueries {
         Self { vault, parse_cache }
     }
 
-    fn parse_file_cached(
+    pub(crate) fn parse_file_cached(
         &self,
         path: &Utf8Path,
         relative_path: String,
@@ -871,7 +871,10 @@ fn read_and_parse(queries: &VaultQueries, file: &NoteFile) -> anyhow::Result<Ind
     })
 }
 
-fn find_indexed_note<'a>(note: &str, notes: &'a [IndexedNote]) -> anyhow::Result<&'a IndexedNote> {
+pub(crate) fn find_indexed_note<'a>(
+    note: &str,
+    notes: &'a [IndexedNote],
+) -> anyhow::Result<&'a IndexedNote> {
     match RefResolver::resolve(note, notes) {
         ResolveResult::Resolved { path, .. } => notes
             .iter()

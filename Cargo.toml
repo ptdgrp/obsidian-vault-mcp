@@ -1,6 +1,6 @@
 [package]
 name = "obsidian-vault-mcp"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 
 [dependencies]
@@ -29,6 +29,7 @@ schemars = { version = "1.2.1", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2.0.18"
+tempfile = "3"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "io-std", "fs"]}
 toml = "1.1.2"
 tracing = "0.1.44"
@@ -39,7 +40,6 @@ walkdir = "2.5.0"
 
 [dev-dependencies]
 insta = "1"
-tempfile = "3"
 pretty_assertions = "1"
 
 

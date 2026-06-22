@@ -1,12 +1,12 @@
 # obsidian-vault-mcp
 
-面向 Obsidian 风格 Markdown vault 的只读 MCP server。
+面向 Obsidian 风格 Markdown vault、支持结构化章节编辑的 MCP server。
 
 这个服务适合独立出来：它的职责是把本地 Markdown vault 以受控、可引用、低噪音的方式暴露给 LLM agent。它不依赖数据库、向量索引或后台 watcher。文件路径、Markdown 标题、本地链接、标签和源码行号就是它的主要语义边界。
 
 ## 特性
 
-- 只读访问 vault，不写入笔记。
+- 通过显式章节操作编辑笔记，每次写入均为原子替换。
 - 每次工具调用都从磁盘读取当前文件状态。
 - 使用内存级 Markdown 解析缓存，按路径、文件大小和修改时间失效。
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
@@ -146,6 +146,11 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑路径定位。
 - `get_note_outline`：返回一个 note 的标题树。
 - `read_section`：读取一个标题、block id 或 `#L1-L20` 行引用。
+- `append_section`：在选中章节结尾追加内容。
+- `patch_section`：按章节内相对行号替换连续行，不依赖旧文本匹配。
+- `replace_section`：整体替换一个选中的章节。
+- `delete_section`：删除一个选中的章节。
+- `rename_heading`：预览或执行标题改名，并更新能唯一解析的 wikilink。
 - `search_text`：字面量搜索。
 - `search_regex`：Rust regex 搜索，可用 path glob 限定范围。
 - `resolve_ref`：解析 Obsidian reference，例如 `[[Note#Heading]]`。
@@ -175,6 +180,12 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
    `12.4k` 这样的写法；无法整除字节时向上取整。
    `collect_note_context` 和 `collect_reference_context` 只返回按关系分组的
    note 导航条目；选定目标后，再用 `get_note_outline` 和 `read_section` 读取。
+   编辑时，先用 `read_section` 读取目标章节，再用 `append_section`、
+   `patch_section`、`replace_section` 或 `delete_section`。其中
+   `patch_section` 的行号相对于返回章节从 1 开始计算，因此无需对旧文本做脆弱匹配。
+   改标题应使用 `rename_heading`，而非 `replace_section`：它默认
+   `dry_run: true`，先检查 `changed_notes` 与 `updated_references`，确认后再传
+   `dry_run: false` 执行。
 5. 用 `list_tags` 先列出正文标签和 frontmatter 标签名，再用 `get_tags` 查询选中标签的位置；用 `query_frontmatter` 查询类似 `phase: active` 的元数据条件。
 6. 用 `resolve_ref`、`get_outlinks`、`get_backlinks` 和 `get_graph_neighborhood` 处理明确的本地链接关系。
 7. 大范围分析前，先用 `find_unresolved_links` 和 `find_ambiguous_links` 做 vault 健康检查。
@@ -185,7 +196,7 @@ vault 较大时，优先用 `get_graph_neighborhood`，不要直接取全量 `ge
 
 ## 安全边界
 
-这个 server 是只读的。它没有数据库、没有向量索引、没有文件 watcher，也没有落盘缓存。每次工具调用都会检查文件元数据；文件大小或修改时间变化时会重新解析。
+这个 server 没有数据库、向量索引、文件 watcher 或落盘缓存。默认读取 vault，只有四个显式、按结构定位的章节操作可以写入。每次工具调用都会检查文件元数据；文件大小或修改时间变化时会重新解析。
 
 隐藏路径和 gitignore 命中的路径默认不会进入可见上下文，避免 Obsidian 配置、git 数据、agent skill 文件或生成物污染 agent 的工作记忆。
 
