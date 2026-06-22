@@ -11,7 +11,7 @@ use super::{
     find_indexed_note, read_and_parse, truncate_utf8,
 };
 
-const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline, then read_section with a heading or line selector for the remaining content. To read a larger prefix, increase max-read-note-bytes.";
+const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value.";
 
 impl VaultQueries {
     pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
@@ -32,15 +32,15 @@ impl VaultQueries {
         Ok(ListNotesResult { notes })
     }
 
-    pub fn read_note(&self, note: &str) -> anyhow::Result<ReadNoteResult> {
+    pub fn read_note(
+        &self,
+        note: &str,
+        max_bytes: Option<usize>,
+    ) -> anyhow::Result<ReadNoteResult> {
         let path = self.resolve_note_path(note)?;
         let mut content = fs::read_to_string(&path)?;
         let mut truncated = false;
-        let budget = self
-            .vault
-            .config
-            .max_read_note_bytes
-            .min(self.vault.config.max_output_bytes);
+        let budget = max_bytes.unwrap_or(self.vault.config.max_read_note_bytes);
         if content.len() > budget {
             content = truncate_utf8(&content, budget).to_string();
             truncated = true;

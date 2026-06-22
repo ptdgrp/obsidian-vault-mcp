@@ -136,6 +136,7 @@ fn read_note_surfaces_missing_note_error() {
 
     let result = server.read_note(Parameters(ReadNoteRequest {
         note: "缺失.md".to_string(),
+        max_bytes: None,
     }));
     let error = match result {
         Ok(_) => panic!("missing note should fail"),

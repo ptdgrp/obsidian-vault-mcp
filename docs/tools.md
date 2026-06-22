@@ -30,7 +30,7 @@ server supports structural section edits as well as read operations.
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `parse_note` | Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step. |
+| `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_bytes controls this request's truncation boundary. |
 | `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
 | `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
@@ -969,12 +969,19 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step.
+Read a truncated prefix of a note.
+Use only when:
+- You need to scan the beginning of a note and don't know its structure yet.
+- You've already ruled out get_note_outline (for structure) and read_section (for targeted access).
+
+For any operation with a known line, heading, or block id - use read_section instead.
+If provided, max_bytes controls this request's truncation boundary.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `max_bytes` | `integer \| null` | no | Optional byte limit for this request. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 

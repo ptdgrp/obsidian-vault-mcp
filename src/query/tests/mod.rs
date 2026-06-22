@@ -517,16 +517,29 @@ fn read_note_uses_its_own_budget_and_directs_to_section_reads() {
 
     assert_eq!(DEFAULT_MAX_READ_NOTE_BYTES, 4 * 1024);
 
-    let result = queries.read_note("发动机.md").expect("read note");
+    let result = queries.read_note("发动机.md", None).expect("read note");
 
     assert_eq!(result.content, "# 发动机\n");
     assert!(result.truncated);
     assert_eq!(
         result.next_step.as_deref(),
         Some(
-            "Use get_note_outline, then read_section with a heading or line selector for the remaining content. To read a larger prefix, increase max-read-note-bytes."
+            "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value."
         )
     );
+}
+
+#[test]
+fn read_note_allows_per_request_max_bytes_override() {
+    let (_dir, mut queries) = fixture();
+    queries.vault.config.max_read_note_bytes = "# 发动机\n".len();
+
+    let result = queries
+        .read_note("发动机.md", Some("# 发动机\n\n## 原理\n".len()))
+        .expect("read note with override");
+
+    assert_eq!(result.content, "# 发动机\n\n## 原理\n");
+    assert!(result.truncated);
 }
 
 #[test]

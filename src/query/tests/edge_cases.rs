@@ -38,7 +38,7 @@ fn read_note_reports_unresolved_reference_for_missing_note() {
     let (_dir, queries) = fixture();
 
     let error = queries
-        .read_note("缺失.md")
+        .read_note("缺失.md", None)
         .expect_err("missing note should fail");
 
     assert!(error.to_string().contains("unresolved note reference"));

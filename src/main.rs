@@ -396,7 +396,7 @@ async fn main() -> anyhow::Result<()> {
                 print_value(&queries.list_notes()?)?;
             }
             Command::ReadNote { note } => {
-                print_value(&queries.read_note(&note)?)?;
+                print_value(&queries.read_note(&note, None)?)?;
             }
             Command::ParseNote { note } => {
                 print_value(&queries.parse_note_result(&note)?)?;

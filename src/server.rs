@@ -80,6 +80,8 @@ pub struct EmptyRequest {}
 pub struct ReadNoteRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
+    /// Optional byte limit for this request.
+    pub max_bytes: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -369,13 +371,13 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a bounded prefix of one Markdown note when exact source text is needed. For normal navigation, use get_note_outline then read_section; when truncated, follow next_step."
+        description = "Read a truncated prefix of a note.\nUse only when:\n- You need to scan the beginning of a note and don't know its structure yet.\n- You've already ruled out get_note_outline (for structure) and read_section (for targeted access).\n\nFor any operation with a known line, heading, or block id - use read_section instead.\nIf provided, max_bytes controls this request's truncation boundary."
     )]
     fn read_note(
         &self,
-        Parameters(ReadNoteRequest { note }): Parameters<ReadNoteRequest>,
+        Parameters(ReadNoteRequest { note, max_bytes }): Parameters<ReadNoteRequest>,
     ) -> Result<Json<ReadNoteResult>, String> {
-        run_tool("read_note", || self.queries().read_note(&note))
+        run_tool("read_note", || self.queries().read_note(&note, max_bytes))
     }
 
     #[tool(
