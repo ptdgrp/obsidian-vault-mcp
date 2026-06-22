@@ -11,7 +11,7 @@ use super::{
 use crate::{
     query::{SectionSelector, TagScope},
     resolver::ResolveResult,
-    server::ResolveRefRequest,
+    server::{NoteStatsRequest, ResolveRefRequest},
     vault::{Vault, VaultConfig},
 };
 
@@ -193,6 +193,22 @@ fn backlinks_tool_returns_verbose_results_for_reference() {
     assert_eq!(result.target, "[[林动#身体]]");
     assert_eq!(result.backlinks.len(), 1);
     assert!(result.backlinks[0].snippet.is_some());
+}
+
+#[test]
+fn note_stats_tool_returns_word_character_and_backlink_counts() {
+    let (_dir, server) = fixture();
+
+    let Json(result) = server
+        .get_note_stats(Parameters(NoteStatsRequest {
+            note: "林动.md".to_string(),
+        }))
+        .expect("get note stats");
+
+    assert_eq!(result.note, "林动.md");
+    assert_eq!(result.word_count, 7);
+    assert_eq!(result.backlink_count, 1);
+    assert!(result.character_count > result.word_count);
 }
 
 #[test]

@@ -3,10 +3,10 @@ use crate::{
     query::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
-        ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, OutlinksOutput,
-        ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult, SearchTextResult,
-        SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
-        VaultGraphResult, VaultQueries,
+        ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
+        OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
+        SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
+        VaultFilesResult, VaultGraphResult, VaultQueries,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -85,6 +85,12 @@ pub struct ReadNoteRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for parsing one Markdown note.
 pub struct ParseNoteRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NoteStatsRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
 }
@@ -380,6 +386,14 @@ impl ObsidianVaultMcp {
         Parameters(ParseNoteRequest { note }): Parameters<ParseNoteRequest>,
     ) -> Result<Json<ParseNoteResult>, String> {
         run_tool("parse_note", || self.queries().parse_note_result(&note))
+    }
+
+    #[tool(description = "Return one note's word count, character count, and total backlink count")]
+    fn get_note_stats(
+        &self,
+        Parameters(NoteStatsRequest { note }): Parameters<NoteStatsRequest>,
+    ) -> Result<Json<NoteStatsResult>, String> {
+        run_tool("get_note_stats", || self.queries().get_note_stats(&note))
     }
 
     #[tool(

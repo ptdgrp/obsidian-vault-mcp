@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::resolver::{RefResolver, ResolveResult};
+use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::{
     BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
@@ -84,6 +84,11 @@ impl VaultQueries {
     ) -> anyhow::Result<BacklinksOutput> {
         let result = self.get_backlinks(target)?;
         Ok(BacklinksOutput::from_result(result, verbose))
+    }
+
+    pub(crate) fn backlink_count_for_path(&self, wanted_path: &str) -> anyhow::Result<usize> {
+        let notes = self.index_notes()?;
+        Ok(count_matching_backlinks(&notes, wanted_path))
     }
 
     pub fn list_tags(&self, scope: TagScope) -> anyhow::Result<ListTagsResult> {
@@ -200,6 +205,14 @@ impl VaultQueries {
             truncated,
         })
     }
+}
+
+fn count_matching_backlinks(notes: &[IndexedNote], wanted_path: &str) -> usize {
+    notes
+        .iter()
+        .flat_map(|note| note.parsed.links.iter())
+        .filter(|link| RefResolver::link_matches(&link.target, wanted_path, notes))
+        .count()
 }
 
 enum MetadataMatcher {

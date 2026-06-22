@@ -20,6 +20,7 @@ server supports structural section edits as well as read operations.
 | `get_categories` | Locate selected folder-derived categories and return matching Markdown note files |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
 | `get_note_outline` | Return one note's heading tree without body text; use before selecting a section |
+| `get_note_stats` | Return one note's word count, character count, and total backlink count |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
 | `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
@@ -486,6 +487,27 @@ Nested types:
 | `heading` | `string` | yes |  |
 | `heading_level` | `integer` | yes |  |
 | `heading_path` | `string[]` | yes |  |
+
+
+## 🔧 `get_note_stats`
+
+Return one note's word count, character count, and total backlink count
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `backlink_count` | `integer` | yes | Total number of inbound links to this note across the visible vault. |
+| `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
+| `note` | `string` | yes | Vault-relative resolved note path. |
+| `word_count` | `integer` | yes | Word count computed from the note's Markdown source text. |
 
 
 ## 🔧 `get_outlinks`

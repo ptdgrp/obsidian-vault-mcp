@@ -124,6 +124,9 @@ enum Command {
     /// Print one note's heading tree
     GetNoteOutline { note: String },
 
+    /// Return one note's word count, character count, and total backlink count
+    GetNoteStats { note: String },
+
     /// Print a gitignore-aware flat list of visible vault files
     ListVaultFiles {
         #[arg(long, default_value_t = true)]
@@ -400,6 +403,9 @@ async fn main() -> anyhow::Result<()> {
             }
             Command::GetNoteOutline { note } => {
                 print_value(&queries.get_note_outline(&note)?)?;
+            }
+            Command::GetNoteStats { note } => {
+                print_value(&queries.get_note_stats(&note)?)?;
             }
             Command::ListVaultFiles {
                 include_files,

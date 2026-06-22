@@ -54,6 +54,18 @@ pub struct ReadNoteResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NoteStatsResult {
+    /// Vault-relative resolved note path.
+    pub note: String,
+    /// Word count computed from the note's Markdown source text.
+    pub word_count: usize,
+    /// Character count computed from the note's Markdown source text.
+    pub character_count: usize,
+    /// Total number of inbound links to this note across the visible vault.
+    pub backlink_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 /// Compact parse result for tool and CLI output.
 ///
 /// The full parser keeps repeated source metadata for internal use, but this

@@ -7,8 +7,8 @@ use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::files::human_size;
 use super::{
-    ListNotesResult, NoteSummary, ParseNoteResult, ReadNoteResult, VaultQueries, find_indexed_note,
-    read_and_parse, truncate_utf8,
+    ListNotesResult, NoteStatsResult, NoteSummary, ParseNoteResult, ReadNoteResult, VaultQueries,
+    find_indexed_note, read_and_parse, truncate_utf8,
 };
 
 const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline, then read_section with a heading or line selector for the remaining content. To read a larger prefix, increase max-read-note-bytes.";
@@ -53,6 +53,18 @@ impl VaultQueries {
         })
     }
 
+    pub fn get_note_stats(&self, note: &str) -> anyhow::Result<NoteStatsResult> {
+        let path = self.resolve_note_path(note)?;
+        let content = fs::read_to_string(&path)?;
+        let note = self.vault.relative_path(&path);
+        Ok(NoteStatsResult {
+            note: note.clone(),
+            word_count: count_words(&content),
+            character_count: content.chars().count(),
+            backlink_count: self.backlink_count_for_path(&note)?,
+        })
+    }
+
     pub fn parse_note(&self, note: &str) -> anyhow::Result<ParsedNote> {
         let path = self.resolve_note_path(note)?;
         Ok(self
@@ -88,4 +100,46 @@ impl VaultQueries {
         let indexed = find_indexed_note(note, &notes)?;
         Ok(indexed.file.path.clone())
     }
+}
+
+fn count_words(content: &str) -> usize {
+    let mut in_word = false;
+    let mut count = 0usize;
+
+    for ch in content.chars() {
+        if is_cjk_character(ch) {
+            count += 1;
+            in_word = false;
+            continue;
+        }
+        if ch.is_alphanumeric() {
+            if !in_word {
+                count += 1;
+                in_word = true;
+            }
+            continue;
+        }
+        in_word = false;
+    }
+
+    count
+}
+
+fn is_cjk_character(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{2A6DF}'
+            | '\u{2A700}'..='\u{2B73F}'
+            | '\u{2B740}'..='\u{2B81F}'
+            | '\u{2B820}'..='\u{2CEAF}'
+            | '\u{2CEB0}'..='\u{2EBEF}'
+            | '\u{30000}'..='\u{3134F}'
+            | '\u{3040}'..='\u{309F}'
+            | '\u{30A0}'..='\u{30FF}'
+            | '\u{31F0}'..='\u{31FF}'
+            | '\u{AC00}'..='\u{D7AF}'
+    )
 }

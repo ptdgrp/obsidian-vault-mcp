@@ -149,6 +149,18 @@ fn parse_note_result_uses_compact_shared_output() {
 }
 
 #[test]
+fn get_note_stats_counts_words_characters_and_total_backlinks() {
+    let (_dir, queries) = fixture();
+    let content = "---\naliases:\n  - 动林\ntags:\n  - 主角\n  - 状态/身体\nphase: active\narc: 引擎线\n---\n# 林动\n\n身体 #状态/身体\n\n[[发动机#原理|发动机]]\n\n[[缺失设定]]\n";
+
+    let result = queries.get_note_stats("林动").expect("note stats");
+    assert_eq!(result.note, "林动.md");
+    assert_eq!(result.word_count, 36);
+    assert_eq!(result.character_count, content.chars().count());
+    assert_eq!(result.backlink_count, 1);
+}
+
+#[test]
 fn parse_note_extracts_safe_relative_markdown_links() {
     let (_dir, queries) = fixture();
     let parsed = queries.parse_note("正文/001").expect("parse");
