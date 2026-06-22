@@ -112,11 +112,14 @@ fn count_words(content: &str) -> usize {
             in_word = false;
             continue;
         }
-        if ch.is_alphanumeric() {
+        if ch.is_ascii_alphanumeric() {
             if !in_word {
                 count += 1;
                 in_word = true;
             }
+            continue;
+        }
+        if ch == '-' && in_word {
             continue;
         }
         in_word = false;

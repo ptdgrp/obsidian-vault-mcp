@@ -161,6 +161,15 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
 }
 
 #[test]
+fn get_note_stats_treats_hyphenated_ascii_sequences_as_one_word() {
+    let (dir, queries) = fixture();
+    std::fs::write(dir.path().join("hyphen.md"), "foo-bar baz\n").expect("write hyphen note");
+
+    let result = queries.get_note_stats("hyphen.md").expect("note stats");
+    assert_eq!(result.word_count, 2);
+}
+
+#[test]
 fn parse_note_extracts_safe_relative_markdown_links() {
     let (_dir, queries) = fixture();
     let parsed = queries.parse_note("正文/001").expect("parse");
