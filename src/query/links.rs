@@ -108,21 +108,19 @@ impl VaultQueries {
         let mut occurrences: BTreeMap<String, Vec<TagOccurrence>> = BTreeMap::new();
         for note in self.index_notes()? {
             for found in &note.parsed.tags {
-                if scope.includes_body_tag(found.scope) {
-                    if tag_matches(tags, &found.tag) {
-                        buckets
-                            .entry(found.tag.clone())
-                            .or_default()
-                            .insert(note.file.relative_path.clone());
-                        occurrences
-                            .entry(found.tag.clone())
-                            .or_default()
-                            .push(TagOccurrence {
-                                note: note.file.relative_path.clone(),
-                                source_kind: tag_source_kind(found.scope),
-                                source: Some(found.source.clone().into()),
-                            });
-                    }
+                if scope.includes_body_tag(found.scope) && tag_matches(tags, &found.tag) {
+                    buckets
+                        .entry(found.tag.clone())
+                        .or_default()
+                        .insert(note.file.relative_path.clone());
+                    occurrences
+                        .entry(found.tag.clone())
+                        .or_default()
+                        .push(TagOccurrence {
+                            note: note.file.relative_path.clone(),
+                            source_kind: tag_source_kind(found.scope),
+                            source: Some(found.source.clone().into()),
+                        });
                 }
             }
             if scope.includes_frontmatter_tags() {

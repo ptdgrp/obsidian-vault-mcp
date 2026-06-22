@@ -825,7 +825,7 @@ pub struct VaultFile {
     pub modified: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 /// Kind of file represented by the flat vault file list.
 pub enum VaultFileKind {

@@ -214,3 +214,6 @@ fn normalize_key(input: &str) -> String {
         .collect::<String>()
         .to_lowercase()
 }
+
+#[cfg(test)]
+mod tests;

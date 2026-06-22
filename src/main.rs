@@ -327,7 +327,7 @@ enum Command {
         #[arg(long)]
         new_heading: String,
         /// Preview changed notes and references without writing. Defaults to true.
-        #[arg(long, default_value_t = true)]
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
     /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
@@ -337,7 +337,7 @@ enum Command {
         /// New vault-relative Markdown path. Parent directories are created when applying.
         new_path: String,
         /// Preview changed notes and references without writing. Defaults to true.
-        #[arg(long, default_value_t = true)]
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
     /// Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply.
@@ -349,7 +349,7 @@ enum Command {
         /// Replacement block id without the leading caret.
         new_block_id: String,
         /// Preview changed notes and references without writing. Defaults to true.
-        #[arg(long, default_value_t = true)]
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
 }

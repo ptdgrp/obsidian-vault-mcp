@@ -203,6 +203,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
     let mut heading_stack: Vec<HeadingInfo> = Vec::new();
     let mut body_scope_seen = false;
     let mut section_tag_window = SectionTagWindow::Closed;
+    let mut inline_search_start = 0;
     for index in active_node_indices(document) {
         let node = &document.tree[index];
         match &node.body {
@@ -238,11 +239,22 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 let source = source_for_node(&path, text, document, index, &heading_stack);
                 match link.as_ref() {
                     Link::Wikilink(wikilink) => {
+                        let (target, reference) =
+                            normalize_wikilink_target(&wikilink.path, wikilink.reference.as_ref());
+                        let expected_raw =
+                            inline_raw("[[", &target, reference.as_ref(), wikilink.text.as_ref());
+                        let source = recover_inline_source_span(
+                            &path,
+                            text,
+                            source,
+                            &expected_raw,
+                            &mut inline_search_start,
+                        );
                         parsed.links.push(LinkInfo {
                             raw: slice_text(text, source.byte_start, source.byte_end),
-                            target: wikilink.path.clone(),
+                            target,
                             alias: wikilink.text.clone(),
-                            reference: wikilink.reference.as_ref().map(reference_info),
+                            reference: reference.as_ref().map(reference_info),
                             kind: LinkKind::Wikilink,
                             source,
                         });
@@ -266,7 +278,13 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 }
             }
             MarkdownNode::Embed(embed) => {
-                let source = source_for_node(&path, text, document, index, &heading_stack);
+                let source = recover_inline_source_span(
+                    &path,
+                    text,
+                    source_for_node(&path, text, document, index, &heading_stack),
+                    &inline_raw("![[", &embed.path, embed.reference.as_ref(), None),
+                    &mut inline_search_start,
+                );
                 parsed.embeds.push(EmbedInfo {
                     raw: slice_text(text, source.byte_start, source.byte_end),
                     target: embed.path.clone(),
@@ -531,6 +549,105 @@ fn reference_info(reference: &Reference) -> ReferenceInfo {
     }
 }
 
+fn normalize_wikilink_target(
+    path: &str,
+    reference: Option<&Reference>,
+) -> (String, Option<Reference>) {
+    if reference.is_some() || !path.starts_with('#') {
+        return (path.to_string(), reference.cloned());
+    }
+
+    let fragment = path.trim_start_matches('#');
+    if let Some(block_id) = fragment.strip_prefix('^') {
+        (
+            String::new(),
+            Some(Reference::BlockId(block_id.to_string())),
+        )
+    } else if fragment.contains('#') {
+        (
+            String::new(),
+            Some(Reference::MultiHeading(
+                fragment
+                    .split('#')
+                    .filter(|part| !part.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+            )),
+        )
+    } else {
+        (
+            String::new(),
+            Some(Reference::Heading(fragment.to_string())),
+        )
+    }
+}
+
+fn inline_raw(
+    prefix: &str,
+    path: &str,
+    reference: Option<&Reference>,
+    alias: Option<&String>,
+) -> String {
+    let mut raw = format!("{prefix}{path}");
+    if let Some(reference) = reference {
+        raw.push_str(&reference_suffix(reference));
+    }
+    if let Some(alias) = alias {
+        raw.push('|');
+        raw.push_str(alias);
+    }
+    raw.push_str("]]");
+    raw
+}
+
+fn reference_suffix(reference: &Reference) -> String {
+    match reference {
+        Reference::Heading(value) => format!("#{value}"),
+        Reference::MultiHeading(values) => format!("#{}", values.join("#")),
+        Reference::BlockId(value) => format!("#^{value}"),
+    }
+}
+
+fn recover_inline_source_span(
+    path: &str,
+    text: &str,
+    source: SourceSpan,
+    expected_raw: &str,
+    inline_search_start: &mut usize,
+) -> SourceSpan {
+    let raw = slice_text(text, source.byte_start, source.byte_end);
+    if raw == expected_raw {
+        *inline_search_start = (*inline_search_start).max(source.byte_end);
+        return source;
+    }
+
+    let search_start = (*inline_search_start)
+        .max(source.byte_start)
+        .min(text.len());
+    let Some(relative_start) = text[search_start..].find(expected_raw) else {
+        return source;
+    };
+    let byte_start = search_start + relative_start;
+    let byte_end = byte_start + expected_raw.len();
+    *inline_search_start = byte_end;
+    SourceSpan {
+        path: path.to_string(),
+        line_start: line_number_for_byte(text, byte_start),
+        line_end: line_number_for_byte(text, byte_end),
+        byte_start,
+        byte_end,
+        section: source.section,
+    }
+}
+
+fn line_number_for_byte(text: &str, byte_index: usize) -> u64 {
+    text[..byte_index.min(text.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count() as u64
+        + 1
+}
+
 fn local_markdown_link_target(
     current_path: &str,
     url: &str,
@@ -662,3 +779,6 @@ fn byte_offset_for_line(text: &str, line: u64) -> usize {
     }
     text.len()
 }
+
+#[cfg(test)]
+mod tests;

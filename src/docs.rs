@@ -314,3 +314,6 @@ fn literal_type(value: &Value) -> String {
         Value::Object(_) => "object".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -240,3 +240,6 @@ fn default_ignored(rel: &str) -> bool {
 fn has_hidden_segment(rel: &str) -> bool {
     rel.split('/').any(|segment| segment.starts_with('.'))
 }
+
+#[cfg(test)]
+mod tests;

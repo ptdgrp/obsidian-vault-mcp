@@ -7,6 +7,10 @@ use super::*;
 use crate::resolver::ResolveResult;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_BYTES, Vault, VaultConfig, VaultError};
 
+mod edge_cases;
+mod files_and_context;
+mod search_and_section;
+
 fn fixture() -> (tempfile::TempDir, VaultQueries) {
     let dir = tempdir().expect("tempdir");
     fs::write(
