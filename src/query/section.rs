@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::parser::{ParsedNote, SourceSpan, slice_text, source_for_line};
+use crate::parser::{HeadingInfo, ParsedNote, SourceSpan, slice_text, source_for_line};
 
 use super::{ReadSectionResult, SectionSelector, VaultQueries, truncate_utf8};
 
@@ -31,6 +31,14 @@ impl VaultQueries {
             truncated,
         })
     }
+
+    pub(crate) fn read_section_selector_hint(&self, note: &str) -> anyhow::Result<String> {
+        let path = self.resolve_note_path(note)?;
+        let relative_path = self.vault.relative_path(&path);
+        let parsed = self.parse_file_cached(&path, relative_path.clone())?;
+
+        Ok(section_selector_hint_message(&relative_path, &parsed))
+    }
 }
 
 pub(crate) fn section_source(
@@ -42,12 +50,17 @@ pub(crate) fn section_source(
     let total_lines = content.lines().count().max(1) as u64;
     let (line_start, line_end) = match selector {
         SectionSelector::Heading { heading } => {
-            let Some(current) = parsed.headings.iter().find(|candidate| {
-                candidate.text == *heading
-                    || candidate.anchor == *heading
-                    || candidate.path.join(" / ") == *heading
-            }) else {
-                return Err(anyhow::anyhow!("heading not found: {heading}"));
+            let requested_heading = ParsedHeadingSelector::parse(heading);
+            let Some(current) = parsed
+                .headings
+                .iter()
+                .skip_while(|it| it.level == 1)
+                .find(|candidate| requested_heading.matches(candidate))
+            else {
+                return Err(anyhow::anyhow!(
+                    "{}",
+                    heading_not_found_message(heading, parsed)
+                ));
             };
             let next = parsed
                 .headings
@@ -92,4 +105,204 @@ pub(crate) fn section_source(
         line_start,
         line_end,
     ))
+}
+
+struct ParsedHeadingSelector<'a> {
+    text: &'a str,
+    comparable_text: &'a str,
+    level: Option<u8>,
+}
+
+impl<'a> ParsedHeadingSelector<'a> {
+    fn parse(heading: &'a str) -> Self {
+        let trimmed = heading.trim();
+        let marker_len = trimmed.bytes().take_while(|byte| *byte == b'#').count();
+        let Some(level) = markdown_heading_level(marker_len) else {
+            return Self {
+                text: trimmed,
+                comparable_text: comparable_heading_text(trimmed),
+                level: None,
+            };
+        };
+
+        let rest = &trimmed[marker_len..];
+        if rest.chars().next().is_some_and(char::is_whitespace) {
+            let text = rest.trim_start();
+            Self {
+                text,
+                comparable_text: comparable_heading_text(text),
+                level: Some(level),
+            }
+        } else {
+            Self {
+                text: trimmed,
+                comparable_text: comparable_heading_text(trimmed),
+                level: None,
+            }
+        }
+    }
+
+    fn matches(&self, candidate: &HeadingInfo) -> bool {
+        if self.level.is_some_and(|level| candidate.level != level) {
+            return false;
+        }
+
+        candidate_text_matches(candidate.text.as_str(), self)
+            || candidate_text_matches(candidate.anchor.as_str(), self)
+            || candidate_text_matches(&candidate.path.join(" / "), self)
+    }
+}
+
+fn candidate_text_matches(candidate: &str, requested: &ParsedHeadingSelector<'_>) -> bool {
+    candidate == requested.text || comparable_heading_text(candidate) == requested.comparable_text
+}
+
+fn comparable_heading_text(value: &str) -> &str {
+    let trimmed = value.trim();
+    let without_colon = trimmed
+        .strip_suffix(':')
+        .or_else(|| trimmed.strip_suffix('：'))
+        .unwrap_or(trimmed);
+    without_colon.trim_end()
+}
+
+fn markdown_heading_level(marker_len: usize) -> Option<u8> {
+    match marker_len {
+        1 => Some(1),
+        2 => Some(2),
+        3 => Some(3),
+        4 => Some(4),
+        5 => Some(5),
+        6 => Some(6),
+        _ => None,
+    }
+}
+
+fn heading_not_found_message(heading: &str, parsed: &ParsedNote) -> String {
+    let suggestions = closest_heading_suggestions(heading, parsed);
+
+    if suggestions.is_empty() {
+        format!("heading not found: {heading:?}. Note has no headings.")
+    } else {
+        format!(
+            "heading not found: {heading:?}. Did you mean: {}?",
+            suggestions
+                .iter()
+                .map(|it| wrapping_char(it, '"'))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn wrapping_char(input: &str, ch: char) -> String {
+    format!("{ch}{input}{ch}")
+}
+
+fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String> {
+    let requested_heading = ParsedHeadingSelector::parse(heading);
+    let mut best_distance = usize::MAX;
+    let mut suggestions = Vec::new();
+
+    for candidate in &parsed.headings {
+        let distance = edit_distance(
+            requested_heading.comparable_text,
+            comparable_heading_text(candidate.text.as_str()),
+        );
+        match distance.cmp(&best_distance) {
+            std::cmp::Ordering::Less => {
+                best_distance = distance;
+                suggestions.clear();
+                suggestions.push(candidate.text.clone());
+            }
+            std::cmp::Ordering::Equal => {
+                if !suggestions.contains(&candidate.text) {
+                    suggestions.push(candidate.text.clone());
+                }
+            }
+            std::cmp::Ordering::Greater => {}
+        }
+    }
+
+    suggestions
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let left_chars = left.chars().collect::<Vec<_>>();
+    let right_chars = right.chars().collect::<Vec<_>>();
+    if left_chars.is_empty() {
+        return right_chars.len();
+    }
+    if right_chars.is_empty() {
+        return left_chars.len();
+    }
+
+    let mut previous = (0..=right_chars.len()).collect::<Vec<_>>();
+    let mut current = vec![0; right_chars.len() + 1];
+
+    for (left_index, left_char) in left_chars.iter().enumerate() {
+        current[0] = left_index + 1;
+        for (right_index, right_char) in right_chars.iter().enumerate() {
+            let substitution_cost = usize::from(left_char != right_char);
+            current[right_index + 1] = (previous[right_index + 1] + 1)
+                .min(current[right_index] + 1)
+                .min(previous[right_index] + substitution_cost);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    previous[right_chars.len()]
+}
+
+fn section_selector_hint_message(relative_path: &str, parsed: &ParsedNote) -> String {
+    let headings = parsed
+        .headings
+        .iter()
+        .skip_while(|it| it.level == 1)
+        .take(10)
+        .map(|heading| {
+            format!(
+                "{} {}",
+                "#".repeat(usize::from(heading.level)),
+                heading.text
+            )
+        })
+        .collect::<Vec<_>>();
+    let block_ids = parsed
+        .blocks
+        .iter()
+        .take(10)
+        .map(|block| format!("^{}", block.id))
+        .collect::<Vec<_>>();
+
+    let mut parts = Vec::new();
+    if headings.is_empty() && block_ids.is_empty() {
+        parts.push("no headings or block ids found; use a line selector like #L1-L20".to_string());
+    } else {
+        if !headings.is_empty() {
+            parts.push(format!(
+                "headings: {}",
+                headings
+                    .iter()
+                    .map(|it| wrapping_char(it.trim_start_matches("#").trim_start(), '"'))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if !block_ids.is_empty() {
+            parts.push(format!(
+                "block_ids: {}",
+                block_ids
+                    .iter()
+                    .map(|it| wrapping_char(it, '"'))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+
+    format!(
+        "provide exactly one selector: heading, block_id, or line. Available selectors in {relative_path:?}: {}. retry read_section with heading, block_id, or line",
+        parts.join("; ")
+    )
 }

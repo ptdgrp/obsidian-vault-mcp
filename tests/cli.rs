@@ -99,3 +99,17 @@ fn invalid_tag_scope_exits_with_clear_diagnostic() {
         )
     );
 }
+
+#[test]
+fn read_section_without_selector_lists_available_selectors() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "块.md", "# 块\n\n段落\n^state\n");
+
+    let output = run_cli(&dir, &["read-section", "块.md"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Available selectors in 块.md"));
+    assert!(stderr.contains("headings: # 块"));
+    assert!(stderr.contains("block_ids: ^state"));
+}

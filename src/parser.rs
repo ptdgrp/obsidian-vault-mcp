@@ -509,9 +509,6 @@ fn collect_text(document: &Document, index: usize) -> String {
 }
 
 fn collect_text_into(document: &Document, index: usize, out: &mut String) {
-    if document.tree.is_free_node(&index) {
-        return;
-    }
     match &document.tree[index].body {
         MarkdownNode::Text(text) => out.push_str(text),
         MarkdownNode::SoftBreak | MarkdownNode::HardBreak => out.push('\n'),

@@ -49,6 +49,26 @@ fn parse_tags_distinguishes_section_and_line_scope() {
 }
 
 #[test]
+fn parse_headings_preserves_visible_inline_text() {
+    let parsed = NoteParser::parse(
+        "note.md".to_string(),
+        "# **Bold** and *emphasis* and [Link](other.md) and ==mark==\n",
+        4096,
+    )
+    .expect("parse note");
+
+    assert_eq!(parsed.headings.len(), 1);
+    assert_eq!(
+        parsed.headings[0].text,
+        "Bold and emphasis and Link and mark"
+    );
+    assert_eq!(
+        parsed.headings[0].path,
+        vec!["Bold and emphasis and Link and mark"]
+    );
+}
+
+#[test]
 fn path_with_line_ref_formats_single_and_multi_line_ranges() {
     assert_eq!(path_with_line_ref("note.md", 3, 3), "note.md#L3");
     assert_eq!(path_with_line_ref("note.md", 3, 5), "note.md#L3-L5");

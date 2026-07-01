@@ -599,6 +599,22 @@ impl ObsidianVaultMcp {
         &self,
         Parameters(request): Parameters<ReadSectionRequest>,
     ) -> Result<Json<ReadSectionResult>, String> {
+        let selector_count = [
+            request.heading.is_some(),
+            request.block_id.is_some(),
+            request.line.is_some(),
+        ]
+        .into_iter()
+        .filter(|selected| *selected)
+        .count();
+        if selector_count == 0 {
+            let note = request.note;
+            return run_tool("read_section", || {
+                let message = self.queries().read_section_selector_hint(&note)?;
+                anyhow::bail!("{message}")
+            });
+        }
+
         let (note, selector) = request.into_parts()?;
         run_tool("read_section", || {
             self.queries().read_section(&note, selector)

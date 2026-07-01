@@ -497,7 +497,18 @@ async fn main() -> anyhow::Result<()> {
                 block_id,
                 line,
             } => {
-                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
+                let selector_count = [heading.is_some(), block_id.is_some(), line.is_some()]
+                    .into_iter()
+                    .filter(|selected| *selected)
+                    .count();
+                if selector_count == 0 {
+                    anyhow::bail!("{}", queries.read_section_selector_hint(&note)?);
+                }
+                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_| {
+                    anyhow::anyhow!(
+                        "provide exactly one selector: --heading, --block-id, or --line"
+                    )
+                })?;
                 print_value(&queries.read_section(&note, selector)?)?;
             }
             Command::FindUnresolvedLinks => {

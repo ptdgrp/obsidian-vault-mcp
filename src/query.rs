@@ -896,7 +896,10 @@ pub(crate) fn find_indexed_note<'a>(
             "ambiguous note reference: {:?}",
             candidates
         )),
-        ResolveResult::Unresolved { .. } => Err(anyhow::anyhow!("unresolved note reference")),
+        ResolveResult::Unresolved { reference } => Err(anyhow::anyhow!(
+            "unresolved note reference: {:?}",
+            reference.raw
+        )),
     }
 }
 

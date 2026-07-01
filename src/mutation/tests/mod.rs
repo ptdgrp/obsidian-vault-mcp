@@ -73,6 +73,26 @@ fn section_edits_target_structural_boundaries_without_text_matching() {
 }
 
 #[test]
+fn section_edits_accept_markdown_heading_syntax() {
+    let (dir, mutations) = fixture();
+
+    mutations
+        .replace_section(
+            "发动机.md",
+            SectionSelector::Heading {
+                heading: "## 原理".to_string(),
+            },
+            "## 原理\n\n已整体替换。\n",
+        )
+        .expect("replace heading with markdown marker");
+
+    assert_eq!(
+        read_note(&dir, "发动机.md"),
+        "# 发动机\n\n## 原理\n\n已整体替换。\n"
+    );
+}
+
+#[test]
 fn rename_heading_updates_resolved_wikilink_references_after_preview() {
     let (dir, mutations) = fixture();
     write_note(

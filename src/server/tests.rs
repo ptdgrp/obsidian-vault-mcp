@@ -131,6 +131,28 @@ fn read_section_rejects_malformed_line_selector() {
 }
 
 #[test]
+fn read_section_without_selector_lists_available_headings_and_block_ids() {
+    let (dir, server) = fixture();
+    fs::write(dir.path().join("块.md"), "# 块\n\n段落\n^state\n").expect("write block note");
+
+    let result = server.read_section(Parameters(ReadSectionRequest {
+        note: "块.md".to_string(),
+        heading: None,
+        block_id: None,
+        line: None,
+    }));
+    let error = match result {
+        Ok(_) => panic!("missing selector should fail"),
+        Err(error) => error,
+    };
+
+    assert!(error.contains("Available selectors in 块.md"));
+    assert!(error.contains("headings: # 块"));
+    assert!(error.contains("block_ids: ^state"));
+    assert!(error.contains("retry read_section with heading, block_id, or line"));
+}
+
+#[test]
 fn read_note_surfaces_missing_note_error() {
     let (_dir, server) = fixture();
 
