@@ -66,11 +66,11 @@ pub struct NoteStatsResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-/// Compact parse result for tool and CLI output.
+/// Compact note structure for tool and CLI output.
 ///
 /// The full parser keeps repeated source metadata for internal use, but this
 /// shape avoids repeating the note path and full section object on every item.
-pub struct ParseNoteResult {
+pub struct NoteStructureResult {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontmatter: Option<serde_json::Value>,
@@ -86,7 +86,7 @@ pub struct ParseNoteResult {
     pub blocks: Vec<CompactBlockInfo>,
 }
 
-impl From<ParsedNote> for ParseNoteResult {
+impl From<ParsedNote> for NoteStructureResult {
     fn from(note: ParsedNote) -> Self {
         Self {
             path: note.path,
@@ -798,7 +798,7 @@ pub struct VaultFilesOptions {
     /// Include non-Markdown files such as images.
     #[serde(default)]
     pub include_attachments: bool,
-    /// Include heading titles for README.md files.
+    /// Include selectable non-H1 heading titles for README.md files.
     #[serde(default)]
     pub include_readme_outline: bool,
     /// Maximum number of visible file entries returned.
@@ -824,10 +824,10 @@ pub struct VaultFile {
     pub path: String,
     /// Markdown note or attachment.
     pub kind: VaultFileKind,
-    /// First Markdown heading for note files.
+    /// Display title for note files. Priority: first level-one heading, frontmatter title, then pathname.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Flat list of README heading titles when include_readme_outline is true.
+    /// Flat list of README selectable non-H1 heading titles when include_readme_outline is true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outline: Option<Vec<String>>,
     /// Human-readable file size using binary units.

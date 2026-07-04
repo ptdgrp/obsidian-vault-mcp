@@ -216,9 +216,14 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                     heading_stack.pop();
                 }
                 let text_value = collect_text(document, index).trim().to_string();
-                let mut path_parts: Vec<String> =
-                    heading_stack.iter().map(|item| item.text.clone()).collect();
-                path_parts.push(text_value.clone());
+                let mut path_parts: Vec<String> = heading_stack
+                    .iter()
+                    .filter(|item| item.level != 1)
+                    .map(|item| item.text.clone())
+                    .collect();
+                if level != 1 {
+                    path_parts.push(text_value.clone());
+                }
                 let source = source_for_node(&path, text, document, index, &heading_stack);
                 let info = HeadingInfo {
                     text: text_value.clone(),

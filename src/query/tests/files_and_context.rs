@@ -47,7 +47,7 @@ fn list_vault_files_can_include_readme_outline_and_limit_results() {
         .find(|file| file.path == "正文/README.md")
         .expect("readme file");
     assert_eq!(readme.title.as_deref(), Some("正文索引"));
-    assert_eq!(readme.outline.as_ref(), Some(&vec!["正文索引".to_string()]));
+    assert_eq!(readme.outline.as_ref(), Some(&Vec::<String>::new()));
     assert!(readme.modified.is_some());
 
     let limited = queries

@@ -8,7 +8,7 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    ObsidianVaultMcp, ParseNoteRequest, ReadSectionRequest, RenameBlockIdRequest,
+    NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest, RenameBlockIdRequest,
     ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, TagsRequest, VaultFilesRequest,
 };
 
@@ -42,22 +42,24 @@ fn tool_output_schemas_have_object_roots_when_present() {
 }
 
 #[test]
-fn list_and_parse_tools_return_note_metadata() {
+fn list_and_note_structure_tools_return_note_metadata() {
     let (_dir, server) = fixture();
+    assert!(server.tool_router.has_route("get_note_structure"));
+    assert!(!server.tool_router.has_route("parse_note"));
 
     let Json(listed) = server
         .list_notes(Parameters(EmptyRequest {}))
         .expect("list notes");
     assert_eq!(listed.notes.len(), 3);
 
-    let Json(parsed) = server
-        .parse_note(Parameters(ParseNoteRequest {
+    let Json(structure) = server
+        .get_note_structure(Parameters(NoteStructureRequest {
             note: "发动机.md".to_string(),
         }))
-        .expect("parse note");
-    assert_eq!(parsed.path, "发动机.md");
-    assert_eq!(parsed.links.len(), 1);
-    assert_eq!(parsed.links[0].line, 5);
+        .expect("get note structure");
+    assert_eq!(structure.path, "发动机.md");
+    assert_eq!(structure.links.len(), 1);
+    assert_eq!(structure.links[0].line, 5);
 }
 
 #[test]
@@ -125,7 +127,7 @@ fn list_vault_files_tool_respects_limits_and_readme_outline() {
         .iter()
         .find(|file| file.path == "正文/README.md")
         .expect("readme");
-    assert_eq!(readme.outline.as_ref(), Some(&vec!["正文索引".to_string()]));
+    assert_eq!(readme.outline.as_ref(), Some(&Vec::<String>::new()));
 }
 
 #[test]
@@ -197,13 +199,17 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
 #[test]
 fn append_read_and_rename_block_id_tools_work_through_server_surface() {
     let (dir, server) = fixture();
-    fs::write(dir.path().join("块.md"), "# 块\n\n段落\n^state\n").expect("write block note");
+    fs::write(
+        dir.path().join("块.md"),
+        "# 块\n\n## 正文\n\n段落\n^state\n",
+    )
+    .expect("write block note");
     fs::write(dir.path().join("引用.md"), "# 引用\n\n[[块.md#^state]]\n").expect("write ref");
 
     let Json(appended) = server
         .append_section(Parameters(AppendSectionRequest {
             note: "块.md".to_string(),
-            heading: Some("块".to_string()),
+            heading: Some("正文".to_string()),
             block_id: None,
             line: None,
             content: "\n补充说明\n".to_string(),
@@ -214,7 +220,7 @@ fn append_read_and_rename_block_id_tools_work_through_server_surface() {
     let Json(read) = server
         .read_section(Parameters(ReadSectionRequest {
             note: "块.md".to_string(),
-            heading: Some("块".to_string()),
+            heading: Some("正文".to_string()),
             block_id: None,
             line: None,
         }))
@@ -246,11 +252,11 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
     fs::write(dir.path().join("歧义.md"), "# 歧义\n\n[[发动机]]\n").expect("write ambiguous ref");
 
     let Json(outline) = server
-        .get_note_outline(Parameters(ParseNoteRequest {
+        .get_note_outline(Parameters(NoteStructureRequest {
             note: "发动机.md".to_string(),
         }))
         .expect("outline");
-    assert_eq!(outline.outline[0].heading, "发动机");
+    assert_eq!(outline.outline[0].heading, "原理");
 
     let Json(tags) = server
         .get_tags(Parameters(TagsRequest {

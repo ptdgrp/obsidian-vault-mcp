@@ -18,6 +18,11 @@ fn build_outline(parsed: &ParsedNote) -> Vec<OutlineNode> {
     let mut stack: Vec<(u8, Vec<usize>)> = Vec::new();
 
     for heading in &parsed.headings {
+        if heading.level == 1 {
+            stack.clear();
+            continue;
+        }
+
         while stack
             .last()
             .is_some_and(|(level, _)| *level >= heading.level)

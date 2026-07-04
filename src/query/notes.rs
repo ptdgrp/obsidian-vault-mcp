@@ -7,8 +7,8 @@ use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::files::human_size;
 use super::{
-    ListNotesResult, NoteStatsResult, NoteSummary, ParseNoteResult, ReadNoteResult, VaultQueries,
-    find_indexed_note, read_and_parse, truncate_utf8,
+    ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
+    VaultQueries, find_indexed_note, read_and_parse, truncate_utf8,
 };
 
 const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value.";
@@ -17,12 +17,9 @@ impl VaultQueries {
     pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
         let mut notes = Vec::new();
         for file in self.vault.list_notes()? {
-            let title = read_and_parse(self, &file).ok().and_then(|note| {
-                note.parsed
-                    .headings
-                    .first()
-                    .map(|heading| heading.text.clone())
-            });
+            let title = read_and_parse(self, &file)
+                .ok()
+                .map(|note| note_title(&note.parsed, &file.relative_path));
             notes.push(NoteSummary {
                 path: file.relative_path,
                 title,
@@ -73,7 +70,7 @@ impl VaultQueries {
             .clone())
     }
 
-    pub fn parse_note_result(&self, note: &str) -> anyhow::Result<ParseNoteResult> {
+    pub fn get_note_structure(&self, note: &str) -> anyhow::Result<NoteStructureResult> {
         Ok(self.parse_note(note)?.into())
     }
 
@@ -100,6 +97,38 @@ impl VaultQueries {
         let indexed = find_indexed_note(note, &notes)?;
         Ok(indexed.file.path.clone())
     }
+}
+
+pub(super) fn note_title(note: &ParsedNote, relative_path: &str) -> String {
+    note.headings
+        .iter()
+        .find(|heading| heading.level == 1)
+        .map(|heading| heading.text.trim())
+        .filter(|title| !title.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| frontmatter_title(note))
+        .unwrap_or_else(|| pathname_title(relative_path))
+}
+
+fn frontmatter_title(note: &ParsedNote) -> Option<String> {
+    note.frontmatter
+        .as_ref()?
+        .get("title")?
+        .as_str()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn pathname_title(relative_path: &str) -> String {
+    let file_name = relative_path
+        .rsplit_once('/')
+        .map(|(_, name)| name)
+        .unwrap_or(relative_path);
+    file_name
+        .strip_suffix(".md")
+        .unwrap_or(file_name)
+        .to_string()
 }
 
 fn count_words(content: &str) -> usize {

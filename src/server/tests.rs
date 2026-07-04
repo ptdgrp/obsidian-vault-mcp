@@ -146,9 +146,9 @@ fn read_section_without_selector_lists_available_headings_and_block_ids() {
         Err(error) => error,
     };
 
-    assert!(error.contains("Available selectors in 块.md"));
-    assert!(error.contains("headings: # 块"));
-    assert!(error.contains("block_ids: ^state"));
+    assert!(error.contains("Available selectors in \"块.md\""));
+    assert!(!error.contains("headings:"));
+    assert!(error.contains("block_ids: \"^state\""));
     assert!(error.contains("retry read_section with heading, block_id, or line"));
 }
 

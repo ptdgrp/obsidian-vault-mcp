@@ -80,6 +80,26 @@ fn read_section_clamps_line_ranges_to_existing_lines() {
 }
 
 #[test]
+fn read_section_rejects_level_one_heading_without_suggesting_it() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("根章节.md"), "# 根章节\n\n正文\n").expect("write root note");
+
+    let error = queries
+        .read_section(
+            "根章节",
+            SectionSelector::Heading {
+                heading: "根章节".to_string(),
+            },
+        )
+        .expect_err("level-one heading should not be selectable");
+
+    assert_eq!(
+        error.to_string(),
+        "heading not found: \"根章节\". Note has no selectable headings; level-one headings are note titles. Use a lower-level heading, block id, or line selector."
+    );
+}
+
+#[test]
 fn read_section_accepts_markdown_heading_syntax() {
     let (_dir, queries) = fixture();
 
@@ -172,6 +192,6 @@ fn read_section_suggests_available_headings_when_heading_is_missing() {
 
     assert_eq!(
         error.to_string(),
-        "heading not found: Principl. Did you mean: Principle?"
+        "heading not found: \"Principl\". Did you mean: \"Principle\"?"
     );
 }

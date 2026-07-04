@@ -106,6 +106,35 @@ fn list_notes_ignores_hidden_paths() {
 }
 
 #[test]
+fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("标题优先.md"),
+        "---\ntitle: Frontmatter Title\n---\n# H1 Title\n\n## Section\n",
+    )
+    .expect("write h1 title note");
+    fs::write(
+        dir.path().join("仅元数据.md"),
+        "---\ntitle: Metadata Title\n---\n\n## Section\n",
+    )
+    .expect("write frontmatter title note");
+    fs::write(dir.path().join("只有路径.md"), "## Section\n").expect("write pathname note");
+
+    let notes = queries.list_notes().expect("list notes");
+    let title_for = |path: &str| {
+        notes
+            .notes
+            .iter()
+            .find(|note| note.path == path)
+            .and_then(|note| note.title.as_deref())
+    };
+
+    assert_eq!(title_for("标题优先.md"), Some("H1 Title"));
+    assert_eq!(title_for("仅元数据.md"), Some("Metadata Title"));
+    assert_eq!(title_for("只有路径.md"), Some("只有路径"));
+}
+
+#[test]
 fn parse_note_extracts_obsidian_structures_and_sections() {
     let (_dir, queries) = fixture();
     let parsed = queries.parse_note("林动").expect("parse");
@@ -122,14 +151,14 @@ fn parse_note_extracts_obsidian_structures_and_sections() {
             .section
             .as_ref()
             .map(|section| section.heading_path.clone()),
-        Some(vec!["林动".to_string()])
+        Some(vec![])
     );
 }
 
 #[test]
-fn parse_note_result_uses_compact_shared_output() {
+fn get_note_structure_uses_compact_shared_output() {
     let (_dir, queries) = fixture();
-    let result = queries.parse_note_result("林动").expect("parse result");
+    let result = queries.get_note_structure("林动").expect("parse result");
     assert_eq!(result.path, "林动.md");
     assert_eq!(result.headings[0].text, "林动");
     assert_eq!(result.headings[0].line, 10);
@@ -416,7 +445,7 @@ fn backlinks_include_source_section() {
             .section
             .as_ref()
             .map(|section| section.heading_path.clone()),
-        Some(vec!["发动机".to_string(), "原理".to_string()])
+        Some(vec!["原理".to_string()])
     );
 }
 
@@ -429,7 +458,7 @@ fn link_outputs_default_to_compact_and_support_verbose() {
         .expect("compact backlinks");
     let compact_value = serde_json::to_value(compact).expect("compact json");
     assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md#L5");
-    assert_eq!(compact_value["backlinks"][0]["section"], "发动机 > 原理");
+    assert_eq!(compact_value["backlinks"][0]["section"], "原理");
     assert!(compact_value["backlinks"][0].get("source").is_none());
     assert!(compact_value["backlinks"][0].get("snippet").is_none());
 
@@ -553,10 +582,7 @@ fn read_section_by_heading_returns_heading_scope() {
             },
         )
         .expect("read section");
-    assert_eq!(
-        result.source.section.unwrap().heading_path,
-        vec!["发动机", "原理"]
-    );
+    assert_eq!(result.source.section.unwrap().heading_path, vec!["原理"]);
     assert!(result.content.contains("链接到 [[林动]]"));
 }
 
@@ -566,16 +592,12 @@ fn note_outline_returns_heading_tree() {
     let result = queries.get_note_outline("发动机.md").expect("outline");
     assert_eq!(result.note, "发动机.md");
     assert_eq!(result.outline.len(), 1);
-    assert_eq!(result.outline[0].heading, "发动机");
-    assert_eq!(result.outline[0].children[0].heading, "原理");
-    assert_eq!(
-        result.outline[0].children[0].heading_path,
-        vec!["发动机".to_string(), "原理".to_string()]
-    );
+    assert_eq!(result.outline[0].heading, "原理");
+    assert_eq!(result.outline[0].heading_path, vec!["原理".to_string()]);
     let value = serde_json::to_value(&result).expect("outline json");
     assert!(value["outline"][0].get("heading_anchor").is_none());
     assert!(
-        value["outline"][0]["children"][0]["source"]["section"]
+        value["outline"][0]["source"]["section"]
             .get("heading_anchor")
             .is_none()
     );
@@ -597,7 +619,7 @@ fn regex_search_supports_path_glob_and_sections() {
             .section
             .as_ref()
             .map(|section| section.heading_path.clone()),
-        Some(vec!["第一章".to_string(), "代偿".to_string()])
+        Some(vec!["代偿".to_string()])
     );
 }
 

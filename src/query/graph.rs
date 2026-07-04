@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::resolver::{RefResolver, ResolveResult};
 
+use super::notes::note_title;
 use super::{
     AmbiguousLinksResult, GraphEdge, GraphNeighborhoodDirection, GraphNeighborhoodOptions,
     GraphNode, LinkEvidence, UnresolvedLinksResult, VaultGraphResult, VaultQueries, read_snippet,
@@ -160,11 +161,7 @@ fn graph_nodes(notes: &[crate::resolver::IndexedNote]) -> Vec<GraphNode> {
         .iter()
         .map(|note| GraphNode {
             path: note.file.relative_path.clone(),
-            title: note
-                .parsed
-                .headings
-                .first()
-                .map(|heading| heading.text.clone()),
+            title: Some(note_title(&note.parsed, &note.file.relative_path)),
             tags: note
                 .parsed
                 .tags

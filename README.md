@@ -38,7 +38,7 @@ cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files --max_files 100
 cargo run -- --vault /path/to/vault --parse-cache-ttl-secs 600 --parse-cache-max-entries 1024 serve
 cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
-cargo run -- --vault /path/to/vault parse_note "人物/林动.md"
+cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
@@ -132,9 +132,10 @@ For example, this filesystem shape:
 is returned as file entries for `资料库/技术设定/README.md` and
 `资料库/技术设定/001-发动机.md`. The path carries the directory context.
 
-Use `include_readme_outline: true` only when a README's heading list is needed;
-otherwise note entries include just their first heading. The default hides
-attachment entries to keep tool output small.
+Use `include_readme_outline: true` only when a README's selectable non-H1
+heading list is needed; otherwise note entries include just their display title
+(H1, frontmatter title, then pathname). The default hides attachment entries to
+keep tool output small.
 
 ## P0 Tools
 
@@ -143,7 +144,7 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
 - `list_notes`
 - `list_vault_files`
 - `read_note`
-- `parse_note`
+- `get_note_structure`
 - `get_note_outline`
 - `search_text`
 - `search_regex`

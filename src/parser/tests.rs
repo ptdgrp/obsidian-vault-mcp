@@ -62,10 +62,7 @@ fn parse_headings_preserves_visible_inline_text() {
         parsed.headings[0].text,
         "Bold and emphasis and Link and mark"
     );
-    assert_eq!(
-        parsed.headings[0].path,
-        vec!["Bold and emphasis and Link and mark"]
-    );
+    assert!(parsed.headings[0].path.is_empty());
 }
 
 #[test]

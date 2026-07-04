@@ -29,7 +29,7 @@ cargo test
 cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files
 cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
-cargo run -- --vault /path/to/vault parse_note "人物/林动.md"
+cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
@@ -134,7 +134,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 资料库/技术设定/001-发动机.md
 ```
 
-路径本身携带目录上下文。`README.md` 不会被提升成目录说明，而是作为普通 Markdown 文件返回；默认只带首个标题。需要 README 标题列表时，使用 `include_readme_outline: true`。
+路径本身携带目录上下文。`README.md` 不会被提升成目录说明，而是作为普通 Markdown 文件返回；默认只带展示标题（H1、frontmatter title、路径名）。需要 README 的可选非 H1 标题列表时，使用 `include_readme_outline: true`。
 
 ## 工具列表
 
@@ -143,7 +143,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `list_notes`：列出可见 Markdown note、首个标题和可读大小。
 - `list_vault_files`：返回可见文件路径清单。
 - `read_note`：读取一个 Markdown note 的受限前缀。
-- `parse_note`：解析 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑路径定位。
+- `get_note_structure`：返回 note 的标题、本地链接、embed、tag、block id、frontmatter 和紧凑路径定位。
 - `get_note_outline`：返回一个 note 的标题树。
 - `read_section`：读取一个标题、block id 或 `#L1-L20` 行引用。
 - `append_section`：在选中章节结尾追加内容。

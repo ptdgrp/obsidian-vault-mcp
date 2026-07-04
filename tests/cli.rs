@@ -43,6 +43,28 @@ fn resolve_ref_command_returns_machine_readable_json() {
 }
 
 #[test]
+fn get_note_structure_command_returns_machine_readable_json() {
+    let dir = tempdir().expect("tempdir");
+    write_note(
+        &dir,
+        "发动机.md",
+        "# 发动机\n\n## 原理\n\n链接到 [[林动]]\n",
+    );
+
+    let output = run_cli(&dir, &["get-note-structure", "发动机.md"]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["path"], "发动机.md");
+    assert_eq!(value["headings"][0]["text"], "发动机");
+    assert_eq!(value["links"][0]["target"], "林动");
+}
+
+#[test]
 fn rename_heading_command_applies_changes_when_dry_run_disabled() {
     let dir = tempdir().expect("tempdir");
     write_note(
@@ -109,7 +131,7 @@ fn read_section_without_selector_lists_available_selectors() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Available selectors in 块.md"));
-    assert!(stderr.contains("headings: # 块"));
-    assert!(stderr.contains("block_ids: ^state"));
+    assert!(stderr.contains("Available selectors in \"块.md\""));
+    assert!(!stderr.contains("headings:"));
+    assert!(stderr.contains("block_ids: \"^state\""));
 }

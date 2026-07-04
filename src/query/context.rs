@@ -1,6 +1,7 @@
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::files::human_size;
+use super::notes::note_title;
 use super::{ContextGroup, ContextItem, ContextResult, VaultQueries, find_indexed_note};
 
 impl VaultQueries {
@@ -104,11 +105,7 @@ impl VaultQueries {
 fn context_item(note: &IndexedNote) -> ContextItem {
     ContextItem {
         path: note.file.relative_path.clone(),
-        title: note
-            .parsed
-            .headings
-            .first()
-            .map(|heading| heading.text.clone()),
+        title: Some(note_title(&note.parsed, &note.file.relative_path)),
         size: human_size(note.file.size_bytes),
     }
 }

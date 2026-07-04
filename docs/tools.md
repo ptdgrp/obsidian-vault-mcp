@@ -19,16 +19,16 @@ server supports structural section edits as well as read operations.
 | `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_categories` | Locate selected folder-derived categories and return matching Markdown note files |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
-| `get_note_outline` | Return one note's heading tree without body text; use before selecting a section |
+| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text; use before selecting a section |
 | `get_note_stats` | Return one note's word count, character count, and total backlink count |
+| `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
 | `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
 | `list_categories` | List unique folder-derived category names; use get_categories to locate selected categories |
-| `list_notes` | List visible Markdown notes with path, first heading title, and human-readable size |
+| `list_notes` | List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname. |
 | `list_tags` | List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
-| `parse_note` | Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_bytes controls this request's truncation boundary. |
 | `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
@@ -445,7 +445,7 @@ Nested types:
 
 ## 🔧 `get_note_outline`
 
-Return one note's heading tree without body text; use before selecting a section
+Return one note's selectable non-H1 heading tree without body text; use before selecting a section
 
 Input:
 
@@ -508,6 +508,92 @@ Output:
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `note` | `string` | yes | Vault-relative resolved note path. |
 | `word_count` | `integer` | yes | Word count computed from the note's Markdown source text. |
+
+
+## 🔧 `get_note_structure`
+
+Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `blocks` | `CompactBlockInfo[]` | no |  |
+| `embeds` | `CompactEmbedInfo[]` | no |  |
+| `frontmatter` | `unknown` | no |  |
+| `headings` | `CompactHeadingInfo[]` | no |  |
+| `links` | `CompactLinkInfo[]` | no |  |
+| `path` | `string` | yes |  |
+| `tags` | `CompactTagInfo[]` | no |  |
+
+Nested types:
+
+### `CompactBlockInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes |  |
+| `line` | `integer` | yes |  |
+| `section` | `string \| null` | no |  |
+
+### `CompactEmbedInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `line` | `integer` | yes |  |
+| `reference` | `ReferenceInfo \| null` | no |  |
+| `section` | `string \| null` | no |  |
+| `target` | `string` | yes |  |
+
+### `CompactHeadingInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `level` | `integer` | yes |  |
+| `line` | `integer` | yes |  |
+| `path` | `string[]` | no |  |
+| `text` | `string` | yes |  |
+
+### `CompactLinkInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `alias` | `string \| null` | no |  |
+| `kind` | `LinkKind` | no |  |
+| `line` | `integer` | yes |  |
+| `reference` | `ReferenceInfo \| null` | no |  |
+| `section` | `string \| null` | no |  |
+| `target` | `string` | yes |  |
+
+### `CompactTagInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `line` | `integer` | yes |  |
+| `section` | `string \| null` | no |  |
+| `tag` | `string` | yes |  |
+
+### `LinkKind`
+
+| Value |
+| --- |
+| `wikilink` |
+| `markdown` |
+
+### `ReferenceInfo`
+
+| Variant | Fields |
+| --- | --- |
+| `heading` | `value: string` |
+| `multi_heading` | `value: string[]` |
+| `block_id` | `value: string` |
 
 
 ## 🔧 `get_outlinks`
@@ -721,7 +807,7 @@ Output:
 
 ## 🔧 `list_notes`
 
-List visible Markdown notes with path, first heading title, and human-readable size
+List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname.
 
 Input:
 
@@ -785,7 +871,7 @@ Input:
 | --- | --- | --- | --- |
 | `include_attachments` | `boolean` | no | Include non-Markdown files such as images. |
 | `include_files` | `boolean` | no | Include Markdown notes. |
-| `include_readme_outline` | `boolean` | no | Include heading titles for README.md files. |
+| `include_readme_outline` | `boolean` | no | Include selectable non-H1 heading titles for README.md files. |
 | `max_files` | `integer` | no | Maximum number of visible file entries returned. |
 
 
@@ -807,10 +893,10 @@ One visible file in the vault.
 | --- | --- | --- | --- |
 | `kind` | `VaultFileKind` | yes | Markdown note or attachment. |
 | `modified` | `string \| null` | no | Last modified time in the current system timezone. |
-| `outline` | `array \| null` | no | Flat list of README heading titles when include_readme_outline is true. |
+| `outline` | `array \| null` | no | Flat list of README selectable non-H1 heading titles when include_readme_outline is true. |
 | `path` | `string` | yes | Vault-relative file path. |
 | `size` | `string` | yes | Human-readable file size using binary units. |
-| `title` | `string \| null` | no | First Markdown heading for note files. |
+| `title` | `string \| null` | no | Display title for note files. Priority: first level-one heading, frontmatter title, then pathname. |
 
 ### `VaultFileKind`
 
@@ -828,92 +914,6 @@ Aggregate counts for the returned file list.
 | `directories` | `integer` | yes | Unique parent directories containing returned files, including root when applicable. |
 | `empty_directories` | `integer` | yes | Always zero for the flat file list. |
 | `notes` | `integer` | yes | Markdown files. |
-
-
-## 🔧 `parse_note`
-
-Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter
-
-Input:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `blocks` | `CompactBlockInfo[]` | no |  |
-| `embeds` | `CompactEmbedInfo[]` | no |  |
-| `frontmatter` | `unknown` | no |  |
-| `headings` | `CompactHeadingInfo[]` | no |  |
-| `links` | `CompactLinkInfo[]` | no |  |
-| `path` | `string` | yes |  |
-| `tags` | `CompactTagInfo[]` | no |  |
-
-Nested types:
-
-### `CompactBlockInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `id` | `string` | yes |  |
-| `line` | `integer` | yes |  |
-| `section` | `string \| null` | no |  |
-
-### `CompactEmbedInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `line` | `integer` | yes |  |
-| `reference` | `ReferenceInfo \| null` | no |  |
-| `section` | `string \| null` | no |  |
-| `target` | `string` | yes |  |
-
-### `CompactHeadingInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `level` | `integer` | yes |  |
-| `line` | `integer` | yes |  |
-| `path` | `string[]` | no |  |
-| `text` | `string` | yes |  |
-
-### `CompactLinkInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `kind` | `LinkKind` | no |  |
-| `line` | `integer` | yes |  |
-| `reference` | `ReferenceInfo \| null` | no |  |
-| `section` | `string \| null` | no |  |
-| `target` | `string` | yes |  |
-
-### `CompactTagInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `line` | `integer` | yes |  |
-| `section` | `string \| null` | no |  |
-| `tag` | `string` | yes |  |
-
-### `LinkKind`
-
-| Value |
-| --- |
-| `wikilink` |
-| `markdown` |
-
-### `ReferenceInfo`
-
-| Variant | Fields |
-| --- | --- |
-| `heading` | `value: string` |
-| `multi_heading` | `value: string[]` |
-| `block_id` | `value: string` |
 
 
 ## 🔧 `query_frontmatter`

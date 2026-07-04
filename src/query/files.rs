@@ -8,6 +8,7 @@ use ignore::WalkBuilder;
 
 use crate::parser::ParsedNote;
 
+use super::notes::note_title;
 use super::{
     VaultFile, VaultFileKind, VaultFilesOptions, VaultFilesResult, VaultFilesSummary, VaultQueries,
 };
@@ -98,6 +99,9 @@ impl VaultQueries {
         let parsed = is_note
             .then(|| self.parse_file_cached(&path, relative_path.clone()).ok())
             .flatten();
+        let title = parsed
+            .as_deref()
+            .map(|note| note_title(note, relative_path.as_str()));
         Ok(VaultFile {
             path: relative_path,
             kind: if is_note {
@@ -105,7 +109,7 @@ impl VaultQueries {
             } else {
                 VaultFileKind::Attachment
             },
-            title: parsed.as_deref().and_then(note_title),
+            title,
             outline: options
                 .include_readme_outline
                 .then(|| parsed.as_deref().map(note_outline).unwrap_or_default())
@@ -155,13 +159,10 @@ fn compile_file_globs(patterns: &[String]) -> anyhow::Result<GlobSet> {
     Ok(builder.build()?)
 }
 
-fn note_title(note: &ParsedNote) -> Option<String> {
-    note.headings.first().map(|heading| heading.text.clone())
-}
-
 fn note_outline(note: &ParsedNote) -> Vec<String> {
     note.headings
         .iter()
+        .filter(|heading| heading.level != 1)
         .map(|heading| heading.text.clone())
         .collect()
 }

@@ -4,7 +4,7 @@ use crate::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
         ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
-        OutlinksOutput, ParseNoteResult, ReadNoteResult, ReadSectionResult, SearchRegexResult,
+        NoteStructureResult, OutlinksOutput, ReadNoteResult, ReadSectionResult, SearchRegexResult,
         SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
         VaultFilesResult, VaultGraphResult, VaultQueries,
     },
@@ -85,8 +85,8 @@ pub struct ReadNoteRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for parsing one Markdown note.
-pub struct ParseNoteRequest {
+/// Input for inspecting one Markdown note's structure.
+pub struct NoteStructureRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
 }
@@ -364,7 +364,7 @@ fn default_dry_run() -> bool {
 #[tool_router]
 impl ObsidianVaultMcp {
     #[tool(
-        description = "List visible Markdown notes with path, first heading title, and human-readable size"
+        description = "List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname."
     )]
     fn list_notes(&self, _: Parameters<EmptyRequest>) -> Result<Json<ListNotesResult>, String> {
         run_tool("list_notes", || self.queries().list_notes())
@@ -381,13 +381,15 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Parse one Markdown note into compact headings, local links, embeds, tags, block ids, and frontmatter"
+        description = "Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter"
     )]
-    fn parse_note(
+    fn get_note_structure(
         &self,
-        Parameters(ParseNoteRequest { note }): Parameters<ParseNoteRequest>,
-    ) -> Result<Json<ParseNoteResult>, String> {
-        run_tool("parse_note", || self.queries().parse_note_result(&note))
+        Parameters(NoteStructureRequest { note }): Parameters<NoteStructureRequest>,
+    ) -> Result<Json<NoteStructureResult>, String> {
+        run_tool("get_note_structure", || {
+            self.queries().get_note_structure(&note)
+        })
     }
 
     #[tool(description = "Return one note's word count, character count, and total backlink count")]
@@ -399,11 +401,11 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Return one note's heading tree without body text; use before selecting a section"
+        description = "Return one note's selectable non-H1 heading tree without body text; use before selecting a section"
     )]
     fn get_note_outline(
         &self,
-        Parameters(ParseNoteRequest { note }): Parameters<ParseNoteRequest>,
+        Parameters(NoteStructureRequest { note }): Parameters<NoteStructureRequest>,
     ) -> Result<Json<NoteOutlineResult>, String> {
         run_tool("get_note_outline", || {
             self.queries().get_note_outline(&note)

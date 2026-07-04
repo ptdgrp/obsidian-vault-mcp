@@ -118,10 +118,10 @@ enum Command {
     /// Read one Markdown note body
     ReadNote { note: String },
 
-    /// Parse one note and print extracted Obsidian structures
-    ParseNote { note: String },
+    /// Print one note's extracted Obsidian structure
+    GetNoteStructure { note: String },
 
-    /// Print one note's heading tree
+    /// Print one note's selectable non-H1 heading tree
     GetNoteOutline { note: String },
 
     /// Return one note's word count, character count, and total backlink count
@@ -398,8 +398,8 @@ async fn main() -> anyhow::Result<()> {
             Command::ReadNote { note } => {
                 print_value(&queries.read_note(&note, None)?)?;
             }
-            Command::ParseNote { note } => {
-                print_value(&queries.parse_note_result(&note)?)?;
+            Command::GetNoteStructure { note } => {
+                print_value(&queries.get_note_structure(&note)?)?;
             }
             Command::GetNoteOutline { note } => {
                 print_value(&queries.get_note_outline(&note)?)?;

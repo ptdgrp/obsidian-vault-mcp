@@ -54,7 +54,7 @@ pub(crate) fn section_source(
             let Some(current) = parsed
                 .headings
                 .iter()
-                .skip_while(|it| it.level == 1)
+                .filter(|it| it.level != 1)
                 .find(|candidate| requested_heading.matches(candidate))
             else {
                 return Err(anyhow::anyhow!(
@@ -182,7 +182,13 @@ fn heading_not_found_message(heading: &str, parsed: &ParsedNote) -> String {
     let suggestions = closest_heading_suggestions(heading, parsed);
 
     if suggestions.is_empty() {
-        format!("heading not found: {heading:?}. Note has no headings.")
+        if parsed.headings.iter().any(|it| it.level == 1) {
+            format!(
+                "heading not found: {heading:?}. Note has no selectable headings; level-one headings are note titles. Use a lower-level heading, block id, or line selector."
+            )
+        } else {
+            format!("heading not found: {heading:?}. Note has no headings.")
+        }
     } else {
         format!(
             "heading not found: {heading:?}. Did you mean: {}?",
@@ -204,7 +210,7 @@ fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String
     let mut best_distance = usize::MAX;
     let mut suggestions = Vec::new();
 
-    for candidate in &parsed.headings {
+    for candidate in parsed.headings.iter().filter(|it| it.level != 1) {
         let distance = edit_distance(
             requested_heading.comparable_text,
             comparable_heading_text(candidate.text.as_str()),
@@ -258,7 +264,7 @@ fn section_selector_hint_message(relative_path: &str, parsed: &ParsedNote) -> St
     let headings = parsed
         .headings
         .iter()
-        .skip_while(|it| it.level == 1)
+        .filter(|it| it.level != 1)
         .take(10)
         .map(|heading| {
             format!(
