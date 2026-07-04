@@ -604,6 +604,41 @@ fn note_outline_returns_heading_tree() {
 }
 
 #[test]
+fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("多根.md"),
+        "# 第一标题\n\n## A\n\n### A1\n\n# 第二标题\n\n## B\n\n### B1\n\n#### B2\n",
+    )
+    .expect("write multi-root note");
+
+    let result = queries.get_note_outline("多根.md").expect("outline");
+
+    assert_eq!(result.outline.len(), 2);
+    assert_eq!(result.outline[0].heading, "A");
+    assert_eq!(result.outline[0].heading_path, vec!["A"]);
+    assert_eq!(result.outline[0].children[0].heading, "A1");
+    assert_eq!(result.outline[0].children[0].heading_path, vec!["A", "A1"]);
+    assert_eq!(result.outline[1].heading, "B");
+    assert_eq!(result.outline[1].heading_path, vec!["B"]);
+    assert_eq!(result.outline[1].children[0].heading, "B1");
+    assert_eq!(
+        result.outline[1].children[0].children[0].heading_path,
+        vec!["B", "B1", "B2"]
+    );
+}
+
+#[test]
+fn note_outline_is_empty_when_note_only_has_h1_titles() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("只有标题.md"), "# 标题一\n\n# 标题二\n").expect("write h1 note");
+
+    let result = queries.get_note_outline("只有标题.md").expect("outline");
+
+    assert!(result.outline.is_empty());
+}
+
+#[test]
 fn regex_search_supports_path_glob_and_sections() {
     let (_dir, queries) = fixture();
     let result = queries

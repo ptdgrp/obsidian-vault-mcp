@@ -13,6 +13,22 @@ fn fixture(config: VaultConfig) -> (tempfile::TempDir, Vault) {
 }
 
 #[test]
+fn open_rejects_missing_or_file_roots() {
+    let dir = tempdir().expect("tempdir");
+    let missing = Utf8PathBuf::from_path_buf(dir.path().join("missing")).expect("utf8 path");
+    let error =
+        Vault::open(missing.clone(), VaultConfig::default()).expect_err("missing root should fail");
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing.to_string()));
+
+    let file = dir.path().join("vault.md");
+    fs::write(&file, "# not a directory\n").expect("write file root");
+    let file = Utf8PathBuf::from_path_buf(file).expect("utf8 path");
+    let error =
+        Vault::open(file.clone(), VaultConfig::default()).expect_err("file root should fail");
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file.to_string()));
+}
+
+#[test]
 fn read_note_appends_markdown_extension_and_enforces_size_limit() {
     let (dir, vault) = fixture(VaultConfig {
         max_note_bytes: 4,
@@ -55,6 +71,20 @@ fn write_note_atomic_rejects_outside_paths_and_persists_inside_vault() {
 }
 
 #[test]
+fn write_note_atomic_reports_missing_parent_directory() {
+    let (_dir, vault) = fixture(VaultConfig::default());
+    let missing_parent = vault
+        .resolve_path("missing/笔记.md")
+        .expect("resolve missing parent path");
+
+    let error = vault
+        .write_note_atomic(&missing_parent, "# 笔记\n")
+        .expect_err("missing parent should fail");
+
+    assert!(matches!(error, VaultError::Io(_)));
+}
+
+#[test]
 fn list_notes_honors_include_globs_and_reports_invalid_patterns() {
     let (dir, mut vault) = fixture(VaultConfig::default());
     fs::create_dir_all(dir.path().join("正文")).expect("chapter dir");
@@ -89,6 +119,21 @@ fn resolve_path_rejects_absolute_paths_and_relative_path_uses_vault_relative_for
 }
 
 #[test]
+fn resolve_path_normalizes_dot_segments_and_rejects_parent_escape() {
+    let (_dir, vault) = fixture(VaultConfig::default());
+
+    let normalized = vault
+        .resolve_path("正文/../设定/./术语.md")
+        .expect("normalize path");
+    assert_eq!(vault.relative_path(&normalized), "设定/术语.md");
+
+    let error = vault
+        .resolve_path("正文/../../outside.md")
+        .expect_err("parent traversal should fail");
+    assert!(matches!(error, VaultError::PathEscapesVault));
+}
+
+#[test]
 fn list_notes_honors_exclude_globs_and_natural_sorting() {
     let (dir, mut vault) = fixture(VaultConfig::default());
     fs::write(dir.path().join("10.md"), "# ten\n").expect("write ten");
@@ -103,4 +148,28 @@ fn list_notes_honors_exclude_globs_and_natural_sorting() {
         .collect::<Vec<_>>();
 
     assert_eq!(paths, vec!["2.md".to_string(), "10.md".to_string()]);
+}
+
+#[test]
+fn list_notes_ignores_default_hidden_and_generated_paths() {
+    let (dir, vault) = fixture(VaultConfig::default());
+    fs::write(dir.path().join("visible.md"), "# visible\n").expect("write visible");
+    fs::write(dir.path().join("attachment.txt"), "not markdown").expect("write non-md");
+    fs::write(dir.path().join(".hidden.md"), "# hidden\n").expect("write hidden");
+    fs::create_dir_all(dir.path().join("target")).expect("target dir");
+    fs::write(dir.path().join("target/build.md"), "# build\n").expect("write target");
+    fs::create_dir_all(dir.path().join("nested/target")).expect("nested target dir");
+    fs::write(dir.path().join("nested/target/build.md"), "# build\n").expect("write nested target");
+    fs::create_dir_all(dir.path().join("nested/.cache")).expect("cache dir");
+    fs::write(dir.path().join("nested/.cache/cache.md"), "# cache\n").expect("write cache");
+    fs::create_dir_all(dir.path().join("nested/node_modules")).expect("node_modules dir");
+    fs::write(dir.path().join("nested/node_modules/pkg.md"), "# pkg\n").expect("write package");
+
+    let notes = vault.list_notes().expect("list notes");
+    let paths = notes
+        .into_iter()
+        .map(|note| note.relative_path)
+        .collect::<Vec<_>>();
+
+    assert_eq!(paths, vec!["visible.md".to_string()]);
 }
