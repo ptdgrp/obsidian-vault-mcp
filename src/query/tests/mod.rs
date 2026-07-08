@@ -182,11 +182,35 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
     let (_dir, queries) = fixture();
     let content = "---\naliases:\n  - 动林\ntags:\n  - 主角\n  - 状态/身体\nphase: active\narc: 引擎线\n---\n# 林动\n\n身体 #状态/身体\n\n[[发动机#原理|发动机]]\n\n[[缺失设定]]\n";
 
-    let result = queries.get_note_stats("林动").expect("note stats");
+    let result = queries
+        .get_note_stats("林动", WordCountMode::Source)
+        .expect("note stats");
     assert_eq!(result.note, "林动.md");
+    assert_eq!(result.word_count_mode, WordCountMode::Source);
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
     assert_eq!(result.backlink_count, 1);
+}
+
+#[test]
+fn get_note_stats_visible_mode_ignores_markdown_metadata_and_comments() {
+    let (dir, queries) = fixture();
+    std::fs::write(
+        dir.path().join("visible.md"),
+        "---\ntitle: Hidden Title\nalias: 隐藏\n---\n# Visible Title\n\nBody **strong** [[Target Note|Alias Text]] [Markdown Text](https://example.com).\n\n%% hidden obsidian comment %%\n<!-- hidden markdown comment -->\n",
+    )
+    .expect("write visible note");
+
+    let source = queries
+        .get_note_stats("visible.md", WordCountMode::Source)
+        .expect("source stats");
+    let visible = queries
+        .get_note_stats("visible.md", WordCountMode::Visible)
+        .expect("visible stats");
+
+    assert_eq!(visible.word_count_mode, WordCountMode::Visible);
+    assert_eq!(visible.word_count, 8);
+    assert!(source.word_count > visible.word_count);
 }
 
 #[test]
@@ -194,8 +218,21 @@ fn get_note_stats_treats_hyphenated_ascii_sequences_as_one_word() {
     let (dir, queries) = fixture();
     std::fs::write(dir.path().join("hyphen.md"), "foo-bar baz\n").expect("write hyphen note");
 
-    let result = queries.get_note_stats("hyphen.md").expect("note stats");
+    let result = queries
+        .get_note_stats("hyphen.md", WordCountMode::Source)
+        .expect("note stats");
     assert_eq!(result.word_count, 2);
+}
+
+#[test]
+fn note_lookup_ignores_numeric_sort_prefix_when_no_exact_note_exists() {
+    let (dir, queries) = fixture();
+    std::fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n\n正文\n")
+        .expect("write numbered note");
+
+    let result = queries.read_note("排序标题", None).expect("read note");
+
+    assert_eq!(result.path, "001-排序标题.md");
 }
 
 #[test]

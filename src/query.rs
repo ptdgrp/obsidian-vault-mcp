@@ -15,6 +15,7 @@ mod tests;
 use std::{borrow::Cow, fs, sync::Arc};
 
 use camino::Utf8Path;
+use clap::ValueEnum;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
@@ -57,12 +58,26 @@ pub struct ReadNoteResult {
 pub struct NoteStatsResult {
     /// Vault-relative resolved note path.
     pub note: String,
-    /// Word count computed from the note's Markdown source text.
+    /// Counting strategy used for `word_count`.
+    pub word_count_mode: WordCountMode,
+    /// Word count computed with `word_count_mode`.
     pub word_count: usize,
     /// Character count computed from the note's Markdown source text.
     pub character_count: usize,
     /// Total number of inbound links to this note across the visible vault.
     pub backlink_count: usize,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq, ValueEnum,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WordCountMode {
+    /// Count words from the raw Markdown source text.
+    #[default]
+    Source,
+    /// Count words from visible Markdown/Obsidian note text.
+    Visible,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

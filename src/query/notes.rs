@@ -8,7 +8,7 @@ use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 use super::files::human_size;
 use super::{
     ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
-    VaultQueries, find_indexed_note, read_and_parse, truncate_utf8,
+    VaultQueries, WordCountMode, find_indexed_note, read_and_parse, truncate_utf8,
 };
 
 const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value.";
@@ -50,13 +50,22 @@ impl VaultQueries {
         })
     }
 
-    pub fn get_note_stats(&self, note: &str) -> anyhow::Result<NoteStatsResult> {
+    pub fn get_note_stats(
+        &self,
+        note: &str,
+        word_count_mode: WordCountMode,
+    ) -> anyhow::Result<NoteStatsResult> {
         let path = self.resolve_note_path(note)?;
         let content = fs::read_to_string(&path)?;
         let note = self.vault.relative_path(&path);
+        let word_count = match word_count_mode {
+            WordCountMode::Source => count_words(&content),
+            WordCountMode::Visible => count_words(&visible_markdown_text(&content)),
+        };
         Ok(NoteStatsResult {
             note: note.clone(),
-            word_count: count_words(&content),
+            word_count_mode,
+            word_count,
             character_count: content.chars().count(),
             backlink_count: self.backlink_count_for_path(&note)?,
         })
@@ -155,6 +164,99 @@ fn count_words(content: &str) -> usize {
     }
 
     count
+}
+
+fn visible_markdown_text(content: &str) -> String {
+    let content = strip_frontmatter(content);
+    let without_comments = strip_markdown_comments(content);
+    visible_link_text(&without_comments)
+}
+
+fn strip_frontmatter(content: &str) -> &str {
+    let Some(rest) = content.strip_prefix("---\n") else {
+        return content;
+    };
+    let Some(end) = rest.find("\n---") else {
+        return content;
+    };
+    let after_marker = &rest[end + "\n---".len()..];
+    after_marker.strip_prefix('\n').unwrap_or(after_marker)
+}
+
+fn strip_markdown_comments(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut index = 0usize;
+    while index < content.len() {
+        let rest = &content[index..];
+        if rest.starts_with("%%") {
+            if let Some(end) = rest[2..].find("%%") {
+                index += 2 + end + 2;
+            } else {
+                break;
+            }
+        } else if rest.starts_with("<!--") {
+            if let Some(end) = rest[4..].find("-->") {
+                index += 4 + end + 3;
+            } else {
+                break;
+            }
+        } else if let Some(ch) = rest.chars().next() {
+            out.push(ch);
+            index += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+fn visible_link_text(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut index = 0usize;
+    while index < content.len() {
+        let rest = &content[index..];
+        if rest.starts_with("![[") || rest.starts_with("[[") {
+            let offset = if rest.starts_with("![[") { 3 } else { 2 };
+            if let Some(end) = rest[offset..].find("]]") {
+                let body = &rest[offset..offset + end];
+                out.push_str(obsidian_link_label(body));
+                out.push(' ');
+                index += offset + end + 2;
+                continue;
+            }
+        }
+        if rest.starts_with("![") || rest.starts_with('[') {
+            let offset = if rest.starts_with("![") { 2 } else { 1 };
+            if let Some(label_end) = rest[offset..].find(']') {
+                let after_label = offset + label_end + 1;
+                if rest[after_label..].starts_with('(') {
+                    if let Some(url_end) = rest[after_label + 1..].find(')') {
+                        out.push_str(&rest[offset..offset + label_end]);
+                        out.push(' ');
+                        index += after_label + 1 + url_end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        if let Some(ch) = rest.chars().next() {
+            out.push(ch);
+            index += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+fn obsidian_link_label(body: &str) -> &str {
+    body.rsplit_once('|')
+        .map(|(_, alias)| alias)
+        .unwrap_or_else(|| {
+            body.split_once('#')
+                .map(|(target, _)| target)
+                .unwrap_or(body)
+        })
 }
 
 fn is_cjk_character(ch: char) -> bool {

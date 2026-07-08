@@ -452,6 +452,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `word_count_mode` | `"source" \| "visible"` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
 
 
 Output:
@@ -498,6 +499,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `word_count_mode` | `"source" \| "visible"` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
 
 
 Output:
@@ -507,7 +509,8 @@ Output:
 | `backlink_count` | `integer` | yes | Total number of inbound links to this note across the visible vault. |
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `note` | `string` | yes | Vault-relative resolved note path. |
-| `word_count` | `integer` | yes | Word count computed from the note's Markdown source text. |
+| `word_count` | `integer` | yes | Word count computed with `word_count_mode`. |
+| `word_count_mode` | `"source" \| "visible"` | yes | Counting strategy used for `word_count`. |
 
 
 ## 🔧 `get_note_structure`
@@ -1280,5 +1283,3 @@ Nested types:
 | --- | --- | --- | --- |
 | `snippet` | `string` | yes | Short preview text. Use read_section for full evidence. |
 | `source` | `SearchSource` | yes | Lightweight source for LLM navigation. Byte offsets are intentionally omitted. |
-
-

@@ -125,7 +125,11 @@ enum Command {
     GetNoteOutline { note: String },
 
     /// Return one note's word count, character count, and total backlink count
-    GetNoteStats { note: String },
+    GetNoteStats {
+        note: String,
+        #[arg(long, value_enum, default_value_t = crate::query::WordCountMode::Source)]
+        word_count_mode: crate::query::WordCountMode,
+    },
 
     /// Print a gitignore-aware flat list of visible vault files
     ListVaultFiles {
@@ -404,8 +408,11 @@ async fn main() -> anyhow::Result<()> {
             Command::GetNoteOutline { note } => {
                 print_value(&queries.get_note_outline(&note)?)?;
             }
-            Command::GetNoteStats { note } => {
-                print_value(&queries.get_note_stats(&note)?)?;
+            Command::GetNoteStats {
+                note,
+                word_count_mode,
+            } => {
+                print_value(&queries.get_note_stats(&note, word_count_mode)?)?;
             }
             Command::ListVaultFiles {
                 include_files,

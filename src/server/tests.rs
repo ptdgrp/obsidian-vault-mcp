@@ -225,6 +225,7 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
     let Json(result) = server
         .get_note_stats(Parameters(NoteStatsRequest {
             note: "林动.md".to_string(),
+            word_count_mode: Default::default(),
         }))
         .expect("get note stats");
 

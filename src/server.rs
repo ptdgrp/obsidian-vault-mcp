@@ -6,7 +6,7 @@ use crate::{
         ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
         NoteStructureResult, OutlinksOutput, ReadNoteResult, ReadSectionResult, SearchRegexResult,
         SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultGraphResult, VaultQueries,
+        VaultFilesResult, VaultGraphResult, VaultQueries, WordCountMode,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -95,6 +95,9 @@ pub struct NoteStructureRequest {
 pub struct NoteStatsRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
+    /// Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts.
+    #[serde(default)]
+    pub word_count_mode: WordCountMode,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -395,9 +398,14 @@ impl ObsidianVaultMcp {
     #[tool(description = "Return one note's word count, character count, and total backlink count")]
     fn get_note_stats(
         &self,
-        Parameters(NoteStatsRequest { note }): Parameters<NoteStatsRequest>,
+        Parameters(NoteStatsRequest {
+            note,
+            word_count_mode,
+        }): Parameters<NoteStatsRequest>,
     ) -> Result<Json<NoteStatsResult>, String> {
-        run_tool("get_note_stats", || self.queries().get_note_stats(&note))
+        run_tool("get_note_stats", || {
+            self.queries().get_note_stats(&note, word_count_mode)
+        })
     }
 
     #[tool(
