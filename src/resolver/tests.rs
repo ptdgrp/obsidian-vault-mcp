@@ -85,3 +85,188 @@ fn link_matches_falls_back_to_normalized_path_comparison() {
     assert!(RefResolver::link_matches("林动", "林动.md", &notes));
     assert!(!RefResolver::link_matches("未知", "林动.md", &notes));
 }
+
+#[test]
+fn resolve_matches_numeric_prefix_stems_after_exact_stem() {
+    let (dir, mut notes) = fixture();
+    fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n").expect("write numbered note");
+    let file = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault")
+    .list_notes()
+    .expect("list notes")
+    .into_iter()
+    .find(|file| file.relative_path == "001-排序标题.md")
+    .expect("numbered file");
+    let content = fs::read_to_string(&file.path).expect("read note");
+    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    notes.push(IndexedNote { file, parsed });
+
+    let result = RefResolver::resolve("排序标题", &notes);
+
+    match result {
+        ResolveResult::Resolved { path, .. } => assert_eq!(path, "001-排序标题.md"),
+        other => panic!("expected numbered-prefix resolution, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_matches_named_numeric_sort_prefix_stems() {
+    let (dir, mut notes) = fixture();
+    for path in ["unit01-排序标题.md", "ch002-章节标题.md"] {
+        fs::write(dir.path().join(path), "# 排序标题\n").expect("write prefixed note");
+    }
+    let vault = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault");
+    for file in vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .filter(|file| {
+            file.relative_path.starts_with("unit") || file.relative_path.starts_with("ch")
+        })
+    {
+        let content = fs::read_to_string(&file.path).expect("read note");
+        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        notes.push(IndexedNote { file, parsed });
+    }
+
+    let unit = RefResolver::resolve("排序标题", &notes);
+    let chapter = RefResolver::resolve("章节标题", &notes);
+
+    match unit {
+        ResolveResult::Resolved { path, .. } => assert_eq!(path, "unit01-排序标题.md"),
+        other => panic!("expected unit-prefixed resolution, got {other:?}"),
+    }
+    match chapter {
+        ResolveResult::Resolved { path, .. } => assert_eq!(path, "ch002-章节标题.md"),
+        other => panic!("expected chapter-prefixed resolution, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_does_not_strip_letter_only_prefix_stems() {
+    let (dir, mut notes) = fixture();
+    fs::write(dir.path().join("unit-排序标题.md"), "# 排序标题\n").expect("write prefixed note");
+    let file = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault")
+    .list_notes()
+    .expect("list notes")
+    .into_iter()
+    .find(|file| file.relative_path == "unit-排序标题.md")
+    .expect("letter-only prefixed file");
+    let content = fs::read_to_string(&file.path).expect("read note");
+    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    notes.push(IndexedNote { file, parsed });
+
+    let result = RefResolver::resolve("排序标题", &notes);
+
+    match result {
+        ResolveResult::Unresolved { .. } => {}
+        other => panic!("expected letter-only prefix to stay unresolved, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_reports_ambiguous_numeric_prefix_stems() {
+    let (dir, mut notes) = fixture();
+    for path in ["001-排序标题.md", "002-排序标题.md"] {
+        fs::write(dir.path().join(path), "# 排序标题\n").expect("write numbered note");
+    }
+    let vault = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault");
+    for file in vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .filter(|file| file.relative_path.ends_with("-排序标题.md"))
+    {
+        let content = fs::read_to_string(&file.path).expect("read note");
+        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        notes.push(IndexedNote { file, parsed });
+    }
+
+    let result = RefResolver::resolve("排序标题", &notes);
+
+    match result {
+        ResolveResult::Ambiguous { candidates, .. } => {
+            assert_eq!(candidates.len(), 2);
+            assert!(
+                candidates
+                    .iter()
+                    .all(|candidate| candidate.match_kind == "numbered_stem")
+            );
+        }
+        other => panic!("expected ambiguous numbered-prefix resolution, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_prefers_exact_stem_over_numeric_prefix_stem() {
+    let (dir, mut notes) = fixture();
+    for path in ["排序标题.md", "001-排序标题.md"] {
+        fs::write(dir.path().join(path), "# 排序标题\n").expect("write note");
+    }
+    let vault = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault");
+    for file in vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .filter(|file| {
+            file.relative_path == "排序标题.md" || file.relative_path == "001-排序标题.md"
+        })
+    {
+        let content = fs::read_to_string(&file.path).expect("read note");
+        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        notes.push(IndexedNote { file, parsed });
+    }
+
+    let result = RefResolver::resolve("排序标题", &notes);
+
+    match result {
+        ResolveResult::Resolved { path, .. } => assert_eq!(path, "排序标题.md"),
+        other => panic!("expected exact stem resolution, got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_does_not_apply_numeric_prefix_fallback_to_explicit_markdown_path() {
+    let (dir, mut notes) = fixture();
+    fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n").expect("write numbered note");
+    let vault = Vault::open(
+        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        VaultConfig::default(),
+    )
+    .expect("vault");
+    let file = vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .find(|file| file.relative_path == "001-排序标题.md")
+        .expect("numbered file");
+    let content = fs::read_to_string(&file.path).expect("read note");
+    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    notes.push(IndexedNote { file, parsed });
+
+    let result = RefResolver::resolve("排序标题.md", &notes);
+
+    match result {
+        ResolveResult::Unresolved { .. } => {}
+        other => panic!("expected explicit markdown path to stay unresolved, got {other:?}"),
+    }
+}

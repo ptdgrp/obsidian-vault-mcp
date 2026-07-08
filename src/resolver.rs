@@ -130,17 +130,16 @@ fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate>
                 });
             }
         }
-        if !out.is_empty() {
-            return out;
-        }
+        return out;
     }
 
     let clean_target = target.trim_end_matches(".md");
     let wanted = normalize_key(clean_target);
+    let mut exact = Vec::new();
     for note in notes {
         let rel = note.file.relative_path.trim_end_matches(".md");
         if normalize_key(rel) == wanted || normalize_key(&note.file.relative_path) == wanted {
-            out.push(ResolveCandidate {
+            exact.push(ResolveCandidate {
                 path: note.file.relative_path.clone(),
                 match_kind: "path".to_string(),
             });
@@ -152,12 +151,36 @@ fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate>
             .file_stem()
             .is_some_and(|stem| normalize_key(stem) == wanted)
         {
-            out.push(ResolveCandidate {
+            exact.push(ResolveCandidate {
                 path: note.file.relative_path.clone(),
                 match_kind: "stem".to_string(),
             });
-            continue;
         }
+    }
+    if !exact.is_empty() {
+        return exact;
+    }
+
+    let mut numbered = Vec::new();
+    for note in notes {
+        if note
+            .file
+            .path
+            .file_stem()
+            .and_then(strip_numeric_sort_prefix)
+            .is_some_and(|stem| normalize_key(stem) == wanted)
+        {
+            numbered.push(ResolveCandidate {
+                path: note.file.relative_path.clone(),
+                match_kind: "numbered_stem".to_string(),
+            });
+        }
+    }
+    if !numbered.is_empty() {
+        return numbered;
+    }
+
+    for note in notes {
         if aliases(&note.parsed)
             .iter()
             .any(|alias| normalize_key(alias) == wanted)
@@ -169,6 +192,28 @@ fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate>
         }
     }
     out
+}
+
+fn strip_numeric_sort_prefix(stem: &str) -> Option<&str> {
+    let (prefix, rest) = stem.split_once('-')?;
+    if is_sort_prefix(prefix) && !rest.is_empty() {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+fn is_sort_prefix(prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return false;
+    }
+    let digit_start = prefix
+        .find(|ch: char| ch.is_ascii_digit())
+        .unwrap_or(prefix.len());
+    let (label, number) = prefix.split_at(digit_start);
+    !number.is_empty()
+        && number.chars().all(|ch| ch.is_ascii_digit())
+        && label.chars().all(|ch| ch.is_ascii_alphabetic())
 }
 
 fn aliases(parsed: &ParsedNote) -> Vec<String> {
