@@ -46,6 +46,8 @@ pub fn render_docs(tools: &[Tool]) -> anyhow::Result<String> {
         }
     }
 
+    output.truncate(output.trim_end_matches('\n').len());
+    output.push('\n');
     Ok(output)
 }
 

@@ -8,10 +8,10 @@ use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 use super::files::human_size;
 use super::{
     ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
-    VaultQueries, WordCountMode, find_indexed_note, read_and_parse, truncate_utf8,
+    VaultQueries, WordCountMode, find_indexed_note, read_and_parse, truncate_chars,
 };
 
-const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value.";
+const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_chars value.";
 
 impl VaultQueries {
     pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
@@ -32,14 +32,14 @@ impl VaultQueries {
     pub fn read_note(
         &self,
         note: &str,
-        max_bytes: Option<usize>,
+        max_chars: Option<usize>,
     ) -> anyhow::Result<ReadNoteResult> {
         let path = self.resolve_note_path(note)?;
         let mut content = fs::read_to_string(&path)?;
         let mut truncated = false;
-        let budget = max_bytes.unwrap_or(self.vault.config.max_read_note_bytes);
-        if content.len() > budget {
-            content = truncate_utf8(&content, budget).to_string();
+        let budget = max_chars.unwrap_or(self.vault.config.max_read_note_chars);
+        if content.chars().count() > budget {
+            content = truncate_chars(&content, budget);
             truncated = true;
         }
         Ok(ReadNoteResult {

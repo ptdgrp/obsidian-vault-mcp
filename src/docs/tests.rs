@@ -55,4 +55,5 @@ fn render_docs_escapes_markdown_tables_and_shows_nested_types() {
     assert!(rendered.contains("| `preview` |"));
     assert!(rendered.contains("| `renamed` | `detail: Detail` |"));
     assert!(rendered.contains("| `skipped` | `reason: string` |"));
+    assert!(!rendered.ends_with("\n\n"));
 }

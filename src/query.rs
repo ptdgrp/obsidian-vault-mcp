@@ -936,6 +936,10 @@ fn truncate_utf8(input: &str, max_bytes: usize) -> &str {
     &input[..end]
 }
 
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    input.chars().take(max_chars).collect()
+}
+
 fn default_file_limit() -> usize {
     100
 }

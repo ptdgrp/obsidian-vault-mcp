@@ -30,7 +30,7 @@ server supports structural section edits as well as read operations.
 | `list_tags` | List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_bytes controls this request's truncation boundary. |
+| `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_chars controls this request's truncation boundary. |
 | `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
 | `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
@@ -452,7 +452,6 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-| `word_count_mode` | `"source" \| "visible"` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
 
 
 Output:
@@ -499,7 +498,13 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-| `word_count_mode` | `"source" \| "visible"` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
+| `word_count_mode` | `WordCountMode` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
+
+Nested types:
+
+### `WordCountMode`
+
+Type: `source | visible`
 
 
 Output:
@@ -510,7 +515,13 @@ Output:
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `note` | `string` | yes | Vault-relative resolved note path. |
 | `word_count` | `integer` | yes | Word count computed with `word_count_mode`. |
-| `word_count_mode` | `"source" \| "visible"` | yes | Counting strategy used for `word_count`. |
+| `word_count_mode` | `WordCountMode` | yes | Counting strategy used for `word_count`. |
+
+Nested types:
+
+### `WordCountMode`
+
+Type: `source | visible`
 
 
 ## 🔧 `get_note_structure`
@@ -978,13 +989,13 @@ Use only when:
 - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).
 
 For any operation with a known line, heading, or block id - use read_section instead.
-If provided, max_bytes controls this request's truncation boundary.
+If provided, max_chars controls this request's truncation boundary.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `max_bytes` | `integer \| null` | no | Optional byte limit for this request. |
+| `max_chars` | `integer \| null` | no | Optional character limit for this request. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 

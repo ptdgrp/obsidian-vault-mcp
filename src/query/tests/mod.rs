@@ -5,7 +5,7 @@ use tempfile::tempdir;
 
 use super::*;
 use crate::resolver::ResolveResult;
-use crate::vault::{DEFAULT_MAX_READ_NOTE_BYTES, Vault, VaultConfig, VaultError};
+use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
 
 mod edge_cases;
 mod files_and_context;
@@ -577,11 +577,11 @@ fn collect_reference_context_returns_navigation_items_without_content() {
 }
 
 #[test]
-fn read_note_uses_its_own_budget_and_directs_to_section_reads() {
+fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
     let (_dir, mut queries) = fixture();
-    queries.vault.config.max_read_note_bytes = "# 发动机\n".len();
+    queries.vault.config.max_read_note_chars = "# 发动机\n".chars().count();
 
-    assert_eq!(DEFAULT_MAX_READ_NOTE_BYTES, 4 * 1024);
+    assert_eq!(DEFAULT_MAX_READ_NOTE_CHARS, 4 * 1024);
 
     let result = queries.read_note("发动机.md", None).expect("read note");
 
@@ -590,21 +590,33 @@ fn read_note_uses_its_own_budget_and_directs_to_section_reads() {
     assert_eq!(
         result.next_step.as_deref(),
         Some(
-            "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_bytes value."
+            "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_chars value."
         )
     );
 }
 
 #[test]
-fn read_note_allows_per_request_max_bytes_override() {
+fn read_note_allows_per_request_max_chars_override() {
     let (_dir, mut queries) = fixture();
-    queries.vault.config.max_read_note_bytes = "# 发动机\n".len();
+    queries.vault.config.max_read_note_chars = "# 发动机\n".chars().count();
 
     let result = queries
-        .read_note("发动机.md", Some("# 发动机\n\n## 原理\n".len()))
+        .read_note("发动机.md", Some("# 发动机\n\n## 原理\n".chars().count()))
         .expect("read note with override");
 
     assert_eq!(result.content, "# 发动机\n\n## 原理\n");
+    assert!(result.truncated);
+}
+
+#[test]
+fn read_note_counts_unicode_characters_not_utf8_bytes() {
+    let (dir, mut queries) = fixture();
+    fs::write(dir.path().join("字符.md"), "甲乙丙丁").expect("write unicode note");
+    queries.vault.config.max_read_note_chars = 2;
+
+    let result = queries.read_note("字符.md", None).expect("read note");
+
+    assert_eq!(result.content, "甲乙");
     assert!(result.truncated);
 }
 

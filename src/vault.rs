@@ -5,7 +5,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_MAX_READ_NOTE_BYTES: usize = 4 * 1024;
+pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
 
 /// A bounded view over an Obsidian-style Markdown vault with atomic note writes.
 /// Vault 是一个受限、可即时扫描并支持原子笔记写入的 Obsidian Markdown 工作空间。
@@ -136,7 +136,7 @@ pub struct VaultConfig {
 
     pub max_note_bytes: usize,
     pub max_output_bytes: usize,
-    pub max_read_note_bytes: usize,
+    pub max_read_note_chars: usize,
     pub max_results: usize,
     pub parse_cache_ttl_secs: u64,
     pub parse_cache_max_entries: usize,
@@ -152,7 +152,7 @@ impl Default for VaultConfig {
             follow_symlinks: false,
             max_note_bytes: 8 * 1024 * 1024,
             max_output_bytes: 262_144,
-            max_read_note_bytes: DEFAULT_MAX_READ_NOTE_BYTES,
+            max_read_note_chars: DEFAULT_MAX_READ_NOTE_CHARS,
             max_results: 50,
             parse_cache_ttl_secs: 600,
             parse_cache_max_entries: 1024,

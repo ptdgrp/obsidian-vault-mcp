@@ -158,7 +158,7 @@ fn read_note_surfaces_missing_note_error() {
 
     let result = server.read_note(Parameters(ReadNoteRequest {
         note: "缺失.md".to_string(),
-        max_bytes: None,
+        max_chars: None,
     }));
     let error = match result {
         Ok(_) => panic!("missing note should fail"),
@@ -166,6 +166,22 @@ fn read_note_surfaces_missing_note_error() {
     };
 
     assert!(error.contains("unresolved note reference"));
+}
+
+#[test]
+fn read_note_schema_exposes_max_chars_not_max_bytes() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "read_note")
+        .expect("read_note tool");
+    let properties = tool
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("read_note input properties");
+
+    assert!(properties.contains_key("max_chars"));
+    assert!(!properties.contains_key("max_bytes"));
 }
 
 #[test]

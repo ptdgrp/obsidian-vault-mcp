@@ -135,3 +135,23 @@ fn read_section_without_selector_lists_available_selectors() {
     assert!(!stderr.contains("headings:"));
     assert!(stderr.contains("block_ids: \"^state\""));
 }
+
+#[test]
+fn read_note_character_limit_uses_unicode_characters() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "字符.md", "甲乙丙丁");
+
+    let output = run_cli(
+        &dir,
+        &["--max-read-note-chars", "2", "read-note", "字符.md"],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["content"], "甲乙");
+    assert_eq!(value["truncated"], true);
+}
