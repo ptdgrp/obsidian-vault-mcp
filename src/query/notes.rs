@@ -67,6 +67,7 @@ impl VaultQueries {
             word_count_mode,
             word_count,
             character_count: content.chars().count(),
+            line_count: content.lines().count(),
             backlink_count: self.backlink_count_for_path(&note)?,
         })
     }

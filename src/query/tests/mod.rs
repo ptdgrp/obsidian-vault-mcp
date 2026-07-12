@@ -189,7 +189,20 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
     assert_eq!(result.word_count_mode, WordCountMode::Source);
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
+    assert_eq!(result.line_count, content.lines().count());
     assert_eq!(result.backlink_count, 1);
+}
+
+#[test]
+fn get_note_stats_counts_blank_lines_without_extra_trailing_line() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("line-count.md"), "first\n\nthird\n").expect("write line count note");
+
+    let result = queries
+        .get_note_stats("line-count.md", WordCountMode::Source)
+        .expect("note stats");
+
+    assert_eq!(result.line_count, 3);
 }
 
 #[test]

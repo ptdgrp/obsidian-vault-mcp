@@ -20,7 +20,7 @@ server supports structural section edits as well as read operations.
 | `get_categories` | Locate selected folder-derived categories and return matching Markdown note files |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
 | `get_note_outline` | Return one note's selectable non-H1 heading tree without body text; use before selecting a section |
-| `get_note_stats` | Return one note's word count, character count, and total backlink count |
+| `get_note_stats` | Return one note's word, character, line, and total backlink counts |
 | `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
@@ -491,7 +491,7 @@ Nested types:
 
 ## 🔧 `get_note_stats`
 
-Return one note's word count, character count, and total backlink count
+Return one note's word, character, line, and total backlink counts
 
 Input:
 
@@ -513,6 +513,7 @@ Output:
 | --- | --- | --- | --- |
 | `backlink_count` | `integer` | yes | Total number of inbound links to this note across the visible vault. |
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
+| `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
 | `note` | `string` | yes | Vault-relative resolved note path. |
 | `word_count` | `integer` | yes | Word count computed with `word_count_mode`. |
 | `word_count_mode` | `WordCountMode` | yes | Counting strategy used for `word_count`. |

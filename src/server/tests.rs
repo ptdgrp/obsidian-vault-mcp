@@ -247,6 +247,7 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
 
     assert_eq!(result.note, "林动.md");
     assert_eq!(result.word_count, 7);
+    assert_eq!(result.line_count, 7);
     assert_eq!(result.backlink_count, 1);
     assert!(result.character_count > result.word_count);
 }

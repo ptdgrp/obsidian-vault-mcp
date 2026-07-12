@@ -64,6 +64,8 @@ pub struct NoteStatsResult {
     pub word_count: usize,
     /// Character count computed from the note's Markdown source text.
     pub character_count: usize,
+    /// Line count computed from the note's Markdown source text.
+    pub line_count: usize,
     /// Total number of inbound links to this note across the visible vault.
     pub backlink_count: usize,
 }

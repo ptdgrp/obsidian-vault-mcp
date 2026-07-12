@@ -395,7 +395,7 @@ impl ObsidianVaultMcp {
         })
     }
 
-    #[tool(description = "Return one note's word count, character count, and total backlink count")]
+    #[tool(description = "Return one note's word, character, line, and total backlink counts")]
     fn get_note_stats(
         &self,
         Parameters(NoteStatsRequest {
