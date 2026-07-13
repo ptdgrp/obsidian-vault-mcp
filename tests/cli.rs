@@ -87,6 +87,33 @@ fn list_notes_command_uses_request_filters_and_fixed_page_output() {
 }
 
 #[test]
+fn task_oriented_link_commands_return_compact_json() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "甲.md", "# 甲\n\n[[缺失]]\n");
+    write_note(&dir, "乙.md", "# 乙\n\n[[甲]]\n");
+
+    let audit = run_cli(&dir, &["audit-links", "--page", "1"]);
+    assert!(
+        audit.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&audit.stderr)
+    );
+    let audit: Value = serde_json::from_slice(&audit.stdout).expect("audit json");
+    assert_eq!(audit["unresolved"][0]["target"], "缺失");
+
+    let neighborhood = run_cli(&dir, &["get-note-neighborhood", "甲", "--direction", "in"]);
+    assert!(
+        neighborhood.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&neighborhood.stderr)
+    );
+    let neighborhood: Value =
+        serde_json::from_slice(&neighborhood.stdout).expect("neighborhood json");
+    assert_eq!(neighborhood["center"]["path"], "甲.md");
+    assert_eq!(neighborhood["notes"][0]["path"], "乙.md");
+}
+
+#[test]
 fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
     let dir = tempdir().expect("tempdir");
     write_note(

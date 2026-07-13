@@ -153,8 +153,8 @@ impl VaultQueries {
             .vault
             .list_notes()?
             .into_par_iter()
-            .filter_map(|file| read_and_parse(self, &file).ok())
-            .collect();
+            .map(|file| read_and_parse(self, &file))
+            .collect::<anyhow::Result<_>>()?;
         notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
         Ok(notes)
     }

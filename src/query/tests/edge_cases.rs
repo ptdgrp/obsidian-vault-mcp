@@ -158,6 +158,67 @@ fn graph_health_queries_truncate_when_result_budget_is_small() {
 }
 
 #[test]
+fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("审计.md"),
+        "# 审计\n\n[[缺失目标]]\n\n[[发动机]]\n",
+    )
+    .expect("write audit note");
+
+    let result = queries.audit_links(1).expect("audit links");
+    assert_eq!(result.unresolved.len(), 2);
+    assert_eq!(result.ambiguous.len(), 2);
+    assert!(
+        result
+            .unresolved
+            .iter()
+            .any(|link| link.target == "缺失目标" && link.source.starts_with("审计.md#L"))
+    );
+    assert!(
+        result
+            .ambiguous
+            .iter()
+            .any(|link| link.source.starts_with("审计.md#L")
+                && link.candidates == vec!["发动机.md", "资料/发动机.md"])
+    );
+    assert_eq!(result.totals.unresolved, 2);
+    assert_eq!(result.totals.ambiguous, 2);
+    assert_eq!(result.pagination.page, 1);
+    assert_eq!(result.pagination.total_pages, 1);
+}
+
+#[test]
+fn note_neighborhood_traverses_only_resolved_links_and_omits_center() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("邻居.md"),
+        "# 邻居\n\n[[林动]]\n\n[[缺失目标]]\n",
+    )
+    .expect("write neighbor");
+
+    let result = queries
+        .get_note_neighborhood("林动", 1, crate::query::NeighborhoodDirection::Both)
+        .expect("neighborhood");
+
+    assert_eq!(result.center.path, "林动.md");
+    assert!(!result.notes.iter().any(|note| note.path == "林动.md"));
+    assert!(
+        result
+            .notes
+            .iter()
+            .any(|note| note.path == "邻居.md" && note.distance == 1)
+    );
+    assert!(
+        result
+            .links
+            .iter()
+            .any(|link| link.from == "邻居.md" && link.to == "林动.md")
+    );
+    assert!(!result.links.iter().any(|link| link.to == "缺失目标"));
+}
+
+#[test]
 fn empty_vault_queries_return_empty_results() {
     let dir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");

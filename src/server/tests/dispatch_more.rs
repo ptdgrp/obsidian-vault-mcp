@@ -7,10 +7,10 @@ use crate::query::{
     FrontmatterMatchMode, GraphNeighborhoodDirection, GraphNeighborhoodOptions, TagScope,
 };
 use crate::server::{
-    AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    ListNotesRequest, NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
-    RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
-    TagsRequest, VaultFilesRequest,
+    AppendSectionRequest, AuditLinksRequest, ContextNoteRequest, ContextReferenceRequest,
+    EmptyRequest, ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest, NoteStructureRequest,
+    ObsidianVaultMcp, ReadNoteRequest, RenameBlockIdRequest, ReplaceSectionRequest,
+    SearchRegexRequest, SearchTextRequest, TagsRequest, VaultFilesRequest,
 };
 
 #[test]
@@ -159,6 +159,25 @@ fn list_and_note_structure_tools_return_note_metadata() {
     assert_eq!(structure.path, "发动机.md");
     assert_eq!(structure.links.len(), 1);
     assert_eq!(structure.links[0].line, 5);
+}
+
+#[test]
+fn task_oriented_link_tools_reach_query_layer() {
+    let (_dir, server) = fixture();
+    let Json(audit) = server
+        .audit_links(Parameters(AuditLinksRequest { page: 1 }))
+        .expect("audit");
+    assert!(audit.unresolved.is_empty());
+    assert!(audit.ambiguous.is_empty());
+
+    let Json(neighborhood) = server
+        .get_note_neighborhood(Parameters(NeighborhoodRequest {
+            target: "林动".to_string(),
+            depth: 1,
+            direction: crate::query::NeighborhoodDirection::Both,
+        }))
+        .expect("neighborhood");
+    assert_eq!(neighborhood.center.path, "林动.md");
 }
 
 #[test]

@@ -667,6 +667,88 @@ pub struct AmbiguousLinksResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AuditLinksResult {
+    pub unresolved: Vec<AuditUnresolvedLink>,
+    pub ambiguous: Vec<AuditAmbiguousLink>,
+    pub totals: AuditLinkTotals,
+    pub pagination: Pagination,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AuditUnresolvedLink {
+    pub source: String,
+    pub target: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AuditAmbiguousLink {
+    pub source: String,
+    pub target: String,
+    pub candidates: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted_candidates: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AuditLinkTotals {
+    pub unresolved: usize,
+    pub ambiguous: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct Pagination {
+    pub page: usize,
+    pub total_pages: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NeighborhoodDirection {
+    Out,
+    In,
+    #[default]
+    Both,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NeighborhoodResult {
+    pub center: NeighborhoodCenter,
+    pub notes: Vec<NeighborhoodNote>,
+    pub links: Vec<NeighborhoodLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted_notes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omitted_links: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NeighborhoodCenter {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct NeighborhoodNote {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub distance: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NeighborhoodLink {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct VaultGraphResult {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
@@ -836,8 +918,8 @@ impl VaultQueries {
             .list_notes()?
             .into_par_iter()
             .filter(|file| filter.is_match(&file.relative_path))
-            .filter_map(|file| read_and_parse(self, &file).ok())
-            .collect();
+            .map(|file| read_and_parse(self, &file))
+            .collect::<anyhow::Result<_>>()?;
         notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
         Ok(notes)
     }

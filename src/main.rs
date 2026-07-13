@@ -116,6 +116,21 @@ enum Command {
         page: usize,
     },
 
+    /// Audit unresolved and ambiguous local links across the visible vault.
+    AuditLinks {
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+    },
+
+    /// Return a bounded resolved-link neighborhood around one note reference.
+    GetNoteNeighborhood {
+        target: String,
+        #[arg(long, default_value_t = 1)]
+        depth: usize,
+        #[arg(long, default_value = "both")]
+        direction: String,
+    },
+
     /// Read one Markdown note, heading section, block, or line range
     ReadNote {
         note: String,
@@ -468,6 +483,20 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 print_value(&queries.list_notes(&include, &exclude, page)?)?;
             }
+            Command::AuditLinks { page } => {
+                print_value(&queries.audit_links(page)?)?;
+            }
+            Command::GetNoteNeighborhood {
+                target,
+                depth,
+                direction,
+            } => {
+                print_value(&queries.get_note_neighborhood(
+                    &target,
+                    depth,
+                    parse_neighborhood_direction(&direction)?,
+                )?)?;
+            }
             Command::ReadNote {
                 note,
                 heading,
@@ -670,6 +699,19 @@ fn parse_graph_neighborhood_direction(
         "both" => Ok(crate::query::GraphNeighborhoodDirection::Both),
         _ => Err(anyhow::anyhow!(
             "invalid graph neighborhood direction: {input}; expected one of: both, out, in"
+        )),
+    }
+}
+
+fn parse_neighborhood_direction(
+    input: &str,
+) -> anyhow::Result<crate::query::NeighborhoodDirection> {
+    match input {
+        "out" => Ok(crate::query::NeighborhoodDirection::Out),
+        "in" => Ok(crate::query::NeighborhoodDirection::In),
+        "both" => Ok(crate::query::NeighborhoodDirection::Both),
+        _ => Err(anyhow::anyhow!(
+            "invalid neighborhood direction: {input}; expected one of: both, out, in"
         )),
     }
 }

@@ -1,9 +1,10 @@
 use crate::{
     mutation::{EditSectionResult, RenameResult, VaultMutations},
     query::{
-        AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
-        FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
-        ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
+        AmbiguousLinksResult, AuditLinksResult, BacklinksOutput, ContextResult,
+        FrontmatterQueryOptions, FrontmatterQueryResult, GetCategoriesResult, GetTagsResult,
+        GraphNeighborhoodOptions, ListCategoriesResult, ListNotesResult, ListTagsResult,
+        NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
         NoteStructureResult, OutlinksOutput, ReadNoteResult, SearchRegexResult, SearchTextResult,
         SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
         VaultGraphResult, VaultQueries, WordCountMode,
@@ -84,6 +85,21 @@ pub struct ListNotesRequest {
     pub exclude: Vec<String>,
     #[serde(default = "default_page")]
     pub page: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AuditLinksRequest {
+    #[serde(default = "default_page")]
+    pub page: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NeighborhoodRequest {
+    pub target: String,
+    #[serde(default = "default_neighborhood_depth")]
+    pub depth: usize,
+    #[serde(default)]
+    pub direction: NeighborhoodDirection,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -432,6 +448,10 @@ fn default_page() -> usize {
     1
 }
 
+fn default_neighborhood_depth() -> usize {
+    1
+}
+
 #[tool_router]
 impl ObsidianVaultMcp {
     #[tool(description = "Page through visible Markdown notes for lightweight navigation.")]
@@ -445,6 +465,29 @@ impl ObsidianVaultMcp {
     ) -> Result<Json<ListNotesResult>, String> {
         run_tool("list_notes", || {
             self.queries().list_notes(&include, &exclude, page)
+        })
+    }
+
+    #[tool(description = "Audit unresolved and ambiguous local links across the visible vault.")]
+    fn audit_links(
+        &self,
+        Parameters(AuditLinksRequest { page }): Parameters<AuditLinksRequest>,
+    ) -> Result<Json<AuditLinksResult>, String> {
+        run_tool("audit_links", || self.queries().audit_links(page))
+    }
+
+    #[tool(description = "Return a bounded resolved-link neighborhood around one note reference.")]
+    fn get_note_neighborhood(
+        &self,
+        Parameters(NeighborhoodRequest {
+            target,
+            depth,
+            direction,
+        }): Parameters<NeighborhoodRequest>,
+    ) -> Result<Json<NeighborhoodResult>, String> {
+        run_tool("get_note_neighborhood", || {
+            self.queries()
+                .get_note_neighborhood(&target, depth, direction)
         })
     }
 
