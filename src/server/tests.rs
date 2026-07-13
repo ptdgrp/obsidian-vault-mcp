@@ -260,6 +260,8 @@ fn get_tags_and_get_categories_reject_empty_inputs() {
         tags: Vec::new(),
         scope: TagScope::Note,
         verbose: false,
+        include: vec![],
+        exclude: vec![],
     })) {
         Ok(_) => panic!("empty tags should fail"),
         Err(error) => error,
@@ -268,6 +270,8 @@ fn get_tags_and_get_categories_reject_empty_inputs() {
 
     let categories_error = match server.get_categories(Parameters(CategoriesRequest {
         categories: Vec::new(),
+        include: vec![],
+        exclude: vec![],
     })) {
         Ok(_) => panic!("empty categories should fail"),
         Err(error) => error,

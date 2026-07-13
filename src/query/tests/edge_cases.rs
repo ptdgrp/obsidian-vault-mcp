@@ -5,9 +5,45 @@ use tempfile::tempdir;
 
 use super::fixture;
 use crate::parser::SectionInfo;
+use crate::query::path_filter::PathFilter;
 use crate::query::{ResolveSummary, SearchSource, SectionSelector, VaultQueries};
 use crate::resolver::{ResolveCandidate, ResolveResult};
 use crate::vault::{Vault, VaultConfig};
+
+#[test]
+fn path_filter_applies_include_union_and_exclude_precedence() {
+    let filter = PathFilter::new(
+        &["正文/**/*.md".to_string(), "资料/**/*.md".to_string()],
+        &["**/草稿/**".to_string()],
+    )
+    .expect("valid filter");
+
+    assert!(filter.is_match("正文/001.md"));
+    assert!(filter.is_match("资料/设定.md"));
+    assert!(!filter.is_match("正文/草稿/002.md"));
+}
+
+#[test]
+fn path_filter_with_empty_patterns_accepts_every_path() {
+    let filter = PathFilter::new(&[], &[]).expect("empty filters are valid");
+
+    assert!(filter.is_match("正文/001.md"));
+    assert!(filter.is_match("资料/设定.md"));
+    assert!(filter.is_match("正文/草稿/002.md"));
+}
+
+#[test]
+fn path_filter_reports_the_invalid_pattern_and_its_field() {
+    let include_error =
+        PathFilter::new(&["[".to_string()], &[]).expect_err("invalid include should fail");
+    assert!(include_error.to_string().contains("include"));
+    assert!(include_error.to_string().contains('['));
+
+    let exclude_error =
+        PathFilter::new(&[], &["[".to_string()]).expect_err("invalid exclude should fail");
+    assert!(exclude_error.to_string().contains("exclude"));
+    assert!(exclude_error.to_string().contains('['));
+}
 
 #[test]
 fn resolve_ref_reports_ambiguous_candidates_for_duplicate_notes() {
@@ -78,7 +114,7 @@ fn empty_vault_queries_return_empty_results() {
     let notes = queries.list_notes().expect("list notes");
     assert!(notes.notes.is_empty());
 
-    let categories = queries.list_categories().expect("list categories");
+    let categories = queries.list_categories(&[], &[]).expect("list categories");
     assert!(categories.categories.is_empty());
 }
 

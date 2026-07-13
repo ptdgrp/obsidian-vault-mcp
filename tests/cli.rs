@@ -99,6 +99,64 @@ fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
 }
 
 #[test]
+fn query_commands_apply_repeatable_request_path_filters() {
+    let dir = tempdir().expect("tempdir");
+    for path in ["正文/keep.md", "资料/keep.md", "正文/草稿/drop.md"] {
+        write_note(
+            &dir,
+            path,
+            "# Filtered\n\n#筛选标签\n\nshared filtered content\n",
+        );
+    }
+    let filters = [
+        "--include",
+        "正文/**/*.md",
+        "--include",
+        "资料/**/*.md",
+        "--exclude",
+        "**/草稿/**",
+    ];
+    let assertions: [(&[&str], &str); 6] = [
+        (&["list-tags"], "筛选标签"),
+        (&["get-tags", "筛选标签"], "正文/keep.md"),
+        (&["list-categories"], "正文"),
+        (&["get-categories", "正文", "资料"], "正文/keep.md"),
+        (&["search-text", "shared filtered content"], "正文/keep.md"),
+        (&["search-regex", "shared filtered content"], "正文/keep.md"),
+    ];
+
+    for (command, expected) in assertions {
+        let mut args = command.to_vec();
+        args.extend(filters);
+        let output = run_cli(&dir, &args);
+        assert!(
+            output.status.success(),
+            "{command:?} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+        let output = value.to_string();
+        assert!(output.contains(expected), "{command:?}: {output}");
+        assert!(
+            !output.contains("正文/草稿/drop.md"),
+            "{command:?}: {output}"
+        );
+    }
+
+    let legacy = run_cli(
+        &dir,
+        &[
+            "search-regex",
+            "shared filtered content",
+            "--path-glob",
+            "正文/**/*.md",
+        ],
+    );
+    assert!(!legacy.status.success());
+    assert!(String::from_utf8_lossy(&legacy.stderr).contains("--path-glob"));
+}
+
+#[test]
 fn rename_heading_command_applies_changes_when_dry_run_disabled() {
     let dir = tempdir().expect("tempdir");
     write_note(

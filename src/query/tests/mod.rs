@@ -270,7 +270,7 @@ fn parse_note_extracts_safe_relative_markdown_links() {
 #[test]
 fn list_tags_returns_unique_tag_names() {
     let (_dir, queries) = fixture();
-    let result = queries.list_tags(TagScope::Note).expect("tags");
+    let result = queries.list_tags(TagScope::Note, &[], &[]).expect("tags");
     assert!(result.tags.contains(&"主角".to_string()));
     assert!(result.tags.contains(&"状态/身体".to_string()));
     assert!(result.tags.contains(&"河流".to_string()));
@@ -281,7 +281,7 @@ fn list_tags_returns_unique_tag_names() {
 fn get_tags_returns_locations_and_verbose_sources() {
     let (_dir, queries) = fixture();
     let compact = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Note, false)
+        .get_tags(&["状态/身体".to_string()], TagScope::Note, false, &[], &[])
         .expect("compact tags");
     assert_eq!(compact.tags.len(), 1);
     assert!(
@@ -295,7 +295,7 @@ fn get_tags_returns_locations_and_verbose_sources() {
     assert!(compact.tags[0].occurrences.is_empty());
 
     let verbose = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Note, true)
+        .get_tags(&["状态/身体".to_string()], TagScope::Note, true, &[], &[])
         .expect("verbose tags");
     assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
         occurrence.location == "林动.md#L12"
@@ -324,7 +324,13 @@ fn tags_scope_filters_frontmatter_and_body_sources() {
     let (_dir, queries) = fixture();
 
     let frontmatter = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Frontmatter, true)
+        .get_tags(
+            &["状态/身体".to_string()],
+            TagScope::Frontmatter,
+            true,
+            &[],
+            &[],
+        )
         .expect("frontmatter tags");
     assert_eq!(frontmatter.tags.len(), 1);
     assert!(
@@ -335,7 +341,7 @@ fn tags_scope_filters_frontmatter_and_body_sources() {
     );
 
     let body = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Body, true)
+        .get_tags(&["状态/身体".to_string()], TagScope::Body, true, &[], &[])
         .expect("body tags");
     assert_eq!(body.tags.len(), 1);
     assert!(
@@ -346,15 +352,15 @@ fn tags_scope_filters_frontmatter_and_body_sources() {
     );
 
     let section = queries
-        .get_tags(&["河流".to_string()], TagScope::Section, true)
+        .get_tags(&["河流".to_string()], TagScope::Section, true, &[], &[])
         .expect("section tags");
     assert_eq!(section.tags.len(), 1);
     assert!(section.tags[0].occurrences.iter().any(|occurrence| {
-        occurrence.source_kind == TagSourceKind::Section && occurrence.location == "河流.md#L3"
+        occurrence.source_kind == TagSourceKind::Note && occurrence.location == "河流.md#L3"
     }));
 
     let line = queries
-        .get_tags(&["设定".to_string()], TagScope::Line, true)
+        .get_tags(&["设定".to_string()], TagScope::Line, true, &[], &[])
         .expect("line tags");
     assert_eq!(line.tags.len(), 1);
     assert!(line.tags[0].occurrences.iter().any(|occurrence| {
@@ -363,9 +369,111 @@ fn tags_scope_filters_frontmatter_and_body_sources() {
 }
 
 #[test]
+fn get_tags_classifies_tags_under_h1_as_note_and_h2_as_section() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("层级标签.md"),
+        "# Note title\n\nH1 content #h1-tag\n\n## Section title\n\nH2 content #h2-tag\n",
+    )
+    .expect("write hierarchy tag note");
+
+    let h1 = queries
+        .get_tags(&["h1-tag".to_string()], TagScope::Note, false, &[], &[])
+        .expect("h1 tag");
+    assert_eq!(
+        serde_json::to_value(&h1).expect("serialize h1 tag")["tags"][0]["notes"][0]["source_kind"],
+        "note"
+    );
+
+    let h2 = queries
+        .get_tags(&["h2-tag".to_string()], TagScope::Note, false, &[], &[])
+        .expect("h2 tag");
+    assert_eq!(
+        serde_json::to_value(&h2).expect("serialize h2 tag")["tags"][0]["notes"][0]["source_kind"],
+        "section"
+    );
+}
+
+#[test]
+fn get_tags_uses_the_shortest_heading_selector_that_distinguishes_duplicates() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("标签章节.md"),
+        "# Note title\n\nNote tag #scope\n\n## Unique\n\nUnique tag #scope\n\n## Parent A\n\n### Detail\n\nA tag #scope\n\n## Parent B\n\n### Detail\n\nB tag #scope\n",
+    )
+    .expect("write tagged sections");
+
+    let result = queries
+        .get_tags(&["scope".to_string()], TagScope::Note, false, &[], &[])
+        .expect("tags");
+    let matches = &result.tags[0].notes;
+
+    assert!(
+        matches
+            .iter()
+            .any(|tag| tag.note == "标签章节.md#L3" && tag.section.is_none())
+    );
+    assert!(
+        matches
+            .iter()
+            .any(|tag| tag.note == "标签章节.md#L7" && tag.section.as_deref() == Some("Unique"))
+    );
+    assert!(matches.iter().any(|tag| {
+        tag.note == "标签章节.md#L13" && tag.section.as_deref() == Some("Parent A/Detail")
+    }));
+    assert!(matches.iter().any(|tag| {
+        tag.note == "标签章节.md#L19" && tag.section.as_deref() == Some("Parent B/Detail")
+    }));
+}
+
+#[test]
+fn get_tags_omits_unneeded_ancestors_from_duplicate_heading_selectors() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("最短路径.md"),
+        "# Note title\n\n## Root A\n\n### Branch A\n\n#### Detail\n\nA tag #scope\n\n## Root B\n\n### Branch B\n\n#### Detail\n\nB tag #scope\n",
+    )
+    .expect("write nested duplicate headings");
+
+    let result = queries
+        .get_tags(&["scope".to_string()], TagScope::Note, false, &[], &[])
+        .expect("tags");
+    let matches = &result.tags[0].notes;
+
+    assert!(matches.iter().any(|tag| {
+        tag.note == "最短路径.md#L9" && tag.section.as_deref() == Some("Branch A/Detail")
+    }));
+    assert!(matches.iter().any(|tag| {
+        tag.note == "最短路径.md#L17" && tag.section.as_deref() == Some("Branch B/Detail")
+    }));
+}
+
+#[test]
+fn read_section_accepts_compact_slash_separated_heading_paths() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("重复章节.md"),
+        "# Note title\n\n## Parent A\n\n### Detail\n\nA content\n\n## Parent B\n\n### Detail\n\nB content\n",
+    )
+    .expect("write duplicate sections");
+
+    let result = queries
+        .read_section(
+            "重复章节.md",
+            SectionSelector::Heading {
+                heading: "Parent B/Detail".to_string(),
+            },
+        )
+        .expect("read compact heading path");
+
+    assert!(result.content.contains("B content"));
+    assert!(!result.content.contains("A content"));
+}
+
+#[test]
 fn list_categories_returns_unique_folder_names() {
     let (_dir, queries) = fixture();
-    let result = queries.list_categories().expect("categories");
+    let result = queries.list_categories(&[], &[]).expect("categories");
     assert!(result.categories.contains(&"正文".to_string()));
     assert!(result.categories.contains(&"资料".to_string()));
     assert!(!result.categories.contains(&".obsidian".to_string()));
@@ -376,7 +484,7 @@ fn list_categories_returns_unique_folder_names() {
 fn get_categories_returns_matching_note_files() {
     let (_dir, queries) = fixture();
     let result = queries
-        .get_categories(&["正文".to_string()])
+        .get_categories(&["正文".to_string()], &[], &[])
         .expect("category files");
     assert_eq!(result.categories.len(), 1);
     assert_eq!(result.categories[0].category, "正文");
@@ -395,6 +503,104 @@ fn get_categories_returns_matching_note_files() {
             .files
             .contains(&"ignored-dir/ignored.md".to_string())
     );
+}
+
+#[test]
+fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
+    let (dir, mut queries) = fixture();
+    for path in ["正文/keep.md", "资料/keep.md", "正文/草稿/drop.md"] {
+        if let Some(parent) = dir.path().join(path).parent() {
+            fs::create_dir_all(parent).expect("create note directory");
+        }
+        fs::write(
+            dir.path().join(path),
+            "# Filtered\n\n#筛选标签\n\nshared filtered content\n",
+        )
+        .expect("write filtered note");
+    }
+    let include = vec!["正文/**/*.md".to_string(), "资料/**/*.md".to_string()];
+    let exclude = vec!["**/草稿/**".to_string()];
+
+    let tags = queries
+        .list_tags(TagScope::Note, &include, &exclude)
+        .expect("list filtered tags");
+    assert_eq!(tags.tags, vec!["筛选标签".to_string()]);
+
+    let selected_tags = queries
+        .get_tags(
+            &["筛选标签".to_string()],
+            TagScope::Note,
+            false,
+            &include,
+            &exclude,
+        )
+        .expect("get filtered tags");
+    assert_eq!(selected_tags.tags[0].notes.len(), 2);
+    assert!(
+        selected_tags.tags[0]
+            .notes
+            .iter()
+            .all(|tag| tag.note != "正文/草稿/drop.md")
+    );
+
+    let categories = queries
+        .list_categories(&include, &exclude)
+        .expect("list filtered categories");
+    assert_eq!(
+        categories.categories,
+        vec!["正文".to_string(), "资料".to_string()]
+    );
+
+    let selected_categories = queries
+        .get_categories(&["正文".to_string()], &include, &exclude)
+        .expect("get filtered categories");
+    assert!(
+        selected_categories.categories[0]
+            .files
+            .contains(&"正文/keep.md".to_string())
+    );
+    assert!(
+        !selected_categories.categories[0]
+            .files
+            .contains(&"正文/草稿/drop.md".to_string())
+    );
+
+    let text = queries
+        .search_text("shared filtered content", false, 0, &include, &exclude)
+        .expect("filtered text search");
+    assert_eq!(text.matches.len(), 2);
+    assert!(
+        text.matches
+            .iter()
+            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+    );
+
+    let regex = queries
+        .search_regex("shared filtered content", false, 0, &include, &exclude)
+        .expect("filtered regex search");
+    assert_eq!(regex.matches.len(), 2);
+    assert!(
+        regex
+            .matches
+            .iter()
+            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+    );
+
+    queries
+        .vault
+        .config
+        .exclude
+        .push("资料/**/*.md".to_string());
+    let globally_hidden = queries
+        .search_text(
+            "shared filtered content",
+            false,
+            0,
+            &["资料/**/*.md".to_string()],
+            &[],
+        )
+        .expect("request filter cannot restore globally excluded note");
+    assert!(globally_hidden.matches.is_empty());
 }
 
 #[test]
@@ -651,7 +857,9 @@ fn read_section_by_heading_returns_heading_scope() {
 #[test]
 fn note_outline_returns_heading_tree() {
     let (_dir, queries) = fixture();
-    let result = queries.get_note_outline("发动机.md", None).expect("outline");
+    let result = queries
+        .get_note_outline("发动机.md", None)
+        .expect("outline");
     assert_eq!(result.note, "发动机.md");
     assert_eq!(result.outline.len(), 1);
     assert_eq!(result.outline[0].heading, "原理");
@@ -695,7 +903,9 @@ fn note_outline_is_empty_when_note_only_has_h1_titles() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("只有标题.md"), "# 标题一\n\n# 标题二\n").expect("write h1 note");
 
-    let result = queries.get_note_outline("只有标题.md", None).expect("outline");
+    let result = queries
+        .get_note_outline("只有标题.md", None)
+        .expect("outline");
 
     assert!(result.outline.is_empty());
 }
@@ -722,10 +932,16 @@ fn note_outline_can_return_the_ancestor_chain_for_a_heading_path() {
 }
 
 #[test]
-fn regex_search_supports_path_glob_and_sections() {
+fn regex_search_supports_include_filters_and_sections() {
     let (_dir, queries) = fixture();
     let result = queries
-        .search_regex("林动.{0,20}代偿", false, 1, Some("正文/**/*.md"))
+        .search_regex(
+            "林动.{0,20}代偿",
+            false,
+            1,
+            &["正文/**/*.md".to_string()],
+            &[],
+        )
         .expect("regex search");
     assert_eq!(result.matches.len(), 1);
     assert_eq!(result.matches[0].source.path, "正文/001.md");

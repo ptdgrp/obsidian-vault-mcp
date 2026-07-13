@@ -1,12 +1,12 @@
 use std::fs;
 
-use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
 use regex::{Regex, RegexBuilder};
 
 use crate::parser::{slice_text, source_for_line};
 use crate::vault::NoteFile;
 
+use super::path_filter::PathFilter;
 use super::{SearchRegexResult, SearchTextResult, TextMatch, VaultQueries};
 
 const MAX_SEARCH_SNIPPET_CHARS: usize = 240;
@@ -30,13 +30,16 @@ impl VaultQueries {
         query: &str,
         case_sensitive: bool,
         context_lines: usize,
+        include: &[String],
+        exclude: &[String],
     ) -> anyhow::Result<SearchTextResult> {
+        let path_filter = PathFilter::new(include, exclude)?;
         let needle = if case_sensitive {
             query.to_string()
         } else {
             query.to_lowercase()
         };
-        let raw_matches = self.collect_text_matches(|line| {
+        let raw_matches = self.collect_text_matches(&path_filter, |line| {
             if case_sensitive {
                 line.contains(&needle)
             } else {
@@ -60,21 +63,15 @@ impl VaultQueries {
         pattern: &str,
         case_sensitive: bool,
         context_lines: usize,
-        path_glob: Option<&str>,
+        include: &[String],
+        exclude: &[String],
     ) -> anyhow::Result<SearchRegexResult> {
+        let path_filter = PathFilter::new(include, exclude)?;
         let regex = RegexBuilder::new(pattern)
             .case_insensitive(!case_sensitive)
             .build()?;
-        let path_filter = match path_glob {
-            Some(pattern) => {
-                let mut builder = GlobSetBuilder::new();
-                builder.add(Glob::new(pattern)?);
-                Some(builder.build()?)
-            }
-            None => None,
-        };
 
-        let raw_matches = self.collect_regex_matches(&regex, path_filter.as_ref())?;
+        let raw_matches = self.collect_regex_matches(&regex, &path_filter)?;
         let (matches, truncated) = self.materialize_search_matches(
             raw_matches,
             context_lines,
@@ -83,7 +80,6 @@ impl VaultQueries {
 
         Ok(SearchRegexResult {
             pattern: pattern.to_string(),
-            path_glob: path_glob.map(ToOwned::to_owned),
             matches,
             truncated,
         })
@@ -91,12 +87,14 @@ impl VaultQueries {
 
     fn collect_text_matches(
         &self,
+        path_filter: &PathFilter,
         matches_line: impl Fn(&str) -> bool + Sync,
     ) -> anyhow::Result<Vec<RawTextMatch>> {
         let mut matches: Vec<RawTextMatch> = self
             .vault
             .list_notes()?
             .into_par_iter()
+            .filter(|file| path_filter.is_match(&file.relative_path))
             .map(|file| collect_matches_in_file(file, &matches_line))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -109,17 +107,13 @@ impl VaultQueries {
     fn collect_regex_matches(
         &self,
         regex: &Regex,
-        path_filter: Option<&globset::GlobSet>,
+        path_filter: &PathFilter,
     ) -> anyhow::Result<Vec<RawTextMatch>> {
         let mut matches: Vec<RawTextMatch> = self
             .vault
             .list_notes()?
             .into_par_iter()
-            .filter(|file| {
-                path_filter
-                    .as_ref()
-                    .is_none_or(|filter| filter.is_match(&file.relative_path))
-            })
+            .filter(|file| path_filter.is_match(&file.relative_path))
             .map(|file| collect_matches_in_file(file, |line| regex.is_match(line)))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()

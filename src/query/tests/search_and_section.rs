@@ -8,7 +8,9 @@ fn search_text_truncates_to_max_results_and_marks_truncated() {
     let (_dir, mut queries) = fixture();
     queries.vault.config.max_results = 1;
 
-    let result = queries.search_text("林动", false, 0).expect("search text");
+    let result = queries
+        .search_text("林动", false, 0, &[], &[])
+        .expect("search text");
 
     assert_eq!(result.matches.len(), 1);
     assert!(result.truncated);
@@ -16,14 +18,178 @@ fn search_text_truncates_to_max_results_and_marks_truncated() {
 }
 
 #[test]
-fn search_regex_reports_invalid_path_glob() {
+fn searches_report_invalid_include_and_exclude_globs() {
     let (_dir, queries) = fixture();
 
-    let error = queries
-        .search_regex("林动", false, 0, Some("["))
-        .expect_err("invalid glob should fail");
+    let include_error = queries
+        .search_regex("林动", false, 0, &["[".to_string()], &[])
+        .expect_err("invalid include glob should fail");
+    assert!(include_error.to_string().contains("include"));
+    assert!(include_error.to_string().contains('['));
 
-    assert!(error.to_string().contains("unclosed character class"));
+    let exclude_error = queries
+        .search_text("林动", false, 0, &[], &["[".to_string()])
+        .expect_err("invalid exclude glob should fail");
+    assert!(exclude_error.to_string().contains("exclude"));
+    assert!(exclude_error.to_string().contains('['));
+}
+
+#[test]
+fn searches_honor_case_sensitivity() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("大小写.md"), "# Case\n\nNeedle\nneedle\n")
+        .expect("write case fixture");
+
+    let insensitive_text = queries
+        .search_text("needle", false, 0, &[], &[])
+        .expect("case-insensitive text search");
+    let sensitive_text = queries
+        .search_text("needle", true, 0, &[], &[])
+        .expect("case-sensitive text search");
+    let insensitive_regex = queries
+        .search_regex("needle", false, 0, &[], &[])
+        .expect("case-insensitive regex search");
+    let sensitive_regex = queries
+        .search_regex("needle", true, 0, &[], &[])
+        .expect("case-sensitive regex search");
+
+    assert_eq!(insensitive_text.matches.len(), 2);
+    assert_eq!(sensitive_text.matches.len(), 1);
+    assert_eq!(insensitive_regex.matches.len(), 2);
+    assert_eq!(sensitive_regex.matches.len(), 1);
+    assert_eq!(sensitive_text.matches[0].source.line_start, 4);
+    assert_eq!(sensitive_regex.matches[0].source.line_start, 4);
+}
+
+#[test]
+fn search_context_lines_clamp_at_file_boundaries() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("上下文.md"),
+        "first needle\nsecond\nthird\nlast needle\n",
+    )
+    .expect("write context fixture");
+
+    let result = queries
+        .search_text("needle", true, 2, &[], &[])
+        .expect("search with context");
+
+    let matches = result
+        .matches
+        .iter()
+        .filter(|matched| matched.source.path == "上下文.md")
+        .collect::<Vec<_>>();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        (matches[0].source.line_start, matches[0].source.line_end),
+        (1, 3)
+    );
+    assert_eq!(matches[0].snippet, "first needle\nsecond\nthird\n");
+    assert_eq!(
+        (matches[1].source.line_start, matches[1].source.line_end),
+        (2, 4)
+    );
+    assert_eq!(matches[1].snippet, "second\nthird\nlast needle\n");
+}
+
+#[test]
+fn search_results_are_stably_sorted_before_global_truncation() {
+    let (dir, mut queries) = fixture();
+    fs::write(dir.path().join("10.md"), "needle\nneedle\n").expect("write 10");
+    fs::write(dir.path().join("2.md"), "needle\nneedle\n").expect("write 2");
+    queries.vault.config.max_results = 3;
+
+    let result = queries
+        .search_text("needle", true, 0, &[], &[])
+        .expect("sorted truncated search");
+    let locations = result
+        .matches
+        .iter()
+        .map(|matched| (matched.source.path.as_str(), matched.source.line_start))
+        .collect::<Vec<_>>();
+
+    assert_eq!(locations, vec![("2.md", 1), ("2.md", 2), ("10.md", 1)]);
+    assert!(result.truncated);
+}
+
+#[test]
+fn search_snippets_truncate_by_unicode_characters() {
+    let (dir, queries) = fixture();
+    let content = format!("needle{}\n", "界".repeat(300));
+    fs::write(dir.path().join("长片段.md"), content).expect("write long snippet");
+
+    let result = queries
+        .search_text("needle", true, 0, &[], &[])
+        .expect("search long Unicode line");
+    let matched = result
+        .matches
+        .iter()
+        .find(|matched| matched.source.path == "长片段.md")
+        .expect("long snippet match");
+
+    assert_eq!(matched.snippet.chars().count(), 243);
+    assert!(matched.snippet.starts_with("needle"));
+    assert!(matched.snippet.ends_with("..."));
+}
+
+#[test]
+fn regex_search_is_line_oriented_and_supports_line_anchors() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("逐行.md"),
+        "alpha start\nend omega\nalpha omega\n",
+    )
+    .expect("write line-oriented fixture");
+
+    let across_lines = queries
+        .search_regex("start.*end", true, 0, &[], &[])
+        .expect("line-oriented regex search");
+    let anchored = queries
+        .search_regex("^alpha omega$", true, 0, &[], &[])
+        .expect("anchored regex search");
+
+    assert!(
+        !across_lines
+            .matches
+            .iter()
+            .any(|matched| matched.source.path == "逐行.md")
+    );
+    let anchored_match = anchored
+        .matches
+        .iter()
+        .find(|matched| matched.source.path == "逐行.md")
+        .expect("anchored line match");
+    assert_eq!(anchored_match.source.line_start, 3);
+    assert_eq!(anchored_match.source.line_end, 3);
+}
+
+#[test]
+fn empty_text_and_regex_queries_match_each_line() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("空查询.md"), "first\nsecond\n").expect("write empty query fixture");
+
+    let text = queries
+        .search_text("", true, 0, &[], &[])
+        .expect("empty text search");
+    let regex = queries
+        .search_regex("", true, 0, &[], &[])
+        .expect("empty regex search");
+
+    assert_eq!(
+        text.matches
+            .iter()
+            .filter(|matched| matched.source.path == "空查询.md")
+            .count(),
+        2
+    );
+    assert_eq!(
+        regex
+            .matches
+            .iter()
+            .filter(|matched| matched.source.path == "空查询.md")
+            .count(),
+        2
+    );
 }
 
 #[test]

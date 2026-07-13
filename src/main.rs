@@ -169,6 +169,14 @@ enum Command {
     ListTags {
         #[arg(long, default_value = "note")]
         scope: String,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
 
     /// Locate selected body or frontmatter tags
@@ -180,13 +188,39 @@ enum Command {
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
 
     /// List unique folder-derived category names
-    ListCategories,
+    ListCategories {
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+    },
 
     /// Locate selected folder-derived categories
-    GetCategories { categories: Vec<String> },
+    GetCategories {
+        categories: Vec<String>,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+    },
 
     /// Query notes by a top-level frontmatter field
     QueryFrontmatter {
@@ -208,6 +242,14 @@ enum Command {
 
         #[arg(long, default_value_t = 0)]
         context_lines: usize,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
 
     /// Regex search
@@ -220,8 +262,13 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         context_lines: usize,
 
+        /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
-        path_glob: Option<String>,
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
 
     /// Collect bounded context around one note
@@ -437,31 +484,47 @@ async fn main() -> anyhow::Result<()> {
             Command::GetBacklinks { target, verbose } => {
                 print_value(&queries.get_backlinks_output(&target, verbose)?)?;
             }
-            Command::ListTags { scope } => {
-                print_value(&queries.list_tags(parse_tag_scope(&scope)?)?)?;
+            Command::ListTags {
+                scope,
+                include,
+                exclude,
+            } => {
+                print_value(&queries.list_tags(parse_tag_scope(&scope)?, &include, &exclude)?)?;
             }
             Command::GetTags {
                 tags,
                 scope,
                 verbose,
+                include,
+                exclude,
             } => {
                 if tags.is_empty() {
                     return Err(anyhow::anyhow!(
                         "provide at least one tag; use list_tags to discover tag names"
                     ));
                 }
-                print_value(&queries.get_tags(&tags, parse_tag_scope(&scope)?, verbose)?)?;
+                print_value(&queries.get_tags(
+                    &tags,
+                    parse_tag_scope(&scope)?,
+                    verbose,
+                    &include,
+                    &exclude,
+                )?)?;
             }
-            Command::ListCategories => {
-                print_value(&queries.list_categories()?)?;
+            Command::ListCategories { include, exclude } => {
+                print_value(&queries.list_categories(&include, &exclude)?)?;
             }
-            Command::GetCategories { categories } => {
+            Command::GetCategories {
+                categories,
+                include,
+                exclude,
+            } => {
                 if categories.is_empty() {
                     return Err(anyhow::anyhow!(
                         "provide at least one category; use list_categories to discover category names"
                     ));
                 }
-                print_value(&queries.get_categories(&categories)?)?;
+                print_value(&queries.get_categories(&categories, &include, &exclude)?)?;
             }
             Command::QueryFrontmatter { field, mode, value } => {
                 print_value(&queries.query_frontmatter(
@@ -476,20 +539,30 @@ async fn main() -> anyhow::Result<()> {
                 query,
                 case_sensitive,
                 context_lines,
+                include,
+                exclude,
             } => {
-                print_value(&queries.search_text(&query, case_sensitive, context_lines)?)?;
+                print_value(&queries.search_text(
+                    &query,
+                    case_sensitive,
+                    context_lines,
+                    &include,
+                    &exclude,
+                )?)?;
             }
             Command::SearchRegex {
                 pattern,
                 case_sensitive,
                 context_lines,
-                path_glob,
+                include,
+                exclude,
             } => {
                 print_value(&queries.search_regex(
                     &pattern,
                     case_sensitive,
                     context_lines,
-                    path_glob.as_deref(),
+                    &include,
+                    &exclude,
                 )?)?;
             }
             Command::CollectNoteContext { note } => {

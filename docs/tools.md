@@ -17,17 +17,17 @@ server supports structural section edits as well as read operations.
 | `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
 | `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
 | `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
-| `get_categories` | Locate selected folder-derived categories and return matching Markdown note files |
+| `get_categories` | Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
-| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text; use before selecting a section |
+| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section. |
 | `get_note_stats` | Return one note's word, character, line, and total backlink counts |
 | `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
-| `get_tags` | Locate selected tags and return note or line references; use read_section on returned paths to inspect context |
+| `get_tags` | Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
-| `list_categories` | List unique folder-derived category names; use get_categories to locate selected categories |
+| `list_categories` | List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_notes` | List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname. |
-| `list_tags` | List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags |
+| `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_chars controls this request's truncation boundary. |
@@ -37,8 +37,8 @@ server supports structural section edits as well as read operations.
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
 | `replace_section` | Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching. |
 | `resolve_ref` | Resolve an Obsidian reference such as [[Note#Heading]] to a note, heading, or block without guessing ambiguous targets |
-| `search_regex` | Search visible Markdown notes with a Rust regular expression and return section-aware snippets |
-| `search_text` | Search literal text across visible Markdown notes and return section-aware snippets |
+| `search_regex` | Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
+| `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 
 ## 🔧 `append_section`
 
@@ -349,13 +349,15 @@ Nested types:
 
 ## 🔧 `get_categories`
 
-Locate selected folder-derived categories and return matching Markdown note files
+Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `categories` | `string[]` | yes | Exact folder-derived category names to locate. |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 
 
 Output:
@@ -445,12 +447,13 @@ Nested types:
 
 ## 🔧 `get_note_outline`
 
-Return one note's selectable non-H1 heading tree without body text; use before selecting a section
+Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `heading` | `string \| null` | no | Optional heading or slash-separated heading path. When set, returns only its ancestor chain. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -677,12 +680,14 @@ Nested types:
 
 ## 🔧 `get_tags`
 
-Locate selected tags and return note or line references; use read_section on returned paths to inspect context
+Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 | `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
 | `tags` | `string[]` | yes | Exact tags to locate. Both "状态/身体" and "#状态/身体" are accepted. |
 | `verbose` | `boolean` | no | Return detailed section metadata when true. Defaults to compact LLM-friendly output. |
@@ -744,6 +749,7 @@ Nested types:
 
 | Value |
 | --- |
+| `note` |
 | `body` |
 | `section` |
 | `line` |
@@ -806,11 +812,14 @@ Nested types:
 
 ## 🔧 `list_categories`
 
-List unique folder-derived category names; use get_categories to locate selected categories
+List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
-Type: `object`
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 
 
 Output:
@@ -848,12 +857,14 @@ Nested types:
 
 ## 🔧 `list_tags`
 
-List unique tag names across body tag nodes and frontmatter tags; use get_tags to locate selected tags
+List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 | `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
 
 Nested types:
@@ -1205,7 +1216,7 @@ Nested types:
 
 ## 🔧 `search_regex`
 
-Search visible Markdown notes with a Rust regular expression and return section-aware snippets
+Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
@@ -1213,7 +1224,8 @@ Input:
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
 | `context_lines` | `integer` | no | Number of surrounding lines to include in each snippet. |
-| `path_glob` | `string \| null` | no | Optional glob limiting searched note paths, such as "正文/**/*.md". |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 | `pattern` | `string` | yes | Rust regex pattern matched line by line. |
 
 
@@ -1222,7 +1234,6 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `matches` | `TextMatch[]` | yes |  |
-| `path_glob` | `string \| null` | no |  |
 | `pattern` | `string` | yes |  |
 | `truncated` | `boolean` | yes |  |
 
@@ -1253,7 +1264,7 @@ Nested types:
 
 ## 🔧 `search_text`
 
-Search literal text across visible Markdown notes and return section-aware snippets
+Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
@@ -1261,6 +1272,8 @@ Input:
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
 | `context_lines` | `integer` | no | Number of surrounding lines to include in each snippet. |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 | `query` | `string` | yes | Literal text to search for. |
 
 

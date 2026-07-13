@@ -35,10 +35,12 @@ cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
-cargo run -- --vault /path/to/vault search_text "求生本能"
-cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault list_tags
-cargo run -- --vault /path/to/vault get_tags "状态/身体"
+cargo run -- --vault /path/to/vault search_text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault list_tags --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault get_tags "状态/身体" --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault list_categories --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault get_categories "人物" --include "正文/**/*.md" --exclude "**/草稿/**"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
@@ -50,6 +52,22 @@ cargo run -- --vault /path/to/vault find_ambiguous_links
 cargo run -- --vault /path/to/vault get_vault_graph
 cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
 ```
+
+## 请求级路径过滤
+
+`list_tags`、`get_tags`、`list_categories`、`get_categories`、`search_text`
+和 `search_regex` 都支持可选的 MCP 数组字段 `include: string[]` 与
+`exclude: string[]`；对应 CLI 使用可重复的 `--include <GLOB>` 和
+`--exclude <GLOB>` 参数。
+
+模式使用 `globset` 语法，匹配 vault-relative Markdown note 路径。省略或传入
+空 `include` 数组时不额外限制范围；否则 note 至少要匹配一个 include。多个
+include 是并集，多个 exclude 是并集；即使已匹配 include，命中 exclude 的 note
+仍会被排除。请求过滤只能缩小由 vault 配置、gitignore 和默认忽略路径决定的可见
+note 集合，不能重新包含全局不可见的 note。
+
+`search_regex.path_glob` 已移除。请将
+`path_glob: "正文/**/*.md"` 改为 `include: ["正文/**/*.md"]`。
 
 启动 MCP server：
 
@@ -152,7 +170,7 @@ note 内容、搜索文本或 regex pattern。正常退出时，进程会先 for
 - `delete_section`：删除一个选中的章节。
 - `rename_heading`：预览或执行标题改名，并更新能唯一解析的 wikilink。
 - `search_text`：字面量搜索。
-- `search_regex`：Rust regex 搜索，可用 path glob 限定范围。
+- `search_regex`：Rust regex 搜索，支持请求级 include / exclude 路径过滤。
 - `resolve_ref`：解析 Obsidian reference，例如 `[[Note#Heading]]`。
 - `get_outlinks`：获取一个 note 的出链。
 - `get_backlinks`：获取一个 note 或 reference 的反链。

@@ -6,6 +6,7 @@ mod graph;
 mod links;
 mod notes;
 mod outline;
+mod path_filter;
 mod search;
 pub(crate) mod section;
 
@@ -16,6 +17,7 @@ use std::{borrow::Cow, fs, sync::Arc};
 
 use camino::Utf8Path;
 use clap::ValueEnum;
+use rayon::prelude::*;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
@@ -275,7 +277,6 @@ pub struct SearchTextResult {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchRegexResult {
     pub pattern: String,
-    pub path_glob: Option<String>,
     pub matches: Vec<TextMatch>,
     pub truncated: bool,
 }
@@ -561,11 +562,15 @@ pub struct TagOccurrence {
     pub source_kind: TagSourceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<SearchSource>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub compact_section: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TagSourceKind {
+    Note,
     Body,
     Section,
     Line,
@@ -886,6 +891,21 @@ impl VaultQueries {
     ) -> anyhow::Result<Arc<ParsedNote>> {
         self.parse_cache
             .parse_note(path, relative_path, self.vault.config.max_note_bytes)
+    }
+
+    fn index_filtered_notes(
+        &self,
+        filter: &path_filter::PathFilter,
+    ) -> anyhow::Result<Vec<IndexedNote>> {
+        let mut notes: Vec<IndexedNote> = self
+            .vault
+            .list_notes()?
+            .into_par_iter()
+            .filter(|file| filter.is_match(&file.relative_path))
+            .filter_map(|file| read_and_parse(self, &file).ok())
+            .collect();
+        notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
+        Ok(notes)
     }
 }
 

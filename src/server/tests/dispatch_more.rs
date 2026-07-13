@@ -8,8 +8,9 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest, RenameBlockIdRequest,
-    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, TagsRequest, VaultFilesRequest,
+    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest,
+    RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
+    TagsRequest, VaultFilesRequest,
 };
 
 #[test]
@@ -42,6 +43,86 @@ fn tool_output_schemas_have_object_roots_when_present() {
 }
 
 #[test]
+fn query_tools_expose_request_path_filter_arrays_without_legacy_path_glob() {
+    let definitions = ObsidianVaultMcp::tool_definitions();
+    for name in [
+        "list_tags",
+        "get_tags",
+        "list_categories",
+        "get_categories",
+        "search_text",
+        "search_regex",
+    ] {
+        let definition = definitions
+            .iter()
+            .find(|definition| definition.name == name)
+            .expect("query tool definition");
+        let properties = definition.input_schema["properties"]
+            .as_object()
+            .expect("input schema properties");
+        assert_eq!(properties["include"]["type"], "array", "{name} include");
+        assert_eq!(properties["exclude"]["type"], "array", "{name} exclude");
+    }
+
+    let regex = definitions
+        .iter()
+        .find(|definition| definition.name == "search_regex")
+        .expect("regex definition");
+    assert!(regex.input_schema["properties"].get("path_glob").is_none());
+}
+
+#[test]
+fn query_tool_path_filters_reach_tag_and_search_handlers() {
+    let (dir, server) = fixture();
+    for path in ["正文/keep.md", "资料/keep.md", "正文/草稿/drop.md"] {
+        if let Some(parent) = dir.path().join(path).parent() {
+            fs::create_dir_all(parent).expect("create parent");
+        }
+        fs::write(
+            dir.path().join(path),
+            "# Filtered\n\n#筛选标签\n\nshared filtered content\n",
+        )
+        .expect("write filtered note");
+    }
+    let include = vec!["正文/**/*.md".to_string(), "资料/**/*.md".to_string()];
+    let exclude = vec!["**/草稿/**".to_string()];
+
+    let Json(tags) = server
+        .get_tags(Parameters(TagsRequest {
+            tags: vec!["筛选标签".to_string()],
+            scope: TagScope::Note,
+            verbose: false,
+            include: include.clone(),
+            exclude: exclude.clone(),
+        }))
+        .expect("filtered tags");
+    assert_eq!(tags.tags[0].notes.len(), 2);
+    assert!(
+        tags.tags[0]
+            .notes
+            .iter()
+            .all(|tag| tag.note != "正文/草稿/drop.md")
+    );
+
+    let Json(matches) = server
+        .search_text(Parameters(SearchTextRequest {
+            query: "shared filtered content".to_string(),
+            case_sensitive: false,
+            context_lines: 0,
+            include,
+            exclude,
+        }))
+        .expect("filtered text search");
+    assert_eq!(matches.matches.len(), 2);
+    assert!(
+        matches
+            .matches
+            .iter()
+            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+    );
+}
+
+#[test]
 fn list_and_note_structure_tools_return_note_metadata() {
     let (_dir, server) = fixture();
     assert!(server.tool_router.has_route("get_note_structure"));
@@ -71,6 +152,8 @@ fn search_and_frontmatter_tools_surface_results_and_regex_errors() {
             query: "林动".to_string(),
             case_sensitive: false,
             context_lines: 0,
+            include: vec![],
+            exclude: vec![],
         }))
         .expect("search text");
     assert_eq!(text_result.matches.len(), 2);
@@ -88,7 +171,8 @@ fn search_and_frontmatter_tools_surface_results_and_regex_errors() {
         pattern: "(".to_string(),
         case_sensitive: false,
         context_lines: 0,
-        path_glob: None,
+        include: vec![],
+        exclude: vec![],
     })) {
         Ok(_) => panic!("invalid regex should fail"),
         Err(error) => error,
@@ -264,6 +348,8 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
             tags: vec!["状态/身体".to_string()],
             scope: TagScope::Note,
             verbose: true,
+            include: vec![],
+            exclude: vec![],
         }))
         .expect("get tags");
     assert_eq!(tags.tags.len(), 1);

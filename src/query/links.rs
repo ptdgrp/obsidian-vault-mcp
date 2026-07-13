@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::parser::{HeadingInfo, SourceSpan};
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
+
+use super::path_filter::PathFilter;
 
 use super::{
     BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
@@ -91,8 +94,13 @@ impl VaultQueries {
         Ok(count_matching_backlinks(&notes, wanted_path))
     }
 
-    pub fn list_tags(&self, scope: TagScope) -> anyhow::Result<ListTagsResult> {
-        let result = self.collect_tags(None, scope)?;
+    pub fn list_tags(
+        &self,
+        scope: TagScope,
+        include: &[String],
+        exclude: &[String],
+    ) -> anyhow::Result<ListTagsResult> {
+        let result = self.collect_tags(None, scope, include, exclude)?;
         Ok(ListTagsResult {
             tags: result.tags.into_iter().map(|bucket| bucket.tag).collect(),
         })
@@ -103,15 +111,24 @@ impl VaultQueries {
         tags: &[String],
         scope: TagScope,
         verbose: bool,
+        include: &[String],
+        exclude: &[String],
     ) -> anyhow::Result<GetTagsResult> {
-        let result = self.collect_tags(Some(tags), scope)?;
+        let result = self.collect_tags(Some(tags), scope, include, exclude)?;
         Ok(tags_output(result, verbose))
     }
 
-    fn collect_tags(&self, tags: Option<&[String]>, scope: TagScope) -> anyhow::Result<TagsResult> {
+    fn collect_tags(
+        &self,
+        tags: Option<&[String]>,
+        scope: TagScope,
+        include: &[String],
+        exclude: &[String],
+    ) -> anyhow::Result<TagsResult> {
+        let filter = PathFilter::new(include, exclude)?;
         let mut buckets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut occurrences: BTreeMap<String, Vec<TagOccurrence>> = BTreeMap::new();
-        for note in self.index_notes()? {
+        for note in self.index_filtered_notes(&filter)? {
             for found in &note.parsed.tags {
                 if scope.includes_body_tag(found.scope) && tag_matches(tags, &found.tag) {
                     buckets
@@ -123,8 +140,19 @@ impl VaultQueries {
                         .or_default()
                         .push(TagOccurrence {
                             note: note.file.relative_path.clone(),
-                            source_kind: tag_source_kind(found.scope),
+                            source_kind: tag_source_kind(
+                                found.scope,
+                                found
+                                    .source
+                                    .section
+                                    .as_ref()
+                                    .map(|section| section.heading_level),
+                            ),
                             source: Some(found.source.clone().into()),
+                            compact_section: compact_tag_section(
+                                &found.source,
+                                &note.parsed.headings,
+                            ),
                         });
                 }
             }
@@ -139,6 +167,7 @@ impl VaultQueries {
                             note: note.file.relative_path.clone(),
                             source_kind: TagSourceKind::Frontmatter,
                             source: None,
+                            compact_section: None,
                         });
                     }
                 }
@@ -272,12 +301,41 @@ fn normalize_tag(tag: &str) -> String {
     tag.trim().trim_start_matches('#').to_string()
 }
 
-fn tag_source_kind(scope: TagScope) -> TagSourceKind {
+fn tag_source_kind(scope: TagScope, heading_level: Option<u8>) -> TagSourceKind {
     match scope {
         TagScope::Note | TagScope::Frontmatter | TagScope::Body => TagSourceKind::Body,
+        TagScope::Section if heading_level == Some(1) => TagSourceKind::Note,
         TagScope::Section => TagSourceKind::Section,
         TagScope::Line => TagSourceKind::Line,
     }
+}
+
+fn compact_tag_section(source: &SourceSpan, headings: &[HeadingInfo]) -> Option<String> {
+    let section = source.section.as_ref()?;
+    if section.heading_level == 1 {
+        return None;
+    }
+
+    let matching_headings = headings
+        .iter()
+        .filter(|heading| heading.level != 1 && heading.text == section.heading)
+        .collect::<Vec<_>>();
+    for suffix_len in 1..=section.heading_path.len() {
+        let suffix_start = section.heading_path.len() - suffix_len;
+        let suffix = &section.heading_path[suffix_start..];
+        let matching_suffixes = matching_headings
+            .iter()
+            .filter(|heading| {
+                heading.path.len() >= suffix_len
+                    && heading.path[heading.path.len() - suffix_len..] == *suffix
+            })
+            .count();
+        if matching_suffixes == 1 {
+            return Some(suffix.join("/"));
+        }
+    }
+
+    Some(section.heading_path.join("/"))
 }
 
 fn tags_output(result: TagsResult, verbose: bool) -> GetTagsResult {
@@ -319,11 +377,7 @@ fn compact_tag_matches(bucket: TagBucket) -> Vec<CompactTagMatch> {
         .occurrences
         .into_iter()
         .map(|occurrence| {
-            let section = occurrence
-                .source
-                .as_ref()
-                .and_then(|source| source.section.as_ref())
-                .map(|section| section.heading_path.join(" / "));
+            let section = occurrence.compact_section;
             let note = occurrence
                 .source
                 .as_ref()

@@ -44,12 +44,12 @@ cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
-cargo run -- --vault /path/to/vault search_text "求生本能"
-cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --path_glob "正文/**/*.md"
-cargo run -- --vault /path/to/vault list_tags
-cargo run -- --vault /path/to/vault get_tags "状态/身体"
-cargo run -- --vault /path/to/vault list_categories
-cargo run -- --vault /path/to/vault get_categories "人物"
+cargo run -- --vault /path/to/vault search_text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault list_tags --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault get_tags "状态/身体" --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault list_categories --include "正文/**/*.md" --exclude "**/草稿/**"
+cargo run -- --vault /path/to/vault get_categories "人物" --include "正文/**/*.md" --exclude "**/草稿/**"
 cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
@@ -61,6 +61,23 @@ cargo run -- --vault /path/to/vault find_ambiguous_links
 cargo run -- --vault /path/to/vault get_vault_graph
 cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
 ```
+
+## Request path filters
+
+`list_tags`, `get_tags`, `list_categories`, `get_categories`, `search_text`,
+and `search_regex` accept optional `include: string[]` and `exclude: string[]`
+MCP fields. Their CLI counterparts accept repeatable `--include <GLOB>` and
+`--exclude <GLOB>` flags.
+
+Patterns use `globset` syntax against vault-relative Markdown note paths. An
+empty or omitted `include` array leaves the request unrestricted; otherwise a
+note must match at least one include pattern. Multiple includes are a union,
+multiple excludes are a union, and an exclude match always wins. Request
+filters only narrow the notes already visible through vault configuration,
+gitignore, and default ignored-path rules.
+
+`search_regex.path_glob` has been removed. Migrate
+`path_glob: "正文/**/*.md"` to `include: ["正文/**/*.md"]`.
 
 ## Zed MCP
 
