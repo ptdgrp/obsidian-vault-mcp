@@ -81,6 +81,37 @@ fn read_note_reports_unresolved_reference_for_missing_note() {
 }
 
 #[test]
+fn note_lookups_suggest_unique_filename_when_obsidian_ref_has_wrong_directory() {
+    let (dir, queries) = fixture();
+    fs::create_dir(dir.path().join("正确目录")).expect("create note directory");
+    fs::write(
+        dir.path().join("正确目录/唯一笔记.md"),
+        "# 唯一笔记\n\n## 章节\n\n内容\n",
+    )
+    .expect("write note");
+
+    let reference = "[[错误目录/唯一笔记#章节|显示名]]";
+    let read_note_error = queries
+        .read_note(reference, None)
+        .expect_err("missing reference should suggest the actual file");
+    let read_section_error = queries
+        .read_section(
+            reference,
+            SectionSelector::Heading {
+                heading: "章节".to_string(),
+            },
+        )
+        .expect_err("section lookup should share the file suggestion");
+
+    for error in [read_note_error, read_section_error] {
+        let message = error.to_string();
+        assert!(message.contains("unresolved note reference"));
+        assert!(message.contains(reference));
+        assert!(message.contains("正确目录/唯一笔记"));
+    }
+}
+
+#[test]
 fn graph_health_queries_truncate_when_result_budget_is_small() {
     let (dir, mut queries) = fixture();
     fs::write(
