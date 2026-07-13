@@ -26,7 +26,7 @@ fn resolve_ref_command_returns_machine_readable_json() {
     write_note(
         &dir,
         "林动.md",
-        "---\naliases:\n  - 动林\n---\n# 林动\n\n身体\n",
+        "---\naliases:\n  - 动林\n---\n# 林动\n\n## 身体\n",
     );
 
     let output = run_cli(&dir, &["resolve-ref", "[[动林#身体]]"]);

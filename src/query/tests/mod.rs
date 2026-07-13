@@ -824,6 +824,32 @@ fn resolve_ref_outputs_compact_unresolved_json_without_suggestion() {
 }
 
 #[test]
+fn resolve_ref_outputs_unresolved_for_missing_selectors_on_existing_note() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target");
+
+    let missing_heading = queries
+        .resolve_ref("[[Target#Missing]]")
+        .expect("resolve missing heading");
+    let missing_block = queries
+        .resolve_ref("[[Target#^missing]]")
+        .expect("resolve missing block");
+
+    assert_eq!(
+        serde_json::to_value(missing_heading).expect("heading json"),
+        serde_json::json!({"unresolved_target": "Target#Missing"})
+    );
+    assert_eq!(
+        serde_json::to_value(missing_block).expect("block json"),
+        serde_json::json!({"unresolved_target": "Target#^missing"})
+    );
+}
+
+#[test]
 fn outlinks_page_then_group_targets_and_keep_ambiguous_selectors() {
     let (dir, queries) = fixture();
     fs::create_dir_all(dir.path().join("A")).expect("create A dir");
@@ -890,6 +916,41 @@ fn outlinks_page_then_group_targets_and_keep_ambiguous_selectors() {
 }
 
 #[test]
+fn outlinks_reports_missing_selectors_on_existing_note_as_unresolved() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target");
+    fs::write(
+        dir.path().join("Links.md"),
+        "# Links\n\n[[Target#Missing]]\n[[Target#^missing]]\n",
+    )
+    .expect("write links");
+
+    let outlinks = queries.get_outlinks("Links", 1).expect("outlinks");
+    let value = serde_json::to_value(outlinks).expect("outlinks json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": [],
+            "unresolved_targets": [
+                {"source": "Links.md#L3", "reference": "Target#Missing"},
+                {"source": "Links.md#L4", "reference": "Target#^missing"}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_links": 2
+            }
+        })
+    );
+}
+
+#[test]
 fn backlinks_page_after_filters_then_group_by_resolved_target_scope() {
     let (dir, queries) = fixture();
     fs::create_dir_all(dir.path().join("keep")).expect("create keep dir");
@@ -908,6 +969,11 @@ fn backlinks_page_after_filters_then_group_by_resolved_target_scope() {
     .expect("write child");
     fs::write(dir.path().join("keep/sibling.md"), "[[Target#Sibling]]\n").expect("write sibling");
     fs::write(dir.path().join("keep/block.md"), "[[Target#^exact]]\n").expect("write block");
+    fs::write(
+        dir.path().join("keep/missing-selectors.md"),
+        "[[Target#Missing]]\n[[Target#^missing]]\n",
+    )
+    .expect("write missing selectors");
     fs::write(
         dir.path().join("drop/excluded.md"),
         "[[Target#Parent#Child]]\n",
@@ -978,6 +1044,21 @@ fn backlinks_page_after_filters_then_group_by_resolved_target_scope() {
                 "total_backlinks": 1
             }
         })
+    );
+
+    let missing_heading = queries.get_backlinks("Target#Missing", &[], &[], 1);
+    assert!(
+        missing_heading
+            .unwrap_err()
+            .to_string()
+            .contains("target must resolve to exactly one note reference")
+    );
+    let missing_block = queries.get_backlinks("Target#^missing", &[], &[], 1);
+    assert!(
+        missing_block
+            .unwrap_err()
+            .to_string()
+            .contains("target must resolve to exactly one note reference")
     );
 }
 

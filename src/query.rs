@@ -943,8 +943,10 @@ pub(crate) fn find_indexed_note<'a>(
 }
 
 fn suggested_note_reference(reference: &ObsidianRef, notes: &[IndexedNote]) -> Option<String> {
-    suggested_note_path(&reference.target, notes)
-        .map(|path| format!("{path}{}", reference_suffix(&reference.reference)))
+    let path = suggested_note_path(&reference.target, notes)?;
+    let note = notes.iter().find(|note| note.file.relative_path == path)?;
+    RefResolver::reference_exists(note, &reference.reference)
+        .then(|| format!("{path}{}", reference_suffix(&reference.reference)))
 }
 
 fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {

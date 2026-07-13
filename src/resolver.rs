@@ -97,12 +97,27 @@ impl RefResolver {
             [] => ResolveResult::Unresolved {
                 reference: parsed_ref,
             },
-            [candidate] => ResolveResult::Resolved {
-                heading: reference_heading(&parsed_ref.reference),
-                block_id: reference_block_id(&parsed_ref.reference),
-                path: candidate.path.clone(),
-                reference: parsed_ref,
-            },
+            [candidate] => {
+                let Some(note) = notes
+                    .iter()
+                    .find(|note| note.file.relative_path == candidate.path)
+                else {
+                    return ResolveResult::Unresolved {
+                        reference: parsed_ref,
+                    };
+                };
+                if !Self::reference_exists(note, &parsed_ref.reference) {
+                    return ResolveResult::Unresolved {
+                        reference: parsed_ref,
+                    };
+                }
+                ResolveResult::Resolved {
+                    heading: reference_heading(&parsed_ref.reference),
+                    block_id: reference_block_id(&parsed_ref.reference),
+                    path: candidate.path.clone(),
+                    reference: parsed_ref,
+                }
+            }
             _ => ResolveResult::Ambiguous {
                 reference: parsed_ref,
                 candidates,
@@ -116,6 +131,42 @@ impl RefResolver {
             _ => normalize_key(link_target) == normalize_key(wanted_path),
         }
     }
+
+    pub(crate) fn reference_exists(note: &IndexedNote, reference: &Option<ReferenceInfo>) -> bool {
+        match reference {
+            None => true,
+            Some(ReferenceInfo::BlockId { value }) => {
+                note.parsed.blocks.iter().any(|block| block.id == *value)
+            }
+            Some(ReferenceInfo::Heading { value }) => note
+                .parsed
+                .headings
+                .iter()
+                .filter(|heading| heading.level != 1)
+                .any(|heading| heading_matches(value, heading)),
+            Some(ReferenceInfo::MultiHeading { value }) => note
+                .parsed
+                .headings
+                .iter()
+                .filter(|heading| heading.level != 1)
+                .any(|heading| heading_path_matches(value, &heading.path)),
+        }
+    }
+}
+
+fn heading_matches(requested: &str, heading: &crate::parser::HeadingInfo) -> bool {
+    comparable_heading_text(&heading.text) == comparable_heading_text(requested)
+        || comparable_heading_text(&heading.anchor) == comparable_heading_text(requested)
+        || comparable_heading_text(&heading.path.join("/")) == comparable_heading_text(requested)
+        || comparable_heading_text(&heading.path.join(" / ")) == comparable_heading_text(requested)
+}
+
+fn heading_path_matches(requested: &[String], candidate: &[String]) -> bool {
+    requested.len() == candidate.len()
+        && requested
+            .iter()
+            .zip(candidate)
+            .all(|(left, right)| comparable_heading_text(left) == comparable_heading_text(right))
 }
 
 fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate> {
@@ -258,6 +309,15 @@ fn normalize_key(input: &str) -> String {
         .nfc()
         .collect::<String>()
         .to_lowercase()
+}
+
+fn comparable_heading_text(value: &str) -> &str {
+    let trimmed = value.trim();
+    let without_colon = trimmed
+        .strip_suffix(':')
+        .or_else(|| trimmed.strip_suffix('：'))
+        .unwrap_or(trimmed);
+    without_colon.trim_end()
 }
 
 #[cfg(test)]

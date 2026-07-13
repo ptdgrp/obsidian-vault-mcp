@@ -23,7 +23,7 @@ pub(super) fn fixture() -> (tempfile::TempDir, ObsidianVaultMcp) {
     let dir = tempdir().expect("tempdir");
     fs::write(
         dir.path().join("林动.md"),
-        "---\naliases:\n  - 动林\n---\n# 林动\n\n身体\n",
+        "---\naliases:\n  - 动林\n---\n# 林动\n\n## 身体\n",
     )
     .expect("write note");
     fs::write(
