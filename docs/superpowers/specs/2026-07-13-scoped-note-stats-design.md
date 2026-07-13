@@ -21,7 +21,7 @@ compatibility with wrapped input is retained. No `heading`, `block_id`, or
 ## Behavior
 
 The query parses the input reference, resolves the containing note, and maps a
-heading or block fragment to the existing `SectionSelector` and
+heading or block fragment to the existing private `SectionSelector` and
 `section_source` implementation. For a selected range, word count, character
 count, and line count use only the sliced source. The result adds an optional
 `source` span to make the selected range explicit; it is absent for whole-note
@@ -32,14 +32,15 @@ selected note and explicitly target the selected heading or block. Links to the
 note with no fragment do not count for a selected range. Whole-note statistics
 retain the current count of all inbound links to that note.
 
-Missing headings and blocks use the same failures and suggestions as
-`read_section`. Strict `resolve_ref` behavior remains unchanged.
+Missing headings and blocks use the same failures and suggestions as the
+unified `read_note` selector flow. Strict `resolve_ref` behavior remains
+unchanged.
 
 ## Implementation boundaries
 
 - `src/query/notes.rs` owns stats calculation and reference-to-selector
   orchestration.
-- `src/query/section.rs` continues to own section range selection.
+- `src/query/section.rs` continues to own private section range selection.
 - `src/query/links.rs` exposes scoped backlink counting over parsed link
   references.
 - `src/server.rs`, `src/main.rs`, and generated tool documentation describe
