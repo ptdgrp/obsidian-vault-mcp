@@ -772,6 +772,44 @@ fn resolve_ref_outputs_compact_resolved_multi_heading_json() {
 }
 
 #[test]
+fn resolve_ref_and_backlinks_use_canonical_heading_path_for_equivalent_selector() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Parent\n\n### Child\n\nContent\n",
+    )
+    .expect("write target");
+    fs::write(dir.path().join("Source.md"), "[[Target#Parent/Child]]\n").expect("write source");
+
+    let resolved = queries
+        .resolve_ref("[[Target#Parent/Child]]")
+        .expect("resolve equivalent selector");
+    assert_eq!(
+        serde_json::to_value(resolved).expect("resolve json"),
+        serde_json::json!({"target": "Target.md#Parent#Child"})
+    );
+
+    let backlinks = queries
+        .get_backlinks("Target#Parent", &[], &[], 1)
+        .expect("parent backlinks");
+    assert_eq!(
+        serde_json::to_value(backlinks).expect("backlinks json"),
+        serde_json::json!({
+            "scope": "Target.md#Parent",
+            "references": [{
+                "target": "Target.md#Parent#Child",
+                "sources": ["Source.md#L1"]
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
+}
+
+#[test]
 fn resolve_ref_outputs_compact_ambiguous_json_with_selector() {
     let (_dir, queries) = fixture();
 

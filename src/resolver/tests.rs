@@ -107,6 +107,44 @@ fn resolve_treats_missing_block_selector_as_unresolved() {
 }
 
 #[test]
+fn resolve_canonicalizes_slash_separated_heading_path_selector() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Parent\n\n### Child\n",
+    )
+    .expect("write note");
+    let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
+    let file = vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .find(|file| file.relative_path == "Target.md")
+        .expect("target file");
+    let content = fs::read_to_string(&file.path).expect("read note");
+    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let notes = vec![IndexedNote { file, parsed }];
+
+    let result = RefResolver::resolve("Target#Parent/Child", &notes);
+
+    match result {
+        ResolveResult::Resolved {
+            reference, heading, ..
+        } => {
+            assert_eq!(heading.as_deref(), Some("Child"));
+            assert_eq!(
+                reference.reference,
+                Some(ReferenceInfo::MultiHeading {
+                    value: vec!["Parent".to_string(), "Child".to_string()]
+                })
+            );
+        }
+        other => panic!("expected resolved canonical heading path, got {other:?}"),
+    }
+}
+
+#[test]
 fn resolve_returns_ambiguous_candidates_for_duplicate_stems() {
     let (_dir, notes) = fixture();
 

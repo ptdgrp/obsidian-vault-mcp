@@ -89,7 +89,7 @@ impl RefResolver {
     }
 
     pub fn resolve(reference: &str, notes: &[IndexedNote]) -> ResolveResult {
-        let parsed_ref = Self::parse_ref(reference);
+        let mut parsed_ref = Self::parse_ref(reference);
         let mut candidates = find_candidates(&parsed_ref.target, notes);
         candidates.sort_by(|a, b| natord::compare(&a.path, &b.path));
         candidates.dedup_by(|a, b| a.path == b.path);
@@ -106,11 +106,14 @@ impl RefResolver {
                         reference: parsed_ref,
                     };
                 };
-                if !Self::reference_exists(note, &parsed_ref.reference) {
+                let Some(canonical_reference) =
+                    Self::canonical_reference(note, &parsed_ref.reference)
+                else {
                     return ResolveResult::Unresolved {
                         reference: parsed_ref,
                     };
-                }
+                };
+                parsed_ref.reference = canonical_reference;
                 ResolveResult::Resolved {
                     heading: reference_heading(&parsed_ref.reference),
                     block_id: reference_block_id(&parsed_ref.reference),
@@ -133,24 +136,50 @@ impl RefResolver {
     }
 
     pub(crate) fn reference_exists(note: &IndexedNote, reference: &Option<ReferenceInfo>) -> bool {
+        Self::canonical_reference(note, reference).is_some()
+    }
+
+    fn canonical_reference(
+        note: &IndexedNote,
+        reference: &Option<ReferenceInfo>,
+    ) -> Option<Option<ReferenceInfo>> {
         match reference {
-            None => true,
-            Some(ReferenceInfo::BlockId { value }) => {
-                note.parsed.blocks.iter().any(|block| block.id == *value)
+            None => Some(None),
+            Some(ReferenceInfo::BlockId { value }) => note
+                .parsed
+                .blocks
+                .iter()
+                .any(|block| block.id == *value)
+                .then(|| {
+                    Some(ReferenceInfo::BlockId {
+                        value: value.clone(),
+                    })
+                }),
+            Some(ReferenceInfo::Heading { value }) => {
+                note.parsed.headings.iter().find_map(|heading| {
+                    (heading.level != 1 && heading_matches(value, heading))
+                        .then(|| canonical_heading_reference(&heading.path))
+                })
             }
-            Some(ReferenceInfo::Heading { value }) => note
-                .parsed
-                .headings
-                .iter()
-                .filter(|heading| heading.level != 1)
-                .any(|heading| heading_matches(value, heading)),
-            Some(ReferenceInfo::MultiHeading { value }) => note
-                .parsed
-                .headings
-                .iter()
-                .filter(|heading| heading.level != 1)
-                .any(|heading| heading_path_matches(value, &heading.path)),
+            Some(ReferenceInfo::MultiHeading { value }) => {
+                note.parsed.headings.iter().find_map(|heading| {
+                    (heading.level != 1 && heading_path_matches(value, &heading.path))
+                        .then(|| canonical_heading_reference(&heading.path))
+                })
+            }
         }
+    }
+}
+
+fn canonical_heading_reference(path: &[String]) -> Option<ReferenceInfo> {
+    match path {
+        [] => None,
+        [heading] => Some(ReferenceInfo::Heading {
+            value: heading.clone(),
+        }),
+        _ => Some(ReferenceInfo::MultiHeading {
+            value: path.to_vec(),
+        }),
     }
 }
 
