@@ -1,64 +1,36 @@
-# Compact MCP Responses Design
+# 紧凑 MCP 返回设计
 
-## Status and scope
+## 状态与范围
 
-This document records the response contracts confirmed during the public API
-noise audit. It is intentionally separate from
-`2026-07-13-task-oriented-query-tools-design.md`: that design reduces eight
-overlapping query tools to three task-oriented tools, while this design makes
-the remaining public tools smaller and more predictable for LLM callers.
+本文档记录公共 API 噪音审计中逐项确认的返回契约。它独立于 `2026-07-13-task-oriented-query-tools-design.md`：前者把 8 个重叠查询工具收敛为 3 个面向任务的工具，本文则让其余公共工具更紧凑、更适合 LLM 调用。
 
-The contracts below cover every remaining public tool reviewed in the API noise
-audit. Tools removed or replaced by the task-oriented query-tools design are not
-repeated here.
+本文覆盖审计中的全部剩余公共工具。被“面向任务的查询工具设计”删除或替代的工具不在此重复。
 
-## Common response rules
+## 通用返回规则
 
-1. Do not echo request fields unless the resolved, normalized value is needed by
-   a subsequent call.
-2. Use actionable vault-relative locators such as `note.md#L12` and normalized
-   references such as `note.md#Heading#Child` instead of nested source or parser
-   objects.
-3. Omit optional fields and arrays when they have no value. Do not serialize
-   `null` placeholders.
-4. Remove `verbose` modes when the additional evidence can be retrieved with a
-   targeted `read_note` call.
-5. Use fixed-size numeric paging for ordered collections. Page numbers start at
-   1; an out-of-range page succeeds with an empty collection and retains the
-   actual totals.
-6. Keep full paths and references intact. Display text may be bounded, but
-   actionable identifiers are never truncated.
-7. Preserve complete multi-heading paths. A nested heading reference must not be
-   reduced to its final heading component.
+1. 除非解析、规范化后的值会被后续调用使用，否则不回显请求参数。
+2. 使用 `note.md#L12`、`note.md#Heading#Child` 等可直接使用的 locator/reference，不返回嵌套 source 或 parser 对象。
+3. 可选字段和数组没有值时直接省略，不输出 `null` 占位。
+4. 如果详细证据可通过定向 `read_note` 获取，则删除 `verbose` 模式。
+5. 有序集合采用固定页大小的数字分页。page 从 1 开始；越界页成功返回空集合和真实 totals。
+6. path 和 reference 永不截断；只有展示文本可以设限。
+7. 多级 heading reference 必须保留完整路径，不能只留下最后一级。
 
-## Input naming and lookup contract
+## 输入命名与查找契约
 
-Input field names communicate lookup semantics:
+输入字段名直接表达查找语义：
 
-- `note`, `target`, and `reference` use Obsidian reference resolution. Callers may
-  use a stem, alias, wikilink, heading reference, or block reference as permitted
-  by the individual tool. They do not need a `.md` suffix or vault-relative
-  directory, so examples prefer `林动`, `林动#身体`, and `林动#^profile`.
-- A complete vault-relative note path remains valid in a reference field when it
-  is needed to disambiguate duplicate stems.
-- `path` and `new_path` use exact file-path syntax. They require a safe
-  vault-relative path with a `.md` suffix, such as `人物/林动.md`; absolute paths
-  and paths that escape the vault are errors.
-- A failed reference lookup compares the normalized unresolved note target with
-  visible resolver names and paths. A failed exact-path lookup compares the
-  requested path with visible vault-relative paths.
-- Suggestions are ordered by edit distance and then natural path order. Only
-  candidates with Levenshtein distance at most 3 are eligible, so the server does
-  not make distant guesses.
-- The reference's heading or block suffix is preserved when suggesting a corrected
-  note target.
-- Suggestions apply when locating an existing `path`. A destination `new_path`
-  is not a lookup and therefore receives validation errors rather than a similar
-  existing-path suggestion.
+- `note`、`target`、`reference` 走 Obsidian reference resolver。单个工具允许的范围内，可传 stem、alias、wikilink、heading reference 或 block reference；无需 `.md` 后缀或 vault-relative 目录，因此示例优先使用 `林动`、`林动#身体`、`林动#^profile`。
+- 当 stem 重名时，reference 字段仍允许传完整 vault-relative note path 来消歧。
+- `path`、`new_path` 使用精确文件路径语法，必须是安全、带 `.md` 的 vault-relative path，例如 `人物/林动.md`；绝对路径和越出 vault 的路径报错。
+- reference 查找失败时，将规范化后的目标与可见 resolver 名称和路径比较；精确 path 查找失败时，与可见 vault-relative paths 比较。
+- 建议按编辑距离、自然路径排序；只有 Levenshtein distance 小于等于 3 的候选才有资格出现，不做远距离猜测。
+- 修正 note 目标时必须保留原 heading/block suffix。
+- 建议只用于查找已有 path；`new_path` 是目标位置，不进行相似路径建议。
 
-## Reference containment
+## 引用包含关系
 
-Backlink scopes use syntactic reference containment:
+反向链接范围使用语法上的引用包含关系：
 
 ```text
 Note
@@ -68,17 +40,14 @@ Note
 └── Note#^block-id
 ```
 
-- A note scope contains direct note references, all heading references, and all
-  block references to that note.
-- A heading scope contains itself and descendant heading paths. It does not
-  contain sibling headings, parent headings, or block references physically
-  located in the section.
-- A block scope contains only the exact block reference and has no child scope.
-- Block IDs and headings are parallel addressing systems.
+- note scope 包含对 note 本身、所有 headings 和所有 blocks 的引用。
+- heading scope 包含自身和后代 heading paths，不包含父级、兄弟或物理上位于章节内的 block reference。
+- block scope 只包含精确 block reference，没有子 scope。
+- block ID 与 heading 是平行的寻址系统。
 
 ## `get_outlinks`
 
-### Input
+### 输入
 
 ```json
 {
@@ -87,11 +56,11 @@ Note
 }
 ```
 
-- `page` defaults to 1 and must be at least 1.
-- The fixed page size is 50 link occurrences.
-- `verbose` is removed.
+- `page` 默认 1，必须大于等于 1。
+- 固定每页 50 个 link occurrences。
+- 删除 `verbose`。
 
-### Output
+### 输出
 
 ```json
 {
@@ -126,35 +95,31 @@ Note
 }
 ```
 
-- Link occurrences are sorted by source location and paged before the selected
-  page is partitioned by resolution outcome.
-- `targets` is always present and contains uniquely resolved normalized targets.
-- `ambiguous_targets` and `unresolved_targets` are present only when the selected
-  page contains those outcomes.
-- Ambiguous candidates preserve the original heading or block selector.
-- Alias, section, snippet, nested resolver output, candidate match kind, and
-  status strings are omitted.
+- occurrences 按 source 排序、分页，再按解析结果分组。
+- `targets` 始终存在，包含唯一解析成功的规范化 targets。
+- `ambiguous_targets`、`unresolved_targets` 只在当前页非空时出现。
+- ambiguous candidates 保留原 heading/block selector。
+- 不返回 alias、section、snippet、嵌套 resolver、candidate match kind 或 status 字符串。
 
 ## `get_backlinks`
 
-### Input
+### 输入
 
 ```json
 {
-  "target": "人物/林动#身体",
+  "target": "林动#身体",
   "include": ["剧情/**"],
   "exclude": ["**/草稿/**"],
   "page": 1
 }
 ```
 
-- The input target must resolve uniquely. Unresolved targets fail with a path
-  suggestion when available; ambiguous targets fail with candidate paths.
-- `include` and `exclude` filter source-note paths. Excludes take precedence.
-- The fixed page size is 50 backlink occurrences.
-- `verbose` is removed.
+- target 必须唯一解析成功。unresolved 在有候选时给路径建议；ambiguous 列出候选并失败。
+- include/exclude 过滤 source note paths，exclude 优先。
+- 固定每页 50 个 backlink occurrences。
+- 删除 `verbose`。
 
-### Output
+### 输出
 
 ```json
 {
@@ -182,20 +147,17 @@ Note
 }
 ```
 
-- `scope` is the uniquely resolved, normalized query reference.
-- Matching backlink occurrences are paged and then grouped by their actual
-  normalized target reference.
-- Duplicate links from the same source line to the same target are returned once.
-- Backlinks whose links are ambiguous or unresolved cannot safely belong to a
-  resolved scope and are excluded; `audit_links` owns those outcomes.
-- Per-occurrence alias, status, section, source object, and snippet are omitted.
+- `scope` 是唯一解析成功、规范化后的查询 reference。
+- 匹配 occurrences 先分页，再按实际规范化 target 分组。
+- 同一 source line 指向同一 target 的重复链接只返回一次。
+- ambiguous/unresolved links 无法安全归入 resolved scope，由 `audit_links` 负责。
+- 不返回逐 occurrence alias、status、section、source object 或 snippet。
 
 ## `resolve_ref`
 
-The existing `result` wrapper, status string, raw input echo, internal
-`ReferenceInfo`, candidate match kind, and null fields are removed.
+删除现有 `result` wrapper、status、raw input 回显、内部 `ReferenceInfo`、candidate match kind 和 null 字段。
 
-Resolved note, heading, or block:
+Resolved：
 
 ```json
 {
@@ -203,7 +165,7 @@ Resolved note, heading, or block:
 }
 ```
 
-Ambiguous target:
+Ambiguous：
 
 ```json
 {
@@ -214,7 +176,7 @@ Ambiguous target:
 }
 ```
 
-Unresolved target with a unique suggestion:
+Unresolved 且存在唯一建议：
 
 ```json
 {
@@ -223,7 +185,7 @@ Unresolved target with a unique suggestion:
 }
 ```
 
-Unresolved target without a suggestion:
+Unresolved 且无建议：
 
 ```json
 {
@@ -231,16 +193,13 @@ Unresolved target without a suggestion:
 }
 ```
 
-Exactly one of `target`, `ambiguous_targets`, or `unresolved_target` is present.
-`suggested_target` is present only alongside `unresolved_target` when the
-suggestion is unique and reliable.
+`target`、`ambiguous_targets`、`unresolved_target` 三个主字段只出现一个。`suggested_target` 只在 unresolved 且建议唯一可靠时出现。
 
 ## `get_note_structure`
 
-`get_note_structure` is a bounded structural overview, not a complete parser
-dump.
+`get_note_structure` 是受限结构概览，不是完整 parser dump。
 
-### Input
+### 输入
 
 ```json
 {
@@ -248,7 +207,7 @@ dump.
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -283,17 +242,13 @@ dump.
 }
 ```
 
-- `note` is the resolved vault-relative path.
-- `frontmatter_fields` contains naturally sorted top-level field names, not
-  arbitrary YAML values.
-- `headings` contains selectable non-H1 slash-separated heading paths and lines.
-- `link_count` counts local-link occurrences; link detail belongs to
-  `get_outlinks`.
-- Embeds, tags, and block IDs are normalized and deduplicated.
-- Tags combine body and frontmatter tags.
-- Empty arrays are omitted. `note` and `link_count` are always present.
-- Each array is limited to 50 entries. When a limit omits entries, an `omitted`
-  object is included with only the affected category counts:
+- `note` 是解析后的 vault-relative path。
+- `frontmatter_fields` 只含自然排序的顶层字段名，不返回任意 YAML value。
+- `headings` 只含可选择的非 H1 slash paths 和行号。
+- `link_count` 统计本地链接 occurrences，详情交给 `get_outlinks`。
+- embeds、tags、block IDs 规范化并去重；tags 合并正文与 frontmatter。
+- 空数组字段省略；`note`、`link_count` 始终存在。
+- 每个数组最多 50 项。发生省略时增加只包含受影响类别的 `omitted`：
 
 ```json
 {
@@ -306,7 +261,7 @@ dump.
 
 ## `get_note_outline`
 
-### Input
+### 输入
 
 ```json
 {
@@ -315,10 +270,10 @@ dump.
 }
 ```
 
-- The optional heading/ancestor-chain mode is removed.
-- The fixed page size is 100 non-H1 headings.
+- 删除可选 heading/ancestor-chain mode。
+- 固定每页 100 个非 H1 headings。
 
-### Output
+### 输出
 
 ```json
 {
@@ -345,19 +300,15 @@ dump.
 }
 ```
 
-- Headings retain document order.
-- Slash-separated paths encode hierarchy and can be passed directly to
-  `read_note`.
-- Level, duplicated heading path, recursive children, source, and section are
-  omitted.
+- 保持文档顺序。
+- slash-separated paths 表达层级，并能直接传给 `read_note`。
+- 删除 level、重复 heading path、递归 children、source 和 section。
 
 ## `read_note`
 
-Input selection semantics remain unchanged: callers may use a bare reference or
-exactly one explicit heading, block ID, or line selector. `max_chars` remains an
-optional request-level character budget.
+输入选择语义不变：使用 bare reference，或恰好一个显式 heading、block ID、line selector。保留请求级 `max_chars`。
 
-Complete result:
+完整结果：
 
 ```json
 {
@@ -366,7 +317,7 @@ Complete result:
 }
 ```
 
-Truncated result:
+截断结果：
 
 ```json
 {
@@ -376,15 +327,13 @@ Truncated result:
 }
 ```
 
-- `source` describes the full selected source span.
-- When `truncated` is present, content is a character prefix of that span.
-- The duplicated top-level path, nested section metadata, selector echo,
-  returned-character count, and static `next_step` are omitted.
-- `truncated` is present only when true.
+- `source` 描述完整选中 span；truncated 存在时，content 是该 span 的字符前缀。
+- 删除重复 path、嵌套 section、selector 回显、returned-character count 和静态 `next_step`。
+- `truncated` 只在 true 时出现。
 
 ## `get_note_stats`
 
-### Input
+### 输入
 
 ```json
 {
@@ -393,7 +342,7 @@ Truncated result:
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -405,17 +354,14 @@ Truncated result:
 }
 ```
 
-- `scope` is the resolved normalized note, heading, or block reference.
-- The requested word-count mode is not echoed.
-- Heading backlink counts use descendant-heading containment.
-- Block backlink counts use exact block matching.
-- Whole-note backlink counts include direct note, heading, and block references.
-- Line ranges remain unsupported because they are not link-addressable semantic
-  scopes.
+- `scope` 是规范化后的 note、heading 或 block reference。
+- 不回显 word-count mode。
+- heading backlink count 使用后代 heading containment；block 只精确匹配；whole note 包含直接 note、heading、block references。
+- line range 不作为 stats scope，因为它不是可链接的语义范围。
 
 ## `search_text`
 
-### Input
+### 输入
 
 ```json
 {
@@ -427,10 +373,10 @@ Truncated result:
 }
 ```
 
-- `context_lines` is removed.
-- The fixed page size is 50 matching lines.
+- 删除 `context_lines`。
+- 固定每页 50 个匹配行。
 
-### Output
+### 输出
 
 ```json
 {
@@ -448,19 +394,16 @@ Truncated result:
 }
 ```
 
-- A matching line is returned once even if the literal occurs multiple times.
-- Preview is at most 240 characters and is centered on the first match.
-- Ellipses appear only where preview text was omitted.
-- The input query, nested section metadata, and truncation boolean are omitted.
-- Results are ordered by natural note path and line number.
+- 同一行即使出现多次 literal 也只返回一次。
+- preview 最多 240 个字符，以首次匹配为中心；只有实际省略前后文本时才增加省略号。
+- 不回显 query，不返回嵌套 section 或 truncated。
+- 按 note 自然路径和行号排序。
 
 ## `search_regex`
 
-`search_regex` uses the same result DTO, ordering, fixed page size, filtering, and
-preview rules as `search_text`. Preview is centered on the first regex match on
-the line. The regex pattern is not echoed. An invalid regex fails explicitly.
+`search_regex` 与 `search_text` 使用完全相同的 DTO、排序、固定页大小、过滤和 preview 规则。preview 以该行首次 regex match 为中心；不回显 pattern；无效 regex 显式失败。
 
-Example input:
+示例输入：
 
 ```json
 {
@@ -474,7 +417,7 @@ Example input:
 
 ## `list_tags`
 
-### Input
+### 输入
 
 ```json
 {
@@ -485,7 +428,7 @@ Example input:
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -502,16 +445,15 @@ Example input:
 }
 ```
 
-- The fixed page size is 100 unique tags.
-- Tags are normalized without a leading `#` and naturally sorted.
-- Scope and path filters are not echoed.
+- 固定每页 100 个唯一 tags。
+- tags 规范化为不带开头 `#`，并自然排序。
+- 不回显 scope 和 path filters。
 
 ## `get_tag`
 
-The existing plural `get_tags` tool is renamed to `get_tag` and accepts one tag
-per call. The existing `tags` array and `verbose` mode are removed.
+将复数 `get_tags` 改名为 `get_tag`，每次只接受一个标签；删除原 `tags` 数组和 `verbose`。
 
-### Input
+### 输入
 
 ```json
 {
@@ -523,7 +465,7 @@ per call. The existing `tags` array and `verbose` mode are removed.
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -539,25 +481,21 @@ per call. The existing `tags` array and `verbose` mode are removed.
 }
 ```
 
-The requested scope determines locator granularity:
+请求 scope 决定 locator 粒度：
 
-- `note`: note paths containing the tag in body or frontmatter.
-- `frontmatter`: note paths containing the tag in frontmatter.
-- `body`: note paths containing the tag in body content.
-- `section`: normalized heading references containing the tag; deduplicated per
-  section.
-- `line`: line references containing the tag; deduplicated per line.
+- `note`：正文或 frontmatter 含 tag 的 note paths。
+- `frontmatter`：frontmatter 含 tag 的 note paths。
+- `body`：正文含 tag 的 note paths。
+- `section`：含 tag 的规范化 heading references，按 section 去重。
+- `line`：含 tag 的 line references，按 line 去重。
 
-The fixed page size is 100 locators. Source-kind fields, compact/detailed dual
-occurrences, tag/scope echoes, and section objects are omitted.
+固定每页 100 个 locators。不返回 source kind、compact/detailed 双 occurrence、tag/scope 回显或 section object。
 
 ## `list_categories`
 
-Categories use folder-name tag semantics, not full directory-path identity. A
-folder name appearing at different levels or under different volumes represents
-the same category.
+Category 使用目录名标签语义，而不是完整目录路径 identity。同名目录位于不同层级、卷或全局设定集时属于同一 category。
 
-### Input
+### 输入
 
 ```json
 {
@@ -567,7 +505,7 @@ the same category.
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -584,19 +522,17 @@ the same category.
 }
 ```
 
-- Every parent-directory segment of a visible note contributes a category name.
-- Equal segment names are merged across volumes, subtrees, and global setting
-  collections.
-- Root-level notes contribute no empty category.
-- The fixed page size is 100 unique naturally sorted names.
-- Scope filters are not echoed.
+- 可见 note 的每个父目录 segment 都贡献一个 category 名称。
+- 相同 segment 跨卷、子树和全局设定集取并集。
+- 根目录 note 不产生空 category。
+- 固定每页 100 个自然排序的唯一名称。
+- 不回显 filters。
 
 ## `get_category`
 
-The existing plural `get_categories` tool and `categories` array input are
-replaced by a single-category query.
+将复数 `get_categories` 及其 `categories` 数组输入改为单个分类查询。
 
-### Input
+### 输入
 
 ```json
 {
@@ -607,7 +543,7 @@ replaced by a single-category query.
 }
 ```
 
-### Output
+### 输出
 
 ```json
 {
@@ -624,19 +560,16 @@ replaced by a single-category query.
 }
 ```
 
-- A note matches when any parent-directory segment equals the normalized category
-  name.
-- Matching the same name at different locations is intentional union behavior,
-  not ambiguity.
-- Leading/trailing whitespace and slashes are removed. A remaining slash is an
-  error because category inputs are folder-name tags, not paths.
-- Include/exclude filters further restrict matching notes.
-- The fixed page size is 100 naturally sorted note paths.
-- Category, filters, titles, sizes, and bucket wrappers are not echoed.
+- 任一父目录 segment 等于规范化 category 名称时匹配。
+- 同名目录跨位置匹配是有意的 union，不是 ambiguity。
+- 去除首尾空白和 `/`；清理后仍含 `/` 时失败，因为 category 是目录名标签，不是路径。
+- include/exclude 进一步限制匹配 notes。
+- 固定每页 100 个自然排序的 paths。
+- 不回显 category、filters、title、size 或 bucket wrapper。
 
 ## `query_frontmatter`
 
-### Input
+### 输入
 
 ```json
 {
@@ -649,12 +582,12 @@ replaced by a single-category query.
 }
 ```
 
-- `mode` remains the explicit `exists`, `equals`, or `regex` discriminator.
-- `exists` rejects a value. `equals` and `regex` require one.
-- Include/exclude filtering is added and follows the common path-filter rules.
-- The fixed page size is 100 notes.
+- mode 保留显式 `exists`、`equals`、`regex`。
+- exists 拒绝 value；equals 和 regex 必须带 value。
+- 新增统一 include/exclude。
+- 固定每页 100 个 notes。
 
-### Output
+### 输出
 
 ```json
 {
@@ -670,19 +603,16 @@ replaced by a single-category query.
 }
 ```
 
-- Only naturally sorted matching note paths are returned.
-- Field, mode, value, and filters are not echoed.
-- Matched frontmatter values are not returned because arbitrary YAML arrays and
-  objects can dominate the MCP context. Callers use targeted `read_note` access
-  when the actual value is needed.
-- Invalid regular expressions fail explicitly.
+- 只返回自然排序的 note paths。
+- 不回显 field、mode、value 或 filters。
+- 不返回任意 YAML arrays/objects；需要实际值时定向调用 `read_note`。
+- 无效 regex 显式失败。
 
-## Section mutation results
+## 章节写操作返回
 
-`append_section`, `replace_section`, and `delete_section` remain separate tools
-but share one result shape.
+`append_section`、`replace_section`、`delete_section` 保持独立工具，但共享返回形状。
 
-Append or replace result:
+Append/replace：
 
 ```json
 {
@@ -690,7 +620,7 @@ Append or replace result:
 }
 ```
 
-Delete result:
+Delete：
 
 ```json
 {
@@ -698,19 +628,14 @@ Delete result:
 }
 ```
 
-- Append points to the inserted content.
-- Replace points to the replacement content.
-- Delete points to the nearest valid post-deletion line that should be re-read;
-  the line is clamped to the edited document's valid line range, using line 1 for
-  an empty document.
-- Note, line-start, and line-end fields are replaced by the single actionable
-  locator.
-- Selector, content, operation, and redundant success booleans are not echoed.
+- append 指向新插入内容，replace 指向替换后内容。
+- delete 指向删除后应复查的最近有效行；夹在编辑后文档的有效范围内，空文档使用第 1 行。
+- 使用一个 locator 替代 note、line_start、line_end。
+- 不回显 selector、content、operation 或 success boolean。
 
-## Rename mutation results
+## 重命名操作返回
 
-`rename_note`, `rename_heading`, and `rename_block_id` retain their existing
-result contract:
+`rename_note`、`rename_heading`、`rename_block_id` 保留现有返回契约：
 
 ```json
 {
@@ -724,146 +649,104 @@ result contract:
 }
 ```
 
-- `dry_run` is retained without renaming.
-- `updated_references` distinguishes target edits from repaired references.
-- `changed_notes` remains complete and is neither truncated nor paginated;
-  mutation preview safety requires one coherent change set.
-- Old/new names and selectors are not echoed.
+- `dry_run` 保留原名。
+- `updated_references` 区分目标自身修改和引用修复。
+- `changed_notes` 必须完整，不截断、不分页；变更预览必须是一组连贯变更。
+- 不回显 old/new name 或 selector。
 
-## Public API changes
+## 公开 API 变化汇总
 
-The response redesign also makes these breaking request-surface changes:
+- 从 `get_outlinks`、`get_backlinks`、`get_tag` 删除 `verbose`。
+- `get_tags` 改名 `get_tag`，`tags[]` 改为 `tag`。
+- `get_categories` 改名 `get_category`，`categories[]` 改为 `category`。
+- 从 `search_text`、`search_regex` 删除 `context_lines`。
+- 从 `get_note_outline` 删除可选 heading/ancestor-chain 输入。
+- 为上述集合工具增加固定数字 `page`。
+- 为 `query_frontmatter` 增加 include/exclude。
 
-- Remove `verbose` from `get_outlinks`, `get_backlinks`, and `get_tag`.
-- Rename `get_tags` to `get_tag` and replace `tags[]` with `tag`.
-- Rename `get_categories` to `get_category` and replace `categories[]` with
-  `category`.
-- Remove `context_lines` from `search_text` and `search_regex`.
-- Remove the optional heading/ancestor-chain input from `get_note_outline`.
-- Add fixed numeric `page` inputs to the collection tools described above.
-- Add include/exclude path filters to `query_frontmatter`.
+不提供兼容别名。MCP 与 CLI 的名称、参数、错误和序列化结果同步修改。
 
-No compatibility aliases are required. MCP and CLI names, arguments, errors, and
-serialized results change together.
+## 内部架构
 
-## Internal architecture
+公共 DTO 面向任务，与 parser、resolver、edit 内部类型分离。内部保留完整证据，公共序列化只选择各工具需要的字段。
 
-Public DTOs are task-shaped and remain separate from parser, resolver, and edit
-types. Internal data retains full evidence; public serialization selects only the
-fields required by each tool.
+共享内部组件：
 
-Shared internal components are:
+- `ResolvedReference`：保留 resolved path、完整 heading path 或 block ID，负责格式化规范化 reference 并判断语法包含关系。
+- `Locator`：统一格式化 path、line span、heading reference、block reference，不暴露 byte offsets 或嵌套 section。
+- `PageSlice<T>`：校验 1-based page，计算 totals，按各工具固定页大小切片，并提供统一分页元数据。
+- `PathFilter`：统一 include 并集和 exclude 优先规则。
+- 展示 helpers：规范化 tags/categories，在 Unicode 字符边界截断 preview，并限制结构概览分组。
 
-- `ResolvedReference`: retains the resolved note path and the full heading path
-  or block ID. It can format a normalized reference string and evaluate syntactic
-  containment.
-- `Locator`: formats vault paths, line spans, heading references, and block
-  references consistently without exposing byte offsets or nested section data.
-- `PageSlice<T>`: validates 1-based pages, computes totals, slices a naturally or
-  document-ordered collection using the tool's fixed page size, and supplies the
-  common page metadata.
-- `PathFilter`: continues to implement include-union and exclude-precedence rules
-  for all scoped queries.
-- Display helpers: normalize tags and category labels, truncate search previews
-  on Unicode character boundaries, and cap structural overview groups.
-
-Collection queries follow one data flow:
+集合查询统一数据流：
 
 ```text
-visible notes
-  -> request filtering
-  -> collect complete lightweight matches
-  -> deterministic ordering and deduplication
-  -> compute totals
-  -> select fixed numeric page
-  -> materialize compact public DTO
+可见 notes
+  -> 请求过滤
+  -> 收集完整轻量 matches
+  -> 确定性排序与去重
+  -> 计算 totals
+  -> 选择固定数字页
+  -> 生成紧凑公共 DTO
 ```
 
-This is live filesystem paging rather than snapshot paging. Concurrent vault
-changes may move later page boundaries; the API makes no cross-call snapshot
-guarantee.
+这是实时文件系统分页，不提供跨调用快照保证；vault 并发变化可能移动后续页边界。
 
-## Error and output-boundary policy
+## 错误与输出边界
 
-- Page zero is an error. A page beyond the final page is an empty successful
-  result with actual totals.
-- Invalid globs and regular expressions are errors that identify the offending
-  field.
-- Exact path inputs reject missing `.md`, absolute paths, and vault escapes.
-- Reference inputs report ambiguity with naturally sorted candidate paths.
-- Missing reference and exact-path targets offer suggestions only when edit
-  distance is at most 3, preserving reference suffixes where applicable.
-- `get_backlinks` requires a uniquely resolved scope. Ambiguous and unresolved
-  links found while scanning the vault are not assigned to that scope.
-- A public collection is never silently cut at the global output-byte boundary.
-  Callers receive a defined page/omission result or an explicit error.
-- Before applying a rename, the server computes and validates the complete
-  mutation result. If the complete changed-note list cannot fit the configured
-  output boundary, both preview and apply fail before any write.
-- Section mutations write atomically and return the compact post-edit locator only
-  after the write succeeds.
+- page 0 失败；越界页成功返回空集合和真实 totals。
+- 无效 glob/regex 失败，并指出对应字段。
+- 精确 path 缺少 `.md`、为绝对路径或越出 vault 时失败。
+- reference ambiguity 返回自然排序候选。
+- missing reference/path 只在编辑距离小于等于 3 时建议，并在适用时保留 suffix。
+- `get_backlinks` 要求唯一 resolved scope；扫描到的 ambiguous/unresolved links 不归入该 scope。
+- 公共集合不能在全局输出字节边界静默截断；必须返回定义好的分页/省略结果或显式错误。
+- 执行重命名前先计算并校验完整变更结果；完整 `changed_notes` 无法适配输出边界时，预览和执行都在写入前失败。
+- 章节写操作采用原子写入，成功后才返回编辑后的定位符。
 
-## Verification
+## 验证
 
-### Shared contract tests
+### 通用契约
 
-- MCP schemas and CLI help expose the same renamed tools, removed arguments, and
-  added page/filter fields.
-- Optional fields and arrays are absent rather than serialized as null or empty
-  placeholders, except arrays explicitly documented as always present.
-- All locators and normalized references round-trip through the corresponding
-  `read_note` or resolver input.
-- Multi-heading references retain every heading component.
-- Note/ref and exact-path lookup failures honor the edit-distance-3 suggestion
-  boundary.
-- Fixed numeric pages cover empty, first, final partial, and out-of-range pages.
+- MCP schema 与 CLI help 暴露相同的新名称、删除参数、page/filter 字段。
+- 可选字段和数组无值时省略，只有文档明确说明的始终存在数组例外。
+- 所有 locators 和规范化 references 可由对应 `read_note`/resolver 输入再次解析。
+- 多级 heading 保留每一级。
+- note/ref 和精确 path 失败遵守编辑距离 3 的建议边界。
+- 固定分页覆盖空、首页、部分末页、越界页。
 
-### Link and reference tests
+### 链接与 reference
 
-- `get_outlinks` partitions a single ordered page into resolved, ambiguous, and
-  unresolved arrays without status strings or verbose evidence.
-- `get_backlinks` covers whole-note, heading-descendant, exact-block, sibling
-  exclusion, parent exclusion, and heading/block independence.
-- Backlink source filtering applies before totals and paging.
-- Duplicate same-line links to the same normalized target are deduplicated where
-  documented.
-- `resolve_ref` serializes each of resolved, ambiguous, unresolved-with-suggestion,
-  and unresolved-without-suggestion shapes without its old wrapper.
+- `get_outlinks` 将同一有序页分到 resolved、ambiguous、unresolved 数组，不返回 status/verbose 证据。
+- `get_backlinks` 覆盖 whole note、heading descendant、exact block、兄弟/父级排除和 heading/block 独立性。
+- backlink source 过滤发生在 totals 与分页之前。
+- 文档规定的同 source line、同 target 重复链接正确去重。
+- `resolve_ref` 覆盖 resolved、ambiguous、带建议 unresolved、不带建议 unresolved，且无旧 wrapper。
 
-### Note inspection tests
+### 笔记检查
 
-- `get_note_structure` returns a bounded overview, omits empty groups, and reports
-  exact per-group omission counts.
-- `get_note_outline` preserves document order across page boundaries and emits
-  directly selectable slash paths.
-- `read_note` emits one compact source locator and includes `truncated` only when
-  content is shortened.
-- `get_note_stats` emits the normalized scope and applies reference containment to
-  backlink counts.
+- `get_note_structure` 返回受限概览，省略空组并准确报告各组 omissions。
+- `get_note_outline` 跨页保持文档顺序，并输出可直接选择的 slash paths。
+- `read_note` 只返回一个紧凑 source；只有内容缩短时出现 truncated。
+- `get_note_stats` 返回规范化 scope，并将 reference containment 应用于 backlink count。
 
-### Search and metadata tests
+### 搜索与元数据
 
-- Literal and regex search share the exact match DTO and center a Unicode-safe
-  240-character preview on the first match.
-- Multiple matches on one line produce one result.
-- Tag locators use the requested note, frontmatter, body, section, or line
-  granularity and deduplicate at that granularity.
-- Category names intentionally union equal folder segments across volumes and
-  global setting directories.
-- Frontmatter queries never serialize matched arbitrary values and apply path
-  filters before paging.
+- literal/regex search 共用同一 match DTO，并围绕首次匹配生成 Unicode-safe 240 字符 preview。
+- 同一行多次匹配只产生一条结果。
+- tag locator 使用请求的 note/frontmatter/body/section/line 粒度并按该粒度去重。
+- 相同 category 目录名跨卷和全局设定集有意取并集。
+- frontmatter query 不序列化任意匹配值，并在分页前应用 path filters。
 
-### Mutation tests
+### 写操作
 
-- Append and replace return the exact post-edit changed range; delete returns the
-  post-delete verification boundary.
-- Rename previews and applied results retain `dry_run`, exact updated-reference
-  counts, and complete changed-note lists.
+- append/replace 返回准确 post-edit range，delete 返回 post-delete 复查边界。
+- 重命名预览和执行保留 `dry_run`、准确的 `updated_references` 计数和完整的 `changed_notes`。
 
-## Out of scope
+## 不在范围内
 
-- Compatibility aliases or a deprecation period.
-- Cursor or snapshot-consistent pagination.
-- Returning attachment contents.
-- Persisted search or reference indexes.
-- Reintroducing verbose evidence through another boolean mode.
+- 兼容别名或弃用期。
+- 游标或快照一致性分页。
+- 返回附件内容。
+- 持久化 search/reference index。
+- 通过其他布尔模式重新引入详细证据。
