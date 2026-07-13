@@ -17,15 +17,17 @@ heading section, block, or line range.
 - `Project/Plan#^milestone` reads a block.
 - `Project/Plan#L1` reads one line.
 - `Project/Plan#L1-L20` reads an inclusive line range.
+- `Project/Plan#L1-` reads from line 1 through the final line.
 
 The equivalent explicit requests use `note: "Project/Plan"` with exactly one
 of `heading: "Progress"`, `block_id: "milestone"`, or `line: "#L1-L20"`.
 The CLI exposes the same values through `--heading`, `--block-id`, `--line`,
 and a per-request `--max-chars` override.
 
-`#^` takes precedence for blocks, and a fragment exactly matching `L<number>`
-or `L<number>-L<number>` takes precedence for line ranges. All other
-fragments retain existing heading and nested-heading interpretation.
+`#^` takes precedence for blocks, and a fragment exactly matching `L<number>`,
+`L<number>-L<number>`, or `L<number>-` takes precedence for line ranges. The
+open-ended form ends at the final line. All other fragments retain existing
+heading and nested-heading interpretation.
 An input reference containing a fragment cannot be combined with an explicit
 selector; the request fails instead of selecting by undocumented precedence.
 
@@ -63,7 +65,8 @@ line ref rather than naming `read_section`.
 
 ## Verification
 
-Add tests for full note, heading, block, single-line, and line-range reads;
-Unicode `max_chars` truncation for a selected scope; server schema and dispatch
-coverage; removal of `read_section`; CLI behavior; and generated docs. Run
-formatting, query tests, CLI tests, docs check, and the full Cargo test suite.
+Add tests for full note, heading, block, single-line, bounded-line, and
+open-ended-line reads; Unicode `max_chars` truncation for a selected scope;
+server schema and dispatch coverage; removal of `read_section`; CLI behavior;
+and generated docs. Run formatting, query tests, CLI tests, docs check, and
+the full Cargo test suite.
