@@ -8,6 +8,7 @@ mod links;
 mod notes;
 mod outline;
 mod path_filter;
+pub(crate) mod public;
 mod search;
 pub(crate) mod section;
 
@@ -26,7 +27,7 @@ use crate::parser::{
     BlockInfo, EmbedInfo, HeadingInfo, LinkInfo, ParsedNote, SectionInfo, SourceSpan, TagInfo,
     path_with_line_ref, slice_text,
 };
-use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
+use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 
 use self::{cache::ParseCache, edit_distance::levenshtein_distance};
@@ -861,7 +862,7 @@ pub(crate) fn find_indexed_note<'a>(
             candidates
         )),
         ResolveResult::Unresolved { reference } => {
-            if let Some(closest) = suggested_note_path(&reference.target, notes) {
+            if let Some(closest) = suggested_note_reference(&reference, notes) {
                 return Err(anyhow::anyhow!(
                     "unresolved note reference: {:?} (did you mean {:?})",
                     reference.raw,
@@ -874,6 +875,20 @@ pub(crate) fn find_indexed_note<'a>(
             ))
         }
     }
+}
+
+fn suggested_note_reference(reference: &ObsidianRef, notes: &[IndexedNote]) -> Option<String> {
+    suggested_note_path(&reference.target, notes).map(|path| {
+        let suffix = match &reference.reference {
+            None => String::new(),
+            Some(crate::parser::ReferenceInfo::Heading { value }) => format!("#{value}"),
+            Some(crate::parser::ReferenceInfo::MultiHeading { value }) => {
+                value.iter().map(|heading| format!("#{heading}")).collect()
+            }
+            Some(crate::parser::ReferenceInfo::BlockId { value }) => format!("#^{value}"),
+        };
+        format!("{path}{suffix}")
+    })
 }
 
 fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
@@ -891,14 +906,17 @@ fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
         })
         .collect::<Vec<_>>();
     if let [note] = exact_stems.as_slice() {
-        return Some(note.file.relative_path.trim_end_matches(".md").to_string());
+        return Some(note.file.relative_path.clone());
     }
 
     notes
         .iter()
         .map(|note| {
-            let path = note.file.relative_path.trim_end_matches(".md");
-            (levenshtein_distance(target, path), path)
+            let path = note.file.relative_path.as_str();
+            (
+                levenshtein_distance(target, path.trim_end_matches(".md")),
+                path,
+            )
         })
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, path)| *distance <= 3 && !path.is_empty())

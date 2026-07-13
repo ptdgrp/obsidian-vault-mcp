@@ -119,6 +119,17 @@ fn resolve_path_rejects_absolute_paths_and_relative_path_uses_vault_relative_for
 }
 
 #[test]
+fn resolve_exact_note_path_requires_safe_markdown_paths() {
+    let (dir, vault) = fixture(VaultConfig::default());
+    fs::write(dir.path().join("人物.md"), "# 人物\n").expect("write note");
+
+    assert!(vault.resolve_exact_note_path("人物.md").is_ok());
+    assert!(vault.resolve_exact_note_path("人物").is_err());
+    assert!(vault.resolve_exact_note_path("/tmp/人物.md").is_err());
+    assert!(vault.resolve_exact_note_path("../人物.md").is_err());
+}
+
+#[test]
 fn resolve_path_normalizes_dot_segments_and_rejects_parent_escape() {
     let (_dir, vault) = fixture(VaultConfig::default());
 

@@ -36,6 +36,15 @@ impl Vault {
         Ok(normalized)
     }
 
+    pub fn resolve_exact_note_path(&self, input: &str) -> Result<Utf8PathBuf, VaultError> {
+        if !input.ends_with(".md") {
+            return Err(VaultError::ExactNotePathRequiresMarkdownExtension(
+                input.to_string(),
+            ));
+        }
+        self.resolve_path(input)
+    }
+
     pub fn relative_path(&self, path: &Utf8Path) -> String {
         path.strip_prefix(&self.root)
             .unwrap_or(path)
@@ -187,6 +196,8 @@ pub enum VaultError {
     AbsolutePathNotAllowed,
     #[error("path escapes vault root")]
     PathEscapesVault,
+    #[error("exact note path must end with .md: {0}")]
+    ExactNotePathRequiresMarkdownExtension(String),
     #[error("note not found: {0}")]
     NoteNotFound(String),
     #[error("note is too large: {path} ({actual} > {limit} bytes)")]

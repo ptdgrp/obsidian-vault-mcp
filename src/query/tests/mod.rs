@@ -7,6 +7,7 @@ use super::*;
 use crate::resolver::ResolveResult;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
 
+mod contract_primitives;
 mod edge_cases;
 mod files_and_context;
 mod search_and_section;

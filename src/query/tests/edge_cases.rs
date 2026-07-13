@@ -113,6 +113,27 @@ fn note_lookups_suggest_unique_filename_when_obsidian_ref_has_wrong_directory() 
 }
 
 #[test]
+fn missing_reference_suggestion_preserves_heading_suffix_and_stops_at_distance_three() {
+    let (dir, queries) = fixture();
+    fs::create_dir(dir.path().join("人物")).expect("create note directory");
+    fs::write(
+        dir.path().join("人物/林动.md"),
+        "# 林动\n\n## 身体\n\n内容\n",
+    )
+    .expect("write note");
+
+    let error = queries
+        .read_note("人物/林冻#身体", None, None)
+        .expect_err("misspelled note should suggest the real reference");
+    assert!(error.to_string().contains("人物/林动.md#身体"));
+
+    let far_error = queries
+        .read_note("完全不同的目标", None, None)
+        .expect_err("far target should remain unresolved");
+    assert!(!far_error.to_string().contains("人物/林动.md"));
+}
+
+#[test]
 fn graph_health_queries_truncate_when_result_budget_is_small() {
     let (dir, mut queries) = fixture();
     fs::write(
