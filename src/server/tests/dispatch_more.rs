@@ -8,7 +8,7 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest, RenameBlockIdRequest,
+    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest, RenameBlockIdRequest,
     ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, TagsRequest, VaultFilesRequest,
 };
 
@@ -252,8 +252,9 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
     fs::write(dir.path().join("歧义.md"), "# 歧义\n\n[[发动机]]\n").expect("write ambiguous ref");
 
     let Json(outline) = server
-        .get_note_outline(Parameters(NoteStructureRequest {
+        .get_note_outline(Parameters(NoteOutlineRequest {
             note: "发动机.md".to_string(),
+            heading: Some("原理".to_string()),
         }))
         .expect("outline");
     assert_eq!(outline.outline[0].heading, "原理");

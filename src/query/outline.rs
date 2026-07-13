@@ -1,16 +1,50 @@
 use crate::parser::ParsedNote;
 
-use super::{NoteOutlineResult, OutlineNode, VaultQueries};
+use super::{
+    NoteOutlineResult, OutlineNode, VaultQueries,
+    section::{ParsedHeadingSelector, find_selectable_heading, heading_not_found_message},
+};
 
 impl VaultQueries {
-    pub fn get_note_outline(&self, note: &str) -> anyhow::Result<NoteOutlineResult> {
+    pub fn get_note_outline(
+        &self,
+        note: &str,
+        heading: Option<&str>,
+    ) -> anyhow::Result<NoteOutlineResult> {
         let parsed = self.parse_note(note)?;
         let outline = build_outline(&parsed);
+        let outline = match heading {
+            Some(heading) => {
+                let selector = ParsedHeadingSelector::parse(heading);
+                let target = find_selectable_heading(&parsed, &selector).ok_or_else(|| {
+                    anyhow::anyhow!("{}", heading_not_found_message(heading, &parsed))
+                })?;
+                outline_chain(&outline, target.source.line_start)
+                    .expect("selected heading must be present in its outline")
+            }
+            None => outline,
+        };
         Ok(NoteOutlineResult {
             note: parsed.path,
             outline,
         })
     }
+}
+
+fn outline_chain(nodes: &[OutlineNode], target_line: u64) -> Option<Vec<OutlineNode>> {
+    for node in nodes {
+        if node.source.line_start == target_line {
+            let mut target = node.clone();
+            target.children.clear();
+            return Some(vec![target]);
+        }
+        if let Some(children) = outline_chain(&node.children, target_line) {
+            let mut ancestor = node.clone();
+            ancestor.children = children;
+            return Some(vec![ancestor]);
+        }
+    }
+    None
 }
 
 fn build_outline(parsed: &ParsedNote) -> Vec<OutlineNode> {

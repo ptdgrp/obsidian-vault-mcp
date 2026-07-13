@@ -651,7 +651,7 @@ fn read_section_by_heading_returns_heading_scope() {
 #[test]
 fn note_outline_returns_heading_tree() {
     let (_dir, queries) = fixture();
-    let result = queries.get_note_outline("发动机.md").expect("outline");
+    let result = queries.get_note_outline("发动机.md", None).expect("outline");
     assert_eq!(result.note, "发动机.md");
     assert_eq!(result.outline.len(), 1);
     assert_eq!(result.outline[0].heading, "原理");
@@ -674,7 +674,7 @@ fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
     )
     .expect("write multi-root note");
 
-    let result = queries.get_note_outline("多根.md").expect("outline");
+    let result = queries.get_note_outline("多根.md", None).expect("outline");
 
     assert_eq!(result.outline.len(), 2);
     assert_eq!(result.outline[0].heading, "A");
@@ -695,9 +695,30 @@ fn note_outline_is_empty_when_note_only_has_h1_titles() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("只有标题.md"), "# 标题一\n\n# 标题二\n").expect("write h1 note");
 
-    let result = queries.get_note_outline("只有标题.md").expect("outline");
+    let result = queries.get_note_outline("只有标题.md", None).expect("outline");
 
     assert!(result.outline.is_empty());
+}
+
+#[test]
+fn note_outline_can_return_the_ancestor_chain_for_a_heading_path() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("大纲链路.md"),
+        "# Note title\n\n## Parent\n\n### Sibling\n\n#### Target\n\nBody\n\n### Other\n",
+    )
+    .expect("write outline chain note");
+
+    let result = queries
+        .get_note_outline("大纲链路.md", Some("Parent/Sibling/Target"))
+        .expect("outline chain");
+
+    assert_eq!(result.outline.len(), 1);
+    assert_eq!(result.outline[0].heading, "Parent");
+    assert_eq!(result.outline[0].children.len(), 1);
+    assert_eq!(result.outline[0].children[0].heading, "Sibling");
+    assert_eq!(result.outline[0].children[0].children.len(), 1);
+    assert_eq!(result.outline[0].children[0].children[0].heading, "Target");
 }
 
 #[test]

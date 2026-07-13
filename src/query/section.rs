@@ -51,12 +51,7 @@ pub(crate) fn section_source(
     let (line_start, line_end) = match selector {
         SectionSelector::Heading { heading } => {
             let requested_heading = ParsedHeadingSelector::parse(heading);
-            let Some(current) = parsed
-                .headings
-                .iter()
-                .filter(|it| it.level != 1)
-                .find(|candidate| requested_heading.matches(candidate))
-            else {
+            let Some(current) = find_selectable_heading(parsed, &requested_heading) else {
                 return Err(anyhow::anyhow!(
                     "{}",
                     heading_not_found_message(heading, parsed)
@@ -107,14 +102,14 @@ pub(crate) fn section_source(
     ))
 }
 
-struct ParsedHeadingSelector<'a> {
+pub(crate) struct ParsedHeadingSelector<'a> {
     text: &'a str,
     comparable_text: &'a str,
     level: Option<u8>,
 }
 
 impl<'a> ParsedHeadingSelector<'a> {
-    fn parse(heading: &'a str) -> Self {
+    pub(crate) fn parse(heading: &'a str) -> Self {
         let trimmed = heading.trim();
         let marker_len = trimmed.bytes().take_while(|byte| *byte == b'#').count();
         let Some(level) = markdown_heading_level(marker_len) else {
@@ -149,8 +144,20 @@ impl<'a> ParsedHeadingSelector<'a> {
 
         candidate_text_matches(candidate.text.as_str(), self)
             || candidate_text_matches(candidate.anchor.as_str(), self)
+            || candidate_text_matches(&candidate.path.join("/"), self)
             || candidate_text_matches(&candidate.path.join(" / "), self)
     }
+}
+
+pub(crate) fn find_selectable_heading<'a>(
+    parsed: &'a ParsedNote,
+    requested_heading: &ParsedHeadingSelector<'_>,
+) -> Option<&'a HeadingInfo> {
+    parsed
+        .headings
+        .iter()
+        .filter(|heading| heading.level != 1)
+        .find(|candidate| requested_heading.matches(candidate))
 }
 
 fn candidate_text_matches(candidate: &str, requested: &ParsedHeadingSelector<'_>) -> bool {
@@ -178,7 +185,7 @@ fn markdown_heading_level(marker_len: usize) -> Option<u8> {
     }
 }
 
-fn heading_not_found_message(heading: &str, parsed: &ParsedNote) -> String {
+pub(crate) fn heading_not_found_message(heading: &str, parsed: &ParsedNote) -> String {
     let suggestions = closest_heading_suggestions(heading, parsed);
 
     if suggestions.is_empty() {

@@ -115,8 +115,14 @@ enum Command {
     /// Print one note's extracted Obsidian structure
     GetNoteStructure { note: String },
 
-    /// Print one note's selectable non-H1 heading tree
-    GetNoteOutline { note: String },
+    /// Print one note's selectable non-H1 heading tree or a selected heading's ancestor chain
+    GetNoteOutline {
+        note: String,
+
+        /// Heading text, heading anchor, or slash-separated heading path.
+        #[arg(long)]
+        heading: Option<String>,
+    },
 
     /// Return one note's word count, character count, and total backlink count
     GetNoteStats {
@@ -399,8 +405,8 @@ async fn main() -> anyhow::Result<()> {
             Command::GetNoteStructure { note } => {
                 print_value(&queries.get_note_structure(&note)?)?;
             }
-            Command::GetNoteOutline { note } => {
-                print_value(&queries.get_note_outline(&note)?)?;
+            Command::GetNoteOutline { note, heading } => {
+                print_value(&queries.get_note_outline(&note, heading.as_deref())?)?;
             }
             Command::GetNoteStats {
                 note,

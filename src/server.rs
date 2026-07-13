@@ -92,6 +92,15 @@ pub struct NoteStructureRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+/// Input for inspecting one note's heading outline.
+pub struct NoteOutlineRequest {
+    /// Vault-relative path, note stem, or alias.
+    pub note: String,
+    /// Optional heading or slash-separated heading path. When set, returns only its ancestor chain.
+    pub heading: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoteStatsRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
@@ -409,14 +418,14 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Return one note's selectable non-H1 heading tree without body text; use before selecting a section"
+        description = "Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section."
     )]
     fn get_note_outline(
         &self,
-        Parameters(NoteStructureRequest { note }): Parameters<NoteStructureRequest>,
+        Parameters(NoteOutlineRequest { note, heading }): Parameters<NoteOutlineRequest>,
     ) -> Result<Json<NoteOutlineResult>, String> {
         run_tool("get_note_outline", || {
-            self.queries().get_note_outline(&note)
+            self.queries().get_note_outline(&note, heading.as_deref())
         })
     }
 

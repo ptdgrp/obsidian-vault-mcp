@@ -65,6 +65,40 @@ fn get_note_structure_command_returns_machine_readable_json() {
 }
 
 #[test]
+fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
+    let dir = tempdir().expect("tempdir");
+    write_note(
+        &dir,
+        "outline.md",
+        "# Note title\n\n## Parent\n\n### Child\n\n#### Target\n\n### Other\n",
+    );
+
+    let output = run_cli(
+        &dir,
+        &[
+            "get-note-outline",
+            "outline.md",
+            "--heading",
+            "Parent/Child/Target",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["outline"][0]["heading"], "Parent");
+    assert_eq!(value["outline"][0]["children"][0]["heading"], "Child");
+    assert_eq!(
+        value["outline"][0]["children"][0]["children"][0]["heading"],
+        "Target"
+    );
+    assert_eq!(value["outline"][0]["children"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn rename_heading_command_applies_changes_when_dry_run_disabled() {
     let dir = tempdir().expect("tempdir");
     write_note(
