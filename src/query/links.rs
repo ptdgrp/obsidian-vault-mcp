@@ -4,41 +4,107 @@ use crate::parser::{HeadingInfo, LinkInfo, ParsedNote, ReferenceInfo, SourceSpan
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::path_filter::PathFilter;
+use super::public::{Locator, PageSlice, ResolvedReference};
 use super::section::{ParsedHeadingSelector, find_selectable_heading, selector_from_reference};
 
 use super::{
-    BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
-    FrontmatterMatch, FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult,
-    GetTagsResult, LinkEvidence, ListTagsResult, OutlinksOutput, OutlinksResult, TagBucket,
-    TagOccurrence, TagOutputBucket, TagScope, TagSourceKind, TagsResult, VaultQueries,
-    find_indexed_note, read_snippet,
+    AmbiguousOutlinkTarget, BacklinkReference, BacklinksPagination, BacklinksResult,
+    CompactTagMatch, DetailedSection, DetailedTagOccurrence, FrontmatterMatch,
+    FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryResult, GetTagsResult,
+    ListTagsResult, OutlinkTarget, OutlinksPagination, OutlinksResult, TagBucket, TagOccurrence,
+    TagOutputBucket, TagScope, TagSourceKind, TagsResult, UnresolvedOutlinkTarget, VaultQueries,
+    find_indexed_note, reference_display, reference_suffix, resolved_reference_from_result,
 };
 
+const LINK_PAGE_SIZE: usize = 50;
+
+#[derive(Clone, Debug)]
+struct OutlinkOccurrence {
+    source: String,
+    resolution: ResolveResult,
+}
+
+#[derive(Clone, Debug)]
+struct BacklinkOccurrence {
+    source: String,
+    target: String,
+}
+
+fn backlink_scope_contains(wanted: &ResolvedReference, actual: &ResolvedReference) -> bool {
+    wanted.path == actual.path && wanted.block_id.is_none() && wanted.heading_path.is_empty()
+        || wanted.contains(actual)
+}
+
 impl VaultQueries {
-    pub fn get_outlinks(&self, note: &str) -> anyhow::Result<OutlinksResult> {
+    pub fn get_outlinks(&self, note: &str, page: usize) -> anyhow::Result<OutlinksResult> {
         let notes = self.index_notes()?;
         let indexed = find_indexed_note(note, &notes)?;
-        let links = indexed
+        let mut occurrences = indexed
             .parsed
             .links
             .iter()
-            .map(|link| LinkEvidence {
-                source: link.source.clone().into(),
-                target: link.target.clone(),
-                alias: link.alias.clone(),
-                resolved: RefResolver::resolve(&link.target, &notes).into(),
-                snippet: read_snippet(&indexed.file, &link.source),
+            .map(|link| {
+                let resolution =
+                    RefResolver::resolve(&reference_display(&link.target, &link.reference), &notes);
+                OutlinkOccurrence {
+                    source: Locator::lines(
+                        &link.source.path,
+                        link.source.line_start,
+                        link.source.line_end,
+                    ),
+                    resolution,
+                }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        occurrences.sort_by(|a, b| natord::compare(&a.source, &b.source));
+        let slice = PageSlice::new(occurrences, page, LINK_PAGE_SIZE)?;
+        let mut targets = Vec::new();
+        let mut ambiguous_targets = Vec::new();
+        let mut unresolved_targets = Vec::new();
+        for occurrence in slice.items() {
+            match &occurrence.resolution {
+                ResolveResult::Resolved {
+                    path, reference, ..
+                } => targets.push(OutlinkTarget {
+                    source: occurrence.source.clone(),
+                    target: format!("{path}{}", reference_suffix(&reference.reference)),
+                }),
+                ResolveResult::Ambiguous {
+                    reference,
+                    candidates,
+                } => {
+                    let suffix = reference_suffix(&reference.reference);
+                    let mut candidates = candidates
+                        .iter()
+                        .map(|candidate| format!("{}{suffix}", candidate.path))
+                        .collect::<Vec<_>>();
+                    candidates.sort_by(|a, b| natord::compare(a, b));
+                    ambiguous_targets.push(AmbiguousOutlinkTarget {
+                        source: occurrence.source.clone(),
+                        reference: reference_display(&reference.target, &reference.reference),
+                        candidates,
+                    });
+                }
+                ResolveResult::Unresolved { reference } => {
+                    unresolved_targets.push(UnresolvedOutlinkTarget {
+                        source: occurrence.source.clone(),
+                        reference: reference_display(&reference.target, &reference.reference),
+                    });
+                }
+            }
+        }
+        let pagination = slice.pagination();
         Ok(OutlinksResult {
             note: indexed.file.relative_path.clone(),
-            links,
+            targets,
+            ambiguous_targets,
+            unresolved_targets,
+            pagination: OutlinksPagination {
+                page: pagination.page,
+                total_pages: pagination.total_pages,
+                total_links: slice.total_items(),
+            },
         })
-    }
-
-    pub fn get_outlinks_output(&self, note: &str, verbose: bool) -> anyhow::Result<OutlinksOutput> {
-        let result = self.get_outlinks(note)?;
-        Ok(OutlinksOutput::from_result(result, verbose))
     }
 
     pub fn get_backlinks(
@@ -46,59 +112,74 @@ impl VaultQueries {
         target: &str,
         include: &[String],
         exclude: &[String],
+        page: usize,
     ) -> anyhow::Result<BacklinksResult> {
         let filter = PathFilter::new(include, exclude)?;
         let notes = self.index_notes()?;
         let resolution = RefResolver::resolve(target, &notes);
-        let wanted_path = match &resolution {
-            ResolveResult::Resolved { path, .. } => Some(path.clone()),
-            _ => None,
+        let wanted = match resolved_reference_from_result(&resolution) {
+            Some(reference) => reference,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "target must resolve to exactly one note reference: {:?}",
+                    target
+                ));
+            }
         };
         let mut backlinks = Vec::new();
+        let mut seen = BTreeSet::new();
         for note in notes
             .iter()
             .filter(|note| filter.is_match(&note.file.relative_path))
         {
             for link in &note.parsed.links {
-                let matches = wanted_path
-                    .as_ref()
-                    .is_some_and(|path| RefResolver::link_matches(&link.target, path, &notes))
-                    || link.target == target;
-                if matches {
-                    backlinks.push(LinkEvidence {
-                        source: link.source.clone().into(),
-                        target: link.target.clone(),
-                        alias: link.alias.clone(),
-                        resolved: RefResolver::resolve(&link.target, &notes).into(),
-                        snippet: read_snippet(&note.file, &link.source),
-                    });
+                let link_ref = reference_display(&link.target, &link.reference);
+                let link_resolution = RefResolver::resolve(&link_ref, &notes);
+                let Some(actual) = resolved_reference_from_result(&link_resolution) else {
+                    continue;
+                };
+                if backlink_scope_contains(&wanted, &actual) {
+                    let source = Locator::lines(
+                        &link.source.path,
+                        link.source.line_start,
+                        link.source.line_end,
+                    );
+                    let target = actual.format();
+                    if seen.insert((source.clone(), target.clone())) {
+                        backlinks.push(BacklinkOccurrence { source, target });
+                    }
                 }
             }
         }
         backlinks.sort_by(|a, b| {
-            natord::compare(&a.source.path, &b.source.path)
-                .then(a.source.line_start.cmp(&b.source.line_start))
-                .then(a.source.line_end.cmp(&b.source.line_end))
+            natord::compare(&a.source, &b.source)
+                .then_with(|| natord::compare(&a.target, &b.target))
         });
-        let truncated = backlinks.len() > self.vault.config.max_results;
-        backlinks.truncate(self.vault.config.max_results);
+        let slice = PageSlice::new(backlinks, page, LINK_PAGE_SIZE)?;
+        let mut references = Vec::<BacklinkReference>::new();
+        for occurrence in slice.items() {
+            if let Some(group) = references
+                .iter_mut()
+                .find(|group| group.target == occurrence.target)
+            {
+                group.sources.push(occurrence.source.clone());
+            } else {
+                references.push(BacklinkReference {
+                    target: occurrence.target.clone(),
+                    sources: vec![occurrence.source.clone()],
+                });
+            }
+        }
+        let pagination = slice.pagination();
         Ok(BacklinksResult {
-            target: target.to_string(),
-            resolution: resolution.into(),
-            backlinks,
-            truncated,
+            scope: wanted.format(),
+            references,
+            pagination: BacklinksPagination {
+                page: pagination.page,
+                total_pages: pagination.total_pages,
+                total_backlinks: slice.total_items(),
+            },
         })
-    }
-
-    pub fn get_backlinks_output(
-        &self,
-        target: &str,
-        verbose: bool,
-        include: &[String],
-        exclude: &[String],
-    ) -> anyhow::Result<BacklinksOutput> {
-        let result = self.get_backlinks(target, include, exclude)?;
-        Ok(BacklinksOutput::from_result(result, verbose))
     }
 
     pub(crate) fn backlink_count_for_path(&self, wanted_path: &str) -> anyhow::Result<usize> {

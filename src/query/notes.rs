@@ -3,15 +3,15 @@ use std::fs;
 use rayon::prelude::*;
 
 use crate::parser::{ParsedNote, slice_text, source_for_line};
-use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
+use crate::resolver::{IndexedNote, ObsidianRef, RefResolver};
 
 use super::path_filter::PathFilter;
 use super::public::PageSlice;
 use super::section::{section_source, selector_from_reference};
 use super::{
     ListNotesPagination, ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary,
-    ReadNoteResult, SectionSelector, VaultQueries, WordCountMode, find_indexed_note,
-    read_and_parse, truncate_chars,
+    ReadNoteResult, ResolveRefResult, SectionSelector, VaultQueries, WordCountMode,
+    compact_resolve_result, find_indexed_note, read_and_parse, truncate_chars,
 };
 
 const READ_NOTE_NEXT_STEP: &str = "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value.";
@@ -144,9 +144,12 @@ impl VaultQueries {
         Ok(self.parse_note(note)?.into())
     }
 
-    pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveResult> {
+    pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
         let notes = self.index_notes()?;
-        Ok(RefResolver::resolve(reference, &notes))
+        Ok(compact_resolve_result(
+            RefResolver::resolve(reference, &notes),
+            &notes,
+        ))
     }
     pub fn index_notes(&self) -> anyhow::Result<Vec<IndexedNote>> {
         let mut notes: Vec<IndexedNote> = self

@@ -82,6 +82,18 @@ fn backlinks_tool_exposes_source_path_filter_arrays() {
         .expect("input schema properties");
     assert_eq!(properties["include"]["type"], "array");
     assert_eq!(properties["exclude"]["type"], "array");
+    assert!(properties.contains_key("page"));
+    assert!(!properties.contains_key("verbose"));
+
+    let outlinks = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|definition| definition.name == "get_outlinks")
+        .expect("outlinks definition");
+    let outlink_properties = outlinks.input_schema["properties"]
+        .as_object()
+        .expect("outlinks input schema properties");
+    assert!(outlink_properties.contains_key("page"));
+    assert!(!outlink_properties.contains_key("verbose"));
 }
 
 #[test]

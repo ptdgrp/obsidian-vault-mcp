@@ -1,15 +1,14 @@
 use crate::{
     mutation::{EditSectionResult, RenameResult, VaultMutations},
     query::{
-        AmbiguousLinksResult, AuditLinksResult, BacklinksOutput, ContextResult,
+        AmbiguousLinksResult, AuditLinksResult, BacklinksResult, ContextResult,
         FrontmatterQueryOptions, FrontmatterQueryResult, GetCategoriesResult, GetTagsResult,
         GraphNeighborhoodOptions, ListCategoriesResult, ListNotesResult, ListTagsResult,
         NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
-        NoteStructureResult, OutlinksOutput, ReadNoteResult, SearchRegexResult, SearchTextResult,
-        SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
-        VaultGraphResult, VaultQueries, WordCountMode,
+        NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult, SearchRegexResult,
+        SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
+        VaultFilesResult, VaultGraphResult, VaultQueries, WordCountMode,
     },
-    resolver::ResolveResult,
     vault::Vault,
 };
 use rmcp::{
@@ -154,15 +153,15 @@ pub struct ResolveRefRequest {
 pub struct BacklinksRequest {
     /// Note path, stem, alias, or Obsidian reference to find inbound links for.
     pub target: String,
-    /// Return detailed source spans and snippets when true. Defaults to compact output.
-    #[serde(default)]
-    pub verbose: bool,
     /// Vault-relative glob patterns. A backlink source note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching backlink source notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 50 backlink occurrences.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -170,9 +169,9 @@ pub struct BacklinksRequest {
 pub struct OutlinksRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Return detailed source spans and snippets when true. Defaults to compact output.
-    #[serde(default)]
-    pub verbose: bool,
+    /// One-based page number. Each page contains up to 50 link occurrences.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -431,11 +430,6 @@ pub type VaultFilesRequest = VaultFilesOptions;
 pub type GraphNeighborhoodRequest = GraphNeighborhoodOptions;
 pub type FrontmatterQueryRequest = FrontmatterQueryOptions;
 
-#[derive(Debug, serde::Serialize, JsonSchema)]
-pub struct ResolveRefToolResult {
-    pub result: ResolveResult,
-}
-
 fn default_context_lines() -> usize {
     0
 }
@@ -603,41 +597,35 @@ impl ObsidianVaultMcp {
     fn resolve_ref(
         &self,
         Parameters(ResolveRefRequest { reference }): Parameters<ResolveRefRequest>,
-    ) -> Result<Json<ResolveRefToolResult>, String> {
-        run_tool("resolve_ref", || {
-            self.queries()
-                .resolve_ref(&reference)
-                .map(|result| ResolveRefToolResult { result })
-        })
+    ) -> Result<Json<ResolveRefResult>, String> {
+        run_tool("resolve_ref", || self.queries().resolve_ref(&reference))
     }
 
     #[tool(
-        description = "Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets"
+        description = "Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups"
     )]
     fn get_outlinks(
         &self,
-        Parameters(OutlinksRequest { note, verbose }): Parameters<OutlinksRequest>,
-    ) -> Result<Json<OutlinksOutput>, String> {
-        run_tool("get_outlinks", || {
-            self.queries().get_outlinks_output(&note, verbose)
-        })
+        Parameters(OutlinksRequest { note, page }): Parameters<OutlinksRequest>,
+    ) -> Result<Json<OutlinksResult>, String> {
+        run_tool("get_outlinks", || self.queries().get_outlinks(&note, page))
     }
 
     #[tool(
-        description = "Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets"
+        description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence."
     )]
     fn get_backlinks(
         &self,
         Parameters(BacklinksRequest {
             target,
-            verbose,
             include,
             exclude,
+            page,
         }): Parameters<BacklinksRequest>,
-    ) -> Result<Json<BacklinksOutput>, String> {
+    ) -> Result<Json<BacklinksResult>, String> {
         run_tool("get_backlinks", || {
             self.queries()
-                .get_backlinks_output(&target, verbose, &include, &exclude)
+                .get_backlinks(&target, &include, &exclude, page)
         })
     }
 

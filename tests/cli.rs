@@ -37,9 +37,7 @@ fn resolve_ref_command_returns_machine_readable_json() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["status"], "resolved");
-    assert_eq!(value["path"], "林动.md");
-    assert_eq!(value["heading"], "身体");
+    assert_eq!(value, serde_json::json!({"target": "林动.md#身体"}));
 }
 
 #[test]
@@ -330,6 +328,8 @@ fn get_backlinks_accepts_repeatable_source_path_filters() {
             "来源/**/*.md",
             "--exclude",
             "**/排除.md",
+            "--page",
+            "1",
         ],
     );
 
@@ -339,6 +339,19 @@ fn get_backlinks_accepts_repeatable_source_path_filters() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["backlinks"].as_array().expect("backlinks").len(), 1);
-    assert_eq!(value["backlinks"][0]["location"], "来源/保留.md#L1");
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "scope": "Target.md",
+            "references": [{
+                "target": "Target.md",
+                "sources": ["来源/保留.md#L1"]
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
 }

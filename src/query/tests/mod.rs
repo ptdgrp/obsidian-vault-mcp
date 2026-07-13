@@ -4,7 +4,6 @@ use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
 use super::*;
-use crate::resolver::ResolveResult;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
 
 mod contract_primitives;
@@ -752,80 +751,241 @@ fn parse_cache_prunes_by_ttl_and_entry_limit() {
 }
 
 #[test]
-fn resolve_ref_supports_alias_and_heading() {
+fn resolve_ref_outputs_compact_resolved_multi_heading_json() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物")).expect("create characters dir");
+    fs::write(
+        dir.path().join("人物/林动.md"),
+        "# 林动\n\n## 身体\n\n### 伤势\n\n内容\n",
+    )
+    .expect("write character");
+
+    let resolved = queries
+        .resolve_ref("[[人物/林动#身体#伤势]]")
+        .expect("resolve");
+    let value = serde_json::to_value(resolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({"target": "人物/林动.md#身体#伤势"})
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_ambiguous_json_with_selector() {
     let (_dir, queries) = fixture();
-    let resolved = queries.resolve_ref("[[动林#身体]]").expect("resolve");
-    match resolved {
-        ResolveResult::Resolved { path, heading, .. } => {
-            assert_eq!(path, "林动.md");
-            assert_eq!(heading.as_deref(), Some("身体"));
-        }
-        other => panic!("expected resolved, got {other:?}"),
+
+    let ambiguous = queries.resolve_ref("[[发动机#原理]]").expect("resolve");
+    let value = serde_json::to_value(ambiguous).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "ambiguous_targets": ["发动机.md#原理", "资料/发动机.md#原理"]
+        })
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_unresolved_json_with_unique_suggestion() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物")).expect("create characters dir");
+    fs::write(
+        dir.path().join("人物/唯一笔记.md"),
+        "# 唯一笔记\n\n## 身体\n",
+    )
+    .expect("write character");
+
+    let unresolved = queries
+        .resolve_ref("[[错误目录/唯一笔记#身体]]")
+        .expect("resolve");
+    let value = serde_json::to_value(unresolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "unresolved_target": "错误目录/唯一笔记#身体",
+            "suggested_target": "人物/唯一笔记.md#身体"
+        })
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_unresolved_json_without_suggestion() {
+    let (_dir, queries) = fixture();
+
+    let unresolved = queries.resolve_ref("[[不存在的人物]]").expect("resolve");
+    let value = serde_json::to_value(unresolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({"unresolved_target": "不存在的人物"})
+    );
+}
+
+#[test]
+fn outlinks_page_then_group_targets_and_keep_ambiguous_selectors() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("A")).expect("create A dir");
+    fs::create_dir_all(dir.path().join("B")).expect("create B dir");
+    fs::write(dir.path().join("Target.md"), "# Target\n").expect("write target");
+    fs::write(dir.path().join("A/Dup.md"), "# Dup\n").expect("write dup A");
+    fs::write(dir.path().join("B/Dup.md"), "# Dup\n").expect("write dup B");
+    let mut content = String::from("# Links\n\n[[Missing]]\n[[Dup#Detail]]\n");
+    for index in 1..=49 {
+        content.push_str(&format!("[[Target|target {index}]]\n"));
     }
+    fs::write(dir.path().join("Links.md"), content).expect("write links");
+
+    let first = queries.get_outlinks("Links", 1).expect("outlinks page 1");
+    let first_value = serde_json::to_value(first).expect("outlinks json");
+    let first_page_targets = (0..48)
+        .map(|offset| {
+            serde_json::json!({
+                "source": format!("Links.md#L{}", 5 + offset),
+                "target": "Target.md"
+            })
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        first_value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": first_page_targets,
+            "ambiguous_targets": [{
+                "source": "Links.md#L4",
+                "reference": "Dup#Detail",
+                "candidates": ["A/Dup.md#Detail", "B/Dup.md#Detail"]
+            }],
+            "unresolved_targets": [{
+                "source": "Links.md#L3",
+                "reference": "Missing"
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 2,
+                "total_links": 51
+            }
+        })
+    );
+
+    let second = queries.get_outlinks("Links", 2).expect("outlinks page 2");
+    let second_value = serde_json::to_value(second).expect("outlinks json");
+    assert_eq!(
+        second_value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": [{
+                "source": "Links.md#L53",
+                "target": "Target.md"
+            }],
+            "pagination": {
+                "page": 2,
+                "total_pages": 2,
+                "total_links": 51
+            }
+        })
+    );
 }
 
 #[test]
-fn backlinks_include_source_section() {
-    let (_dir, queries) = fixture();
-    let result = queries.get_backlinks("林动", &[], &[]).expect("backlinks");
-    assert_eq!(result.backlinks.len(), 1);
-    assert_eq!(result.backlinks[0].source.path, "发动机.md");
+fn backlinks_page_after_filters_then_group_by_resolved_target_scope() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("keep")).expect("create keep dir");
+    fs::create_dir_all(dir.path().join("drop")).expect("create drop dir");
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Parent\n\n### Child\n\n## Sibling\n\n^exact\n",
+    )
+    .expect("write target");
+    fs::write(dir.path().join("keep/whole.md"), "[[Target]]\n").expect("write whole");
+    fs::write(dir.path().join("keep/parent.md"), "[[Target#Parent]]\n").expect("write parent");
+    fs::write(
+        dir.path().join("keep/child.md"),
+        "[[Target#Parent#Child]] and [[Target#Parent#Child]]\n",
+    )
+    .expect("write child");
+    fs::write(dir.path().join("keep/sibling.md"), "[[Target#Sibling]]\n").expect("write sibling");
+    fs::write(dir.path().join("keep/block.md"), "[[Target#^exact]]\n").expect("write block");
+    fs::write(
+        dir.path().join("drop/excluded.md"),
+        "[[Target#Parent#Child]]\n",
+    )
+    .expect("write excluded");
+
+    let whole = queries
+        .get_backlinks(
+            "Target",
+            &["keep/**/*.md".to_string()],
+            &["keep/sibling.md".to_string()],
+            1,
+        )
+        .expect("whole-note backlinks");
+    let whole_value = serde_json::to_value(whole).expect("backlinks json");
     assert_eq!(
-        result.backlinks[0]
-            .source
-            .section
-            .as_ref()
-            .map(|section| section.heading_path.clone()),
-        Some(vec!["原理".to_string()])
+        whole_value,
+        serde_json::json!({
+            "scope": "Target.md",
+            "references": [
+                {"target": "Target.md#^exact", "sources": ["keep/block.md#L1"]},
+                {"target": "Target.md#Parent#Child", "sources": ["keep/child.md#L1"]},
+                {"target": "Target.md#Parent", "sources": ["keep/parent.md#L1"]},
+                {"target": "Target.md", "sources": ["keep/whole.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 4
+            }
+        })
     );
-}
 
-#[test]
-fn link_outputs_default_to_compact_and_support_verbose() {
-    let (_dir, queries) = fixture();
-
-    let compact = queries
-        .get_backlinks_output("林动", false, &[], &[])
-        .expect("compact backlinks");
-    let compact_value = serde_json::to_value(compact).expect("compact json");
-    assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md#L5");
-    assert_eq!(compact_value["backlinks"][0]["section"], "原理");
-    assert!(compact_value["backlinks"][0].get("source").is_none());
-    assert!(compact_value["backlinks"][0].get("snippet").is_none());
-
-    let verbose = queries
-        .get_backlinks_output("林动", true, &[], &[])
-        .expect("verbose backlinks");
-    let verbose_value = serde_json::to_value(verbose).expect("verbose json");
+    let heading = queries
+        .get_backlinks("Target#Parent", &["keep/**/*.md".to_string()], &[], 1)
+        .expect("heading backlinks");
+    let heading_value = serde_json::to_value(heading).expect("backlinks json");
     assert_eq!(
-        verbose_value["backlinks"][0]["source"]["path"],
-        "发动机.md#L5"
+        heading_value,
+        serde_json::json!({
+            "scope": "Target.md#Parent",
+            "references": [
+                {"target": "Target.md#Parent#Child", "sources": ["keep/child.md#L1"]},
+                {"target": "Target.md#Parent", "sources": ["keep/parent.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 2
+            }
+        })
     );
-    assert!(
-        verbose_value["backlinks"][0]["source"]
-            .get("lines")
-            .is_none()
-    );
-    assert!(
-        verbose_value["backlinks"][0]["source"]
-            .get("line_start")
-            .is_none()
-    );
-    assert!(verbose_value["backlinks"][0].get("snippet").is_some());
 
-    let outlinks = queries
-        .get_outlinks_output("林动", false)
-        .expect("compact outlinks");
-    let outlinks_value = serde_json::to_value(outlinks).expect("outlinks json");
-    assert_eq!(outlinks_value["links"][0]["location"], "林动.md#L14");
-    assert!(outlinks_value["links"][0].get("source").is_none());
+    let block = queries
+        .get_backlinks("Target#^exact", &["keep/**/*.md".to_string()], &[], 1)
+        .expect("block backlinks");
+    let block_value = serde_json::to_value(block).expect("backlinks json");
+    assert_eq!(
+        block_value,
+        serde_json::json!({
+            "scope": "Target.md#^exact",
+            "references": [
+                {"target": "Target.md#^exact", "sources": ["keep/block.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
 }
 
 #[test]
 fn mcp_output_schemas_have_object_roots() {
     for schema in [
-        serde_json::to_value(schemars::schema_for!(OutlinksOutput)).expect("outlinks schema"),
-        serde_json::to_value(schemars::schema_for!(BacklinksOutput)).expect("backlinks schema"),
+        serde_json::to_value(schemars::schema_for!(OutlinksResult)).expect("outlinks schema"),
+        serde_json::to_value(schemars::schema_for!(BacklinksResult)).expect("backlinks schema"),
         serde_json::to_value(schemars::schema_for!(ListTagsResult)).expect("list tags schema"),
         serde_json::to_value(schemars::schema_for!(GetTagsResult)).expect("get tags schema"),
         serde_json::to_value(schemars::schema_for!(ListCategoriesResult))

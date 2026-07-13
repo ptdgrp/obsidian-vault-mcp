@@ -24,13 +24,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 use crate::parser::{
-    BlockInfo, EmbedInfo, HeadingInfo, LinkInfo, ParsedNote, SectionInfo, SourceSpan, TagInfo,
-    path_with_line_ref, slice_text,
+    BlockInfo, EmbedInfo, HeadingInfo, LinkInfo, ParsedNote, ReferenceInfo, SectionInfo,
+    SourceSpan, TagInfo, path_with_line_ref, slice_text,
 };
 use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 
-use self::{cache::ParseCache, edit_distance::levenshtein_distance};
+use self::{cache::ParseCache, edit_distance::levenshtein_distance, public::ResolvedReference};
 
 pub use crate::parser::TagScope;
 
@@ -344,152 +344,72 @@ impl From<SourceSpan> for SearchSource {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum ResolveSummary {
-    Resolved {
-        path: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        heading: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        block_id: Option<String>,
-    },
-    Ambiguous {
-        candidates: Vec<crate::resolver::ResolveCandidate>,
-    },
-    Unresolved,
-}
-
-impl From<ResolveResult> for ResolveSummary {
-    fn from(result: ResolveResult) -> Self {
-        match result {
-            ResolveResult::Resolved {
-                path,
-                heading,
-                block_id,
-                ..
-            } => Self::Resolved {
-                path,
-                heading,
-                block_id,
-            },
-            ResolveResult::Ambiguous { candidates, .. } => Self::Ambiguous { candidates },
-            ResolveResult::Unresolved { .. } => Self::Unresolved,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct BacklinksOutput {
-    pub target: String,
-    pub resolution: ResolveSummary,
-    pub backlinks: Vec<LinkEvidenceOutput>,
-    pub truncated: bool,
-}
-
-impl BacklinksOutput {
-    pub fn from_result(result: BacklinksResult, verbose: bool) -> Self {
-        Self {
-            target: result.target,
-            resolution: result.resolution,
-            backlinks: result
-                .backlinks
-                .into_iter()
-                .map(|evidence| LinkEvidenceOutput::from_evidence(evidence, verbose))
-                .collect(),
-            truncated: result.truncated,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct OutlinksOutput {
-    pub note: String,
-    pub links: Vec<LinkEvidenceOutput>,
-}
-
-impl OutlinksOutput {
-    pub fn from_result(result: OutlinksResult, verbose: bool) -> Self {
-        Self {
-            note: result.note,
-            links: result
-                .links
-                .into_iter()
-                .map(|evidence| LinkEvidenceOutput::from_evidence(evidence, verbose))
-                .collect(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct LinkEvidenceOutput {
-    pub location: String,
-    pub target: String,
+pub struct ResolveRefResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias: Option<String>,
-    pub resolved: ResolveSummary,
+    pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub section: Option<String>,
+    pub ambiguous_targets: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<SearchSource>,
+    pub unresolved_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub snippet: Option<String>,
-}
-
-impl LinkEvidenceOutput {
-    pub fn from_evidence(evidence: LinkEvidence, verbose: bool) -> Self {
-        let location = link_location(&evidence.source);
-        let section = evidence
-            .source
-            .section
-            .as_ref()
-            .cloned()
-            .map(compact_section);
-        Self {
-            location,
-            target: evidence.target,
-            alias: evidence.alias,
-            resolved: evidence.resolved,
-            section,
-            source: verbose.then_some(evidence.source),
-            snippet: verbose.then_some(evidence.snippet),
-        }
-    }
+    pub suggested_target: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BacklinksResult {
+    pub scope: String,
+    pub references: Vec<BacklinkReference>,
+    pub pagination: BacklinksPagination,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct BacklinkReference {
     pub target: String,
-    pub resolution: ResolveSummary,
-    pub backlinks: Vec<LinkEvidence>,
-    pub truncated: bool,
+    pub sources: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct BacklinksPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_backlinks: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OutlinksResult {
     pub note: String,
-    pub links: Vec<LinkEvidence>,
+    pub targets: Vec<OutlinkTarget>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ambiguous_targets: Vec<AmbiguousOutlinkTarget>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_targets: Vec<UnresolvedOutlinkTarget>,
+    pub pagination: OutlinksPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct LinkEvidence {
-    pub source: SearchSource,
+pub struct OutlinkTarget {
+    pub source: String,
     pub target: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias: Option<String>,
-    pub resolved: ResolveSummary,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub snippet: String,
 }
 
-fn link_location(source: &SearchSource) -> String {
-    if source.line_start == source.line_end {
-        format!("{}#L{}", source.path, source.line_start)
-    } else {
-        format!(
-            "{}#L{}-L{}",
-            source.path, source.line_start, source.line_end
-        )
-    }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AmbiguousOutlinkTarget {
+    pub source: String,
+    pub reference: String,
+    pub candidates: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct UnresolvedOutlinkTarget {
+    pub source: String,
+    pub reference: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct OutlinksPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_links: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -652,6 +572,63 @@ pub(crate) enum SectionSelector {
     Heading { heading: String },
     Block { block_id: String },
     Lines { line_start: u64, line_end: u64 },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct LinkEvidence {
+    pub source: SearchSource,
+    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    pub resolved: LegacyResolveSummary,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub snippet: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LegacyResolveSummary {
+    Resolved {
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        heading: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        block_id: Option<String>,
+    },
+    Ambiguous {
+        candidates: Vec<crate::resolver::ResolveCandidate>,
+    },
+    Unresolved,
+}
+
+impl From<ResolveResult> for LegacyResolveSummary {
+    fn from(result: ResolveResult) -> Self {
+        match result {
+            ResolveResult::Resolved {
+                path,
+                heading,
+                block_id,
+                ..
+            } => Self::Resolved {
+                path,
+                heading,
+                block_id,
+            },
+            ResolveResult::Ambiguous { candidates, .. } => Self::Ambiguous { candidates },
+            ResolveResult::Unresolved { .. } => Self::Unresolved,
+        }
+    }
+}
+
+pub(crate) fn link_location(source: &SearchSource) -> String {
+    if source.line_start == source.line_end {
+        format!("{}#L{}", source.path, source.line_start)
+    } else {
+        format!(
+            "{}#L{}-L{}",
+            source.path, source.line_start, source.line_end
+        )
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -966,17 +943,8 @@ pub(crate) fn find_indexed_note<'a>(
 }
 
 fn suggested_note_reference(reference: &ObsidianRef, notes: &[IndexedNote]) -> Option<String> {
-    suggested_note_path(&reference.target, notes).map(|path| {
-        let suffix = match &reference.reference {
-            None => String::new(),
-            Some(crate::parser::ReferenceInfo::Heading { value }) => format!("#{value}"),
-            Some(crate::parser::ReferenceInfo::MultiHeading { value }) => {
-                value.iter().map(|heading| format!("#{heading}")).collect()
-            }
-            Some(crate::parser::ReferenceInfo::BlockId { value }) => format!("#^{value}"),
-        };
-        format!("{path}{suffix}")
-    })
+    suggested_note_path(&reference.target, notes)
+        .map(|path| format!("{path}{}", reference_suffix(&reference.reference)))
 }
 
 fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
@@ -1009,6 +977,88 @@ fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, path)| *distance <= 3 && !path.is_empty())
         .map(|(_, path)| path.to_string())
+}
+
+pub(crate) fn compact_resolve_result(
+    result: ResolveResult,
+    notes: &[IndexedNote],
+) -> ResolveRefResult {
+    match result {
+        ResolveResult::Resolved {
+            path, reference, ..
+        } => ResolveRefResult {
+            target: Some(format!("{path}{}", reference_suffix(&reference.reference))),
+            ambiguous_targets: None,
+            unresolved_target: None,
+            suggested_target: None,
+        },
+        ResolveResult::Ambiguous {
+            reference,
+            candidates,
+        } => {
+            let suffix = reference_suffix(&reference.reference);
+            let mut targets = candidates
+                .into_iter()
+                .map(|candidate| format!("{}{suffix}", candidate.path))
+                .collect::<Vec<_>>();
+            targets.sort_by(|a, b| natord::compare(a, b));
+            ResolveRefResult {
+                target: None,
+                ambiguous_targets: Some(targets),
+                unresolved_target: None,
+                suggested_target: None,
+            }
+        }
+        ResolveResult::Unresolved { reference } => ResolveRefResult {
+            target: None,
+            ambiguous_targets: None,
+            unresolved_target: Some(reference_display(&reference.target, &reference.reference)),
+            suggested_target: suggested_note_reference(&reference, notes),
+        },
+    }
+}
+
+pub(crate) fn reference_suffix(reference: &Option<ReferenceInfo>) -> String {
+    match reference {
+        None => String::new(),
+        Some(ReferenceInfo::Heading { value }) => format!("#{value}"),
+        Some(ReferenceInfo::MultiHeading { value }) => {
+            value.iter().map(|heading| format!("#{heading}")).collect()
+        }
+        Some(ReferenceInfo::BlockId { value }) => format!("#^{value}"),
+    }
+}
+
+pub(crate) fn reference_display(target: &str, reference: &Option<ReferenceInfo>) -> String {
+    format!("{target}{}", reference_suffix(reference))
+}
+
+pub(crate) fn resolved_reference_from_result(result: &ResolveResult) -> Option<ResolvedReference> {
+    match result {
+        ResolveResult::Resolved {
+            path,
+            reference,
+            block_id,
+            ..
+        } => {
+            if let Some(block_id) = block_id {
+                return Some(ResolvedReference::block(path.clone(), block_id.clone()));
+            }
+            Some(ResolvedReference::heading(
+                path.clone(),
+                heading_path(&reference.reference),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn heading_path(reference: &Option<ReferenceInfo>) -> Vec<String> {
+    match reference {
+        Some(ReferenceInfo::Heading { value }) => vec![value.clone()],
+        Some(ReferenceInfo::MultiHeading { value }) => value.clone(),
+        _ => Vec::new(),
+    }
 }
 
 fn read_snippet(file: &NoteFile, source: &SourceSpan) -> String {

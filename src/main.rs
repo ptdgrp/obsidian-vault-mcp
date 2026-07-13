@@ -189,16 +189,13 @@ enum Command {
     GetOutlinks {
         note: String,
 
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Find backlinks to a note or reference
     GetBacklinks {
         target: String,
-
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
 
         /// Vault-relative glob patterns that backlink source notes must match when non-empty.
         #[arg(long)]
@@ -207,6 +204,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching backlink source notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// List unique body and frontmatter tag names
@@ -539,16 +539,16 @@ async fn main() -> anyhow::Result<()> {
             Command::ResolveRef { reference } => {
                 print_value(&queries.resolve_ref(&reference)?)?;
             }
-            Command::GetOutlinks { note, verbose } => {
-                print_value(&queries.get_outlinks_output(&note, verbose)?)?;
+            Command::GetOutlinks { note, page } => {
+                print_value(&queries.get_outlinks(&note, page)?)?;
             }
             Command::GetBacklinks {
                 target,
-                verbose,
                 include,
                 exclude,
+                page,
             } => {
-                print_value(&queries.get_backlinks_output(&target, verbose, &include, &exclude)?)?;
+                print_value(&queries.get_backlinks(&target, &include, &exclude, page)?)?;
             }
             Command::ListTags {
                 scope,

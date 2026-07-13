@@ -109,15 +109,16 @@ fn get_backlinks_honors_source_path_filters() {
             "Target",
             &["来源/**/*.md".to_string()],
             &["**/排除.md".to_string()],
+            1,
         )
         .expect("filtered backlinks");
-    assert_eq!(result.backlinks.len(), 1);
-    assert_eq!(result.backlinks[0].source.path, "来源/保留.md");
-    assert_eq!(result.backlinks[0].source.line_start, 1);
-    assert!(!result.truncated);
+    assert_eq!(result.references.len(), 1);
+    assert_eq!(result.references[0].target, "Target.md");
+    assert_eq!(result.references[0].sources, vec!["来源/保留.md#L1"]);
+    assert_eq!(result.pagination.total_backlinks, 1);
 
     let error = queries
-        .get_backlinks("Target", &["[".to_string()], &[])
+        .get_backlinks("Target", &["[".to_string()], &[], 1)
         .expect_err("invalid include glob");
     assert!(error.to_string().contains("include"));
 }

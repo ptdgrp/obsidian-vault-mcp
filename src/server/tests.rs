@@ -10,7 +10,6 @@ use super::{
 };
 use crate::{
     query::TagScope,
-    resolver::ResolveResult,
     server::{NoteStatsRequest, ResolveRefRequest},
     vault::{Vault, VaultConfig},
 };
@@ -70,16 +69,9 @@ fn resolve_ref_tool_returns_resolved_heading_result() {
             reference: "[[动林#身体]]".to_string(),
         }))
         .expect("resolve ref");
+    let value = serde_json::to_value(result).expect("resolve ref json");
 
-    assert!(matches!(
-        result.result,
-        ResolveResult::Resolved {
-            path,
-            heading,
-            block_id: None,
-            ..
-        } if path == "林动.md" && heading.as_deref() == Some("身体")
-    ));
+    assert_eq!(value, serde_json::json!({"target": "林动.md#身体"}));
 }
 
 #[test]
@@ -171,31 +163,57 @@ fn outlinks_tool_returns_compact_links_for_existing_note() {
     let Json(result) = server
         .get_outlinks(Parameters(OutlinksRequest {
             note: "发动机.md".to_string(),
-            verbose: false,
+            page: 1,
         }))
         .expect("get outlinks");
+    let value = serde_json::to_value(result).expect("outlinks json");
 
-    assert_eq!(result.note, "发动机.md");
-    assert_eq!(result.links.len(), 1);
-    assert_eq!(result.links[0].target, "林动");
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "note": "发动机.md",
+            "targets": [{
+                "source": "发动机.md#L5",
+                "target": "林动.md#身体"
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_links": 1
+            }
+        })
+    );
 }
 
 #[test]
-fn backlinks_tool_returns_verbose_results_for_reference() {
+fn backlinks_tool_returns_compact_results_for_reference() {
     let (_dir, server) = fixture();
 
     let Json(result) = server
         .get_backlinks(Parameters(BacklinksRequest {
             target: "[[林动#身体]]".to_string(),
-            verbose: true,
             include: vec![],
             exclude: vec![],
+            page: 1,
         }))
         .expect("get backlinks");
+    let value = serde_json::to_value(result).expect("backlinks json");
 
-    assert_eq!(result.target, "[[林动#身体]]");
-    assert_eq!(result.backlinks.len(), 1);
-    assert!(result.backlinks[0].snippet.is_some());
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "scope": "林动.md#身体",
+            "references": [{
+                "target": "林动.md#身体",
+                "sources": ["发动机.md#L5"]
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
 }
 
 #[test]
