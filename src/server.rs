@@ -76,6 +76,17 @@ impl ObsidianVaultMcp {
 pub struct EmptyRequest {}
 
 #[derive(Debug, Deserialize, JsonSchema)]
+/// Page through visible Markdown notes after optional vault-relative path filters.
+pub struct ListNotesRequest {
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    #[serde(default = "default_page")]
+    pub page: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one Markdown note.
 pub struct ReadNoteRequest {
     /// Vault-relative path, note stem, alias, or bare Obsidian reference.
@@ -417,13 +428,24 @@ fn default_dry_run() -> bool {
     true
 }
 
+fn default_page() -> usize {
+    1
+}
+
 #[tool_router]
 impl ObsidianVaultMcp {
-    #[tool(
-        description = "List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname."
-    )]
-    fn list_notes(&self, _: Parameters<EmptyRequest>) -> Result<Json<ListNotesResult>, String> {
-        run_tool("list_notes", || self.queries().list_notes())
+    #[tool(description = "Page through visible Markdown notes for lightweight navigation.")]
+    fn list_notes(
+        &self,
+        Parameters(ListNotesRequest {
+            include,
+            exclude,
+            page,
+        }): Parameters<ListNotesRequest>,
+    ) -> Result<Json<ListNotesResult>, String> {
+        run_tool("list_notes", || {
+            self.queries().list_notes(&include, &exclude, page)
+        })
     }
 
     #[tool(

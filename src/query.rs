@@ -37,6 +37,14 @@ pub use crate::parser::TagScope;
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesResult {
     pub notes: Vec<NoteSummary>,
+    pub pagination: ListNotesPagination,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ListNotesPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_notes: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -44,8 +52,6 @@ pub struct NoteSummary {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// Human-readable file size using binary units.
-    pub size: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

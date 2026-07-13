@@ -77,7 +77,7 @@ fn vault_path_cannot_escape_root() {
 #[test]
 fn list_notes_ignores_hidden_paths() {
     let (_dir, queries) = fixture();
-    let notes = queries.list_notes().expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     assert_eq!(notes.notes.len(), 6);
     assert!(
         !notes
@@ -93,17 +93,9 @@ fn list_notes_ignores_hidden_paths() {
             .iter()
             .any(|note| note.path == "资料/ignored-here.md")
     );
-    assert_eq!(
-        notes
-            .notes
-            .iter()
-            .find(|note| note.path == "发动机.md")
-            .expect("发动机 note")
-            .size,
-        format!("{} B", "# 发动机\n\n## 原理\n\n链接到 [[林动]]\n".len())
-    );
     let value = serde_json::to_value(notes).expect("list notes json");
     assert!(value["notes"][0].get("preview").is_none());
+    assert!(value["notes"][0].get("size").is_none());
 }
 
 #[test]
@@ -121,7 +113,7 @@ fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
     .expect("write frontmatter title note");
     fs::write(dir.path().join("只有路径.md"), "## Section\n").expect("write pathname note");
 
-    let notes = queries.list_notes().expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     let title_for = |path: &str| {
         notes
             .notes
@@ -133,6 +125,46 @@ fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
     assert_eq!(title_for("标题优先.md"), Some("H1 Title"));
     assert_eq!(title_for("仅元数据.md"), Some("Metadata Title"));
     assert_eq!(title_for("只有路径.md"), Some("只有路径"));
+}
+
+#[test]
+fn list_notes_filters_before_fixed_page_and_omits_non_navigation_fields() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物/草稿")).expect("draft dir");
+    fs::write(dir.path().join("人物/林动.md"), "# 林动\n").expect("write character");
+    fs::write(dir.path().join("人物/草稿/林动.md"), "# 草稿\n").expect("write draft");
+
+    let result = queries
+        .list_notes(
+            &["人物/**/*.md".to_string(), "正文/**/*.md".to_string()],
+            &["**/草稿/**".to_string()],
+            1,
+        )
+        .expect("filtered notes");
+
+    assert_eq!(
+        result
+            .notes
+            .iter()
+            .map(|note| &note.path)
+            .collect::<Vec<_>>(),
+        vec![
+            &"人物/林动.md".to_string(),
+            &"正文/001.md".to_string(),
+            &"正文/README.md".to_string()
+        ]
+    );
+    assert_eq!(result.pagination.page, 1);
+    assert_eq!(result.pagination.total_pages, 1);
+    assert_eq!(result.pagination.total_notes, 3);
+    let value = serde_json::to_value(result).expect("json");
+    assert!(
+        value["notes"]
+            .as_array()
+            .expect("notes")
+            .iter()
+            .all(|note| note.get("size").is_none())
+    );
 }
 
 #[test]

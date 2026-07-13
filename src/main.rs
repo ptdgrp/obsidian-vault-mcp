@@ -102,8 +102,19 @@ enum Command {
     /// Check vault config and list readable notes
     Doctor,
 
-    /// List markdown notes in vault
-    ListNotes,
+    /// Page through visible Markdown notes for lightweight navigation.
+    ListNotes {
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+    },
 
     /// Read one Markdown note, heading section, block, or line range
     ReadNote {
@@ -447,8 +458,15 @@ async fn main() -> anyhow::Result<()> {
         match command {
             Command::Serve => run_mcp_server(vault).await?,
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
-            Command::Doctor | Command::ListNotes => {
-                print_value(&queries.list_notes()?)?;
+            Command::Doctor => {
+                print_value(&queries.list_notes(&[], &[], 1)?)?;
+            }
+            Command::ListNotes {
+                include,
+                exclude,
+                page,
+            } => {
+                print_value(&queries.list_notes(&include, &exclude, page)?)?;
             }
             Command::ReadNote {
                 note,

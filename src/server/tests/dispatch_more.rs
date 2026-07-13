@@ -8,7 +8,7 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
+    ListNotesRequest, NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
     RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
     TagsRequest, VaultFilesRequest,
 };
@@ -142,9 +142,14 @@ fn list_and_note_structure_tools_return_note_metadata() {
     assert!(!server.tool_router.has_route("parse_note"));
 
     let Json(listed) = server
-        .list_notes(Parameters(EmptyRequest {}))
+        .list_notes(Parameters(ListNotesRequest {
+            include: vec![],
+            exclude: vec![],
+            page: 1,
+        }))
         .expect("list notes");
     assert_eq!(listed.notes.len(), 3);
+    assert_eq!(listed.pagination.total_notes, 3);
 
     let Json(structure) = server
         .get_note_structure(Parameters(NoteStructureRequest {

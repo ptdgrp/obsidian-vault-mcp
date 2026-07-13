@@ -65,6 +65,28 @@ fn get_note_structure_command_returns_machine_readable_json() {
 }
 
 #[test]
+fn list_notes_command_uses_request_filters_and_fixed_page_output() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "正文/keep.md", "# 保留\n");
+    write_note(&dir, "资料/skip.md", "# 跳过\n");
+
+    let output = run_cli(
+        &dir,
+        &["list-notes", "--include", "正文/**/*.md", "--page", "1"],
+    );
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["notes"][0]["path"], "正文/keep.md");
+    assert_eq!(value["pagination"]["page"], 1);
+    assert_eq!(value["pagination"]["total_notes"], 1);
+    assert!(value["notes"][0].get("size").is_none());
+}
+
+#[test]
 fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
     let dir = tempdir().expect("tempdir");
     write_note(

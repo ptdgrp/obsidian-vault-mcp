@@ -36,6 +36,10 @@ impl<T> PageSlice<T> {
         &self.items
     }
 
+    pub(crate) fn into_items(self) -> Vec<T> {
+        self.items
+    }
+
     pub(crate) fn total_items(&self) -> usize {
         self.total_items
     }

@@ -5,30 +5,51 @@ use rayon::prelude::*;
 use crate::parser::{ParsedNote, slice_text, source_for_line};
 use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
 
-use super::files::human_size;
+use super::path_filter::PathFilter;
+use super::public::PageSlice;
 use super::section::{section_source, selector_from_reference};
 use super::{
-    ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
-    SectionSelector, VaultQueries, WordCountMode, find_indexed_note, read_and_parse,
-    truncate_chars,
+    ListNotesPagination, ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary,
+    ReadNoteResult, SectionSelector, VaultQueries, WordCountMode, find_indexed_note,
+    read_and_parse, truncate_chars,
 };
 
 const READ_NOTE_NEXT_STEP: &str = "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value.";
 
 impl VaultQueries {
-    pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
+    pub fn list_notes(
+        &self,
+        include: &[String],
+        exclude: &[String],
+        page: usize,
+    ) -> anyhow::Result<ListNotesResult> {
+        let filter = PathFilter::new(include, exclude)?;
         let mut notes = Vec::new();
-        for file in self.vault.list_notes()? {
+        for file in self
+            .vault
+            .list_notes()?
+            .into_iter()
+            .filter(|file| filter.is_match(&file.relative_path))
+        {
             let title = read_and_parse(self, &file)
                 .ok()
-                .map(|note| note_title(&note.parsed, &file.relative_path));
+                .map(|note| truncate_display_title(note_title(&note.parsed, &file.relative_path)));
             notes.push(NoteSummary {
                 path: file.relative_path,
                 title,
-                size: human_size(file.size_bytes),
             });
         }
-        Ok(ListNotesResult { notes })
+        let page = PageSlice::new(notes, page, 100)?;
+        let total_notes = page.total_items();
+        let pagination = page.pagination();
+        Ok(ListNotesResult {
+            notes: page.into_items(),
+            pagination: ListNotesPagination {
+                page: pagination.page,
+                total_pages: pagination.total_pages,
+                total_notes,
+            },
+        })
     }
 
     pub fn read_note(
@@ -169,6 +190,16 @@ pub(super) fn note_title(note: &ParsedNote, relative_path: &str) -> String {
         .map(ToOwned::to_owned)
         .or_else(|| frontmatter_title(note))
         .unwrap_or_else(|| pathname_title(relative_path))
+}
+
+fn truncate_display_title(title: String) -> String {
+    const MAX_TITLE_CHARS: usize = 200;
+    if title.chars().count() <= MAX_TITLE_CHARS {
+        return title;
+    }
+    let mut truncated = title.chars().take(MAX_TITLE_CHARS - 1).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn frontmatter_title(note: &ParsedNote) -> Option<String> {
