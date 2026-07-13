@@ -17,10 +17,15 @@ Unicode input, and uses the existing row-based dynamic-programming algorithm.
 The module stays below `query` rather than in a crate-wide `utils` module
 because its only consumers are query-specific suggestion flows.
 
-The unresolved-note fallback remains in `find_indexed_note`, which is reached
-by `read_note` after direct path lookup fails (and by other query operations
-that first locate a note). It does not change `resolve_ref`, whose contract is
-to report unresolved references without guessing.
+The unresolved-note fallback remains in `find_indexed_note` and
+`resolve_note_path`. They are the shared note-location boundaries used by every
+query operation that accepts a note or Obsidian reference and must locate a
+single file before continuing: `read_note`, note stats and structure reads,
+`read_section`, note-outline operations, outlink lookup, and note-context
+lookup. Thus each receives the same candidate error after direct path lookup
+and strict resolution fail. It does not change `resolve_ref`, whose contract is
+to report unresolved references without guessing, or operations whose
+documented unresolved result is an empty collection.
 
 For an Obsidian reference, candidate scoring uses `ObsidianRef::target`, not
 the raw input. This excludes the `[[...]]` wrapper, heading/block fragment, and
@@ -38,7 +43,7 @@ target to vault-relative paths without `.md`.
 ## Verification
 
 Add focused module tests for empty strings, replacement/insertion/deletion,
-and Unicode characters. Add `read_note` regression tests for an unresolved
-Obsidian reference whose filename exists under a different directory, including
-a heading and display alias. Run the query test suite and the full project
-tests.
+and Unicode characters. Add regression tests through both `read_note` and
+`read_section` for an unresolved Obsidian reference whose filename exists under
+a different directory, including a heading and display alias. Run the query
+test suite and the full project tests.
