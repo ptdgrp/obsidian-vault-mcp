@@ -135,7 +135,6 @@ pub struct VaultConfig {
     pub follow_symlinks: bool,
 
     pub max_note_bytes: usize,
-    pub max_output_bytes: usize,
     pub max_read_note_chars: usize,
     pub max_results: usize,
     pub parse_cache_ttl_secs: u64,
@@ -151,7 +150,6 @@ impl Default for VaultConfig {
             exclude: Vec::new(),
             follow_symlinks: false,
             max_note_bytes: 8 * 1024 * 1024,
-            max_output_bytes: 262_144,
             max_read_note_chars: DEFAULT_MAX_READ_NOTE_CHARS,
             max_results: 50,
             parse_cache_ttl_secs: 600,

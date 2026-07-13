@@ -4,9 +4,9 @@ use crate::{
         AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
         FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
         ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
-        NoteStructureResult, OutlinksOutput, ReadNoteResult, ReadSectionResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultGraphResult, VaultQueries, WordCountMode,
+        NoteStructureResult, OutlinksOutput, ReadNoteResult, SearchRegexResult, SearchTextResult,
+        SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
+        VaultGraphResult, VaultQueries, WordCountMode,
     },
     resolver::ResolveResult,
     vault::Vault,
@@ -78,10 +78,16 @@ pub struct EmptyRequest {}
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one Markdown note.
 pub struct ReadNoteRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Vault-relative path, note stem, alias, or bare Obsidian reference.
     pub note: String,
     /// Optional character limit for this request.
     pub max_chars: Option<usize>,
+    /// Heading text, heading anchor, or slash-separated heading path.
+    pub heading: Option<String>,
+    /// Block id without the leading caret.
+    pub block_id: Option<String>,
+    /// GitHub-style line reference, e.g. #L1 or #L1-L99.
+    pub line: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -102,7 +108,7 @@ pub struct NoteOutlineRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoteStatsRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Vault-relative path, note stem, alias, or bare heading/block reference.
     pub note: String,
     /// Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts.
     #[serde(default)]
@@ -124,6 +130,12 @@ pub struct BacklinksRequest {
     /// Return detailed source spans and snippets when true. Defaults to compact output.
     #[serde(default)]
     pub verbose: bool,
+    /// Vault-relative glob patterns. A backlink source note must match at least one when non-empty.
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// Vault-relative glob patterns. Matching backlink source notes are excluded.
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -246,25 +258,6 @@ pub struct ContextReferenceRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for reading a section from one note.
-pub struct ReadSectionRequest {
-    /// Vault-relative path, note stem, or alias.
-    pub note: String,
-    /// Heading text, heading anchor, or slash-separated heading path.
-    pub heading: Option<String>,
-    /// Block id without the leading caret.
-    pub block_id: Option<String>,
-    /// Github-style line reference, e.g. #L1 or #L1-L99.
-    pub line: Option<String>,
-}
-
-impl ReadSectionRequest {
-    fn into_parts(self) -> Result<(String, SectionSelector), String> {
-        section_parts(self.note, self.heading, self.block_id, self.line)
-    }
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 /// Input for appending content at the end of one selected section.
 pub struct AppendSectionRequest {
     /// Vault-relative path, note stem, or alias.
@@ -371,6 +364,18 @@ pub(crate) fn section_parts(
     Ok((note, selector))
 }
 
+pub(crate) fn read_note_parts(
+    note: String,
+    heading: Option<String>,
+    block_id: Option<String>,
+    line: Option<String>,
+) -> Result<(String, Option<SectionSelector>), String> {
+    if heading.is_none() && block_id.is_none() && line.is_none() {
+        return Ok((note, None));
+    }
+    section_parts(note, heading, block_id, line).map(|(note, selector)| (note, Some(selector)))
+}
+
 fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
     let value = value.trim();
     let value = value.strip_prefix('#').unwrap_or(value);
@@ -422,13 +427,22 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a truncated prefix of a note.\nUse only when:\n- You need to scan the beginning of a note and don't know its structure yet.\n- You've already ruled out get_note_outline (for structure) and read_section (for targeted access).\n\nFor any operation with a known line, heading, or block id - use read_section instead.\nIf provided, max_chars controls this request's truncation boundary."
+        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary."
     )]
     fn read_note(
         &self,
-        Parameters(ReadNoteRequest { note, max_chars }): Parameters<ReadNoteRequest>,
+        Parameters(ReadNoteRequest {
+            note,
+            max_chars,
+            heading,
+            block_id,
+            line,
+        }): Parameters<ReadNoteRequest>,
     ) -> Result<Json<ReadNoteResult>, String> {
-        run_tool("read_note", || self.queries().read_note(&note, max_chars))
+        let (note, selector) = read_note_parts(note, heading, block_id, line)?;
+        run_tool("read_note", || {
+            self.queries().read_note(&note, max_chars, selector)
+        })
     }
 
     #[tool(
@@ -443,7 +457,9 @@ impl ObsidianVaultMcp {
         })
     }
 
-    #[tool(description = "Return one note's word, character, line, and total backlink counts")]
+    #[tool(
+        description = "Return one note or bare heading/block reference's word, character, line, and backlink counts"
+    )]
     fn get_note_stats(
         &self,
         Parameters(NoteStatsRequest {
@@ -457,7 +473,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section."
+        description = "Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note."
     )]
     fn get_note_outline(
         &self,
@@ -543,14 +559,20 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets"
+        description = "Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets"
     )]
     fn get_backlinks(
         &self,
-        Parameters(BacklinksRequest { target, verbose }): Parameters<BacklinksRequest>,
+        Parameters(BacklinksRequest {
+            target,
+            verbose,
+            include,
+            exclude,
+        }): Parameters<BacklinksRequest>,
     ) -> Result<Json<BacklinksOutput>, String> {
         run_tool("get_backlinks", || {
-            self.queries().get_backlinks_output(&target, verbose)
+            self.queries()
+                .get_backlinks_output(&target, verbose, &include, &exclude)
         })
     }
 
@@ -642,7 +664,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content"
+        description = "Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content"
     )]
     fn collect_note_context(
         &self,
@@ -654,7 +676,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content"
+        description = "Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content"
     )]
     fn collect_reference_context(
         &self,
@@ -662,35 +684,6 @@ impl ObsidianVaultMcp {
     ) -> Result<Json<ContextResult>, String> {
         run_tool("collect_reference_context", || {
             self.queries().collect_reference_context(&reference)
-        })
-    }
-
-    #[tool(
-        description = "Read exactly one heading section, block id, or line reference from a note with source span"
-    )]
-    fn read_section(
-        &self,
-        Parameters(request): Parameters<ReadSectionRequest>,
-    ) -> Result<Json<ReadSectionResult>, String> {
-        let selector_count = [
-            request.heading.is_some(),
-            request.block_id.is_some(),
-            request.line.is_some(),
-        ]
-        .into_iter()
-        .filter(|selected| *selected)
-        .count();
-        if selector_count == 0 {
-            let note = request.note;
-            return run_tool("read_section", || {
-                let message = self.queries().read_section_selector_hint(&note)?;
-                anyhow::bail!("{message}")
-            });
-        }
-
-        let (note, selector) = request.into_parts()?;
-        run_tool("read_section", || {
-            self.queries().read_section(&note, selector)
         })
     }
 

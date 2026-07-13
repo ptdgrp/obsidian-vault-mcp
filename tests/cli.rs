@@ -215,20 +215,6 @@ fn invalid_tag_scope_exits_with_clear_diagnostic() {
 }
 
 #[test]
-fn read_section_without_selector_lists_available_selectors() {
-    let dir = tempdir().expect("tempdir");
-    write_note(&dir, "块.md", "# 块\n\n段落\n^state\n");
-
-    let output = run_cli(&dir, &["read-section", "块.md"]);
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Available selectors in \"块.md\""));
-    assert!(!stderr.contains("headings:"));
-    assert!(stderr.contains("block_ids: \"^state\""));
-}
-
-#[test]
 fn read_note_character_limit_uses_unicode_characters() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "字符.md", "甲乙丙丁");
@@ -246,4 +232,64 @@ fn read_note_character_limit_uses_unicode_characters() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(value["content"], "甲乙");
     assert_eq!(value["truncated"], true);
+}
+
+#[test]
+fn read_note_accepts_explicit_selectors() {
+    let dir = tempdir().expect("tempdir");
+    write_note(
+        &dir,
+        "发动机.md",
+        "# 发动机\n\n## 原理\n\n链接到 [[林动]]\n",
+    );
+
+    let output = run_cli(
+        &dir,
+        &[
+            "read-note",
+            "发动机",
+            "--heading",
+            "原理",
+            "--max-chars",
+            "4",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["source"]["path"], "发动机.md#L3-L5");
+    assert!(value["truncated"].as_bool().expect("truncated"));
+}
+
+#[test]
+fn get_backlinks_accepts_repeatable_source_path_filters() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "Target.md", "# Target\n");
+    write_note(&dir, "来源/保留.md", "[[Target]]\n");
+    write_note(&dir, "来源/排除.md", "[[Target]]\n");
+
+    let output = run_cli(
+        &dir,
+        &[
+            "get-backlinks",
+            "Target",
+            "--include",
+            "来源/**/*.md",
+            "--exclude",
+            "**/排除.md",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(value["backlinks"].as_array().expect("backlinks").len(), 1);
+    assert_eq!(value["backlinks"][0]["location"], "来源/保留.md#L1");
 }

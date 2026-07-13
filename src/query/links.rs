@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::parser::{HeadingInfo, SourceSpan};
+use crate::parser::{HeadingInfo, LinkInfo, ParsedNote, ReferenceInfo, SourceSpan};
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 
 use super::path_filter::PathFilter;
+use super::section::{ParsedHeadingSelector, find_selectable_heading, selector_from_reference};
 
 use super::{
     BacklinksOutput, BacklinksResult, CompactTagMatch, DetailedSection, DetailedTagOccurrence,
@@ -40,7 +41,13 @@ impl VaultQueries {
         Ok(OutlinksOutput::from_result(result, verbose))
     }
 
-    pub fn get_backlinks(&self, target: &str) -> anyhow::Result<BacklinksResult> {
+    pub fn get_backlinks(
+        &self,
+        target: &str,
+        include: &[String],
+        exclude: &[String],
+    ) -> anyhow::Result<BacklinksResult> {
+        let filter = PathFilter::new(include, exclude)?;
         let notes = self.index_notes()?;
         let resolution = RefResolver::resolve(target, &notes);
         let wanted_path = match &resolution {
@@ -48,7 +55,10 @@ impl VaultQueries {
             _ => None,
         };
         let mut backlinks = Vec::new();
-        for note in &notes {
+        for note in notes
+            .iter()
+            .filter(|note| filter.is_match(&note.file.relative_path))
+        {
             for link in &note.parsed.links {
                 let matches = wanted_path
                     .as_ref()
@@ -84,14 +94,32 @@ impl VaultQueries {
         &self,
         target: &str,
         verbose: bool,
+        include: &[String],
+        exclude: &[String],
     ) -> anyhow::Result<BacklinksOutput> {
-        let result = self.get_backlinks(target)?;
+        let result = self.get_backlinks(target, include, exclude)?;
         Ok(BacklinksOutput::from_result(result, verbose))
     }
 
     pub(crate) fn backlink_count_for_path(&self, wanted_path: &str) -> anyhow::Result<usize> {
         let notes = self.index_notes()?;
         Ok(count_matching_backlinks(&notes, wanted_path))
+    }
+
+    pub(crate) fn backlink_count_for_scope(
+        &self,
+        wanted_path: &str,
+        target: &ParsedNote,
+        selector: &super::SectionSelector,
+        source: &SourceSpan,
+    ) -> anyhow::Result<usize> {
+        let notes = self.index_notes()?;
+        Ok(notes
+            .iter()
+            .flat_map(|note| note.parsed.links.iter())
+            .filter(|link| RefResolver::link_matches(&link.target, wanted_path, &notes))
+            .filter(|link| link_targets_selected_scope(link, target, selector, source))
+            .count())
     }
 
     pub fn list_tags(
@@ -242,6 +270,30 @@ fn count_matching_backlinks(notes: &[IndexedNote], wanted_path: &str) -> usize {
         .flat_map(|note| note.parsed.links.iter())
         .filter(|link| RefResolver::link_matches(&link.target, wanted_path, notes))
         .count()
+}
+
+fn link_targets_selected_scope(
+    link: &LinkInfo,
+    target: &ParsedNote,
+    selector: &super::SectionSelector,
+    selected_source: &SourceSpan,
+) -> bool {
+    match (selector, &link.reference) {
+        (super::SectionSelector::Block { block_id }, Some(ReferenceInfo::BlockId { value })) => {
+            value == block_id
+        }
+        (super::SectionSelector::Heading { .. }, Some(reference)) => {
+            let Ok(Some(super::SectionSelector::Heading { heading })) =
+                selector_from_reference(&Some(reference.clone()))
+            else {
+                return false;
+            };
+            let requested = ParsedHeadingSelector::parse(&heading);
+            find_selectable_heading(target, &requested)
+                .is_some_and(|heading| heading.source.line_start == selected_source.line_start)
+        }
+        _ => false,
+    }
 }
 
 enum MetadataMatcher {

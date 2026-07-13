@@ -11,16 +11,16 @@ server supports structural section edits as well as read operations.
 | Tool | Description |
 | --- | --- |
 | `append_section` | Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching. |
-| `collect_note_context` | Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content |
-| `collect_reference_context` | Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content |
+| `collect_note_context` | Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content |
+| `collect_reference_context` | Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content |
 | `delete_section` | Delete exactly one heading, block, or line section. This uses structural selection, not text matching. |
 | `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
 | `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
-| `get_backlinks` | Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets |
+| `get_backlinks` | Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_categories` | Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
-| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section. |
-| `get_note_stats` | Return one note's word, character, line, and total backlink counts |
+| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note. |
+| `get_note_stats` | Return one note or bare heading/block reference's word, character, line, and backlink counts |
 | `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
 | `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
 | `get_tags` | Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
@@ -30,8 +30,7 @@ server supports structural section edits as well as read operations.
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read a truncated prefix of a note. Use only when: - You need to scan the beginning of a note and don't know its structure yet. - You've already ruled out get_note_outline (for structure) and read_section (for targeted access).  For any operation with a known line, heading, or block id - use read_section instead. If provided, max_chars controls this request's truncation boundary. |
-| `read_section` | Read exactly one heading section, block id, or line reference from a note with source span |
+| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
 | `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
@@ -66,7 +65,7 @@ Output:
 
 ## 🔧 `collect_note_context`
 
-Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_section for note content
+Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content
 
 Input:
 
@@ -104,7 +103,7 @@ Nested types:
 
 ## 🔧 `collect_reference_context`
 
-Resolve a reference, then collect bounded navigation context; use get_note_outline then read_section for note content
+Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content
 
 Input:
 
@@ -283,12 +282,14 @@ Nested types:
 
 ## 🔧 `get_backlinks`
 
-Get backlinks to a note or Obsidian reference. Defaults to compact location output; set verbose=true for source spans and snippets
+Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching backlink source notes are excluded. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A backlink source note must match at least one when non-empty. |
 | `target` | `string` | yes | Note path, stem, alias, or Obsidian reference to find inbound links for. |
 | `verbose` | `boolean` | no | Return detailed source spans and snippets when true. Defaults to compact output. |
 
@@ -447,7 +448,7 @@ Nested types:
 
 ## 🔧 `get_note_outline`
 
-Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_section.
+Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note.
 
 Input:
 
@@ -494,13 +495,13 @@ Nested types:
 
 ## 🔧 `get_note_stats`
 
-Return one note's word, character, line, and total backlink counts
+Return one note or bare heading/block reference's word, character, line, and backlink counts
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Vault-relative path, note stem, alias, or bare heading/block reference. |
 | `word_count_mode` | `WordCountMode` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
 
 Nested types:
@@ -518,10 +519,26 @@ Output:
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
 | `note` | `string` | yes | Vault-relative resolved note path. |
+| `source` | `SourceSpan \| null` | no | Selected source span when `note` includes a heading or block reference. |
 | `word_count` | `integer` | yes | Word count computed with `word_count_mode`. |
 | `word_count_mode` | `WordCountMode` | yes | Counting strategy used for `word_count`. |
 
 Nested types:
+
+### `SectionInfo`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `heading` | `string` | yes |  |
+| `heading_level` | `integer` | yes |  |
+| `heading_path` | `string[]` | yes |  |
+
+### `SourceSpan`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Vault-relative path with Obsidian-style line reference, e.g. note.md#L1 or note.md#L1-L99. |
+| `section` | `SectionInfo \| null` | yes |  |
 
 ### `WordCountMode`
 
@@ -995,20 +1012,17 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read a truncated prefix of a note.
-Use only when:
-- You need to scan the beginning of a note and don't know its structure yet.
-- You've already ruled out get_note_outline (for structure) and read_section (for targeted access).
-
-For any operation with a known line, heading, or block id - use read_section instead.
-If provided, max_chars controls this request's truncation boundary.
+Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
+| `line` | `string \| null` | no | GitHub-style line reference, e.g. #L1 or #L1-L99. |
 | `max_chars` | `integer \| null` | no | Optional character limit for this request. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Vault-relative path, note stem, alias, or bare Obsidian reference. |
 
 
 Output:
@@ -1018,30 +1032,6 @@ Output:
 | `content` | `string` | yes |  |
 | `next_step` | `string \| null` | no | How to retrieve omitted content when `truncated` is true. |
 | `path` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
-
-
-## 🔧 `read_section`
-
-Read exactly one heading section, block id, or line reference from a note with source span
-
-Input:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `block_id` | `string \| null` | no | Block id without the leading caret. |
-| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Github-style line reference, e.g. #L1 or #L1-L99. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `content` | `string` | yes |  |
-| `note` | `string` | yes |  |
-| `selector` | `SectionSelector` | yes |  |
 | `source` | `SourceSpan` | yes |  |
 | `truncated` | `boolean` | yes |  |
 
@@ -1054,14 +1044,6 @@ Nested types:
 | `heading` | `string` | yes |  |
 | `heading_level` | `integer` | yes |  |
 | `heading_path` | `string[]` | yes |  |
-
-### `SectionSelector`
-
-| Variant | Fields |
-| --- | --- |
-| `heading` | `heading: string` |
-| `block` | `block_id: string` |
-| `lines` |  |
 
 ### `SourceSpan`
 
@@ -1258,7 +1240,7 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `snippet` | `string` | yes | Short preview text. Use read_section for full evidence. |
+| `snippet` | `string` | yes | Short preview text. Use read_note for full evidence. |
 | `source` | `SearchSource` | yes | Lightweight source for LLM navigation. Byte offsets are intentionally omitted. |
 
 
@@ -1306,5 +1288,5 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `snippet` | `string` | yes | Short preview text. Use read_section for full evidence. |
+| `snippet` | `string` | yes | Short preview text. Use read_note for full evidence. |
 | `source` | `SearchSource` | yes | Lightweight source for LLM navigation. Byte offsets are intentionally omitted. |

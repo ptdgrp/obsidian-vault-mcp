@@ -1,3 +1,5 @@
+use std::fs;
+
 use super::fixture;
 use crate::query::VaultFilesOptions;
 
@@ -91,4 +93,31 @@ fn collect_note_context_truncates_after_current_item_budget() {
     assert_eq!(result.groups[0].items[0].path, "林动.md");
     assert!(result.truncated);
     assert_eq!(result.omitted_count, 1);
+}
+
+#[test]
+fn get_backlinks_honors_source_path_filters() {
+    let (dir, mut queries) = fixture();
+    fs::write(dir.path().join("Target.md"), "# Target\n").expect("write target");
+    fs::create_dir_all(dir.path().join("来源")).expect("create sources");
+    fs::write(dir.path().join("来源/保留.md"), "[[Target]]\n").expect("write kept source");
+    fs::write(dir.path().join("来源/排除.md"), "[[Target]]\n").expect("write excluded source");
+    queries.vault.config.max_results = 1;
+
+    let result = queries
+        .get_backlinks(
+            "Target",
+            &["来源/**/*.md".to_string()],
+            &["**/排除.md".to_string()],
+        )
+        .expect("filtered backlinks");
+    assert_eq!(result.backlinks.len(), 1);
+    assert_eq!(result.backlinks[0].source.path, "来源/保留.md");
+    assert_eq!(result.backlinks[0].source.line_start, 1);
+    assert!(!result.truncated);
+
+    let error = queries
+        .get_backlinks("Target", &["[".to_string()], &[])
+        .expect_err("invalid include glob");
+    assert!(error.to_string().contains("include"));
 }

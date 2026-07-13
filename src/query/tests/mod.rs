@@ -194,6 +194,45 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
 }
 
 #[test]
+fn get_note_stats_scopes_text_and_backlinks_to_ref() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Section\n\nalpha beta\n\n^state\n",
+    )
+    .expect("write target");
+    fs::write(dir.path().join("heading-link.md"), "[[Target#Section]]\n")
+        .expect("write heading link");
+    fs::write(dir.path().join("block-link.md"), "[[Target#^state]]\n").expect("write block link");
+    fs::write(dir.path().join("note-link.md"), "[[Target]]\n").expect("write note link");
+
+    let heading = queries
+        .get_note_stats("Target#Section", WordCountMode::Source)
+        .expect("heading stats");
+    assert_eq!(heading.word_count, 4);
+    assert_eq!(heading.line_count, 5);
+    assert_eq!(heading.backlink_count, 1);
+    assert_eq!(
+        heading.source.as_ref().expect("heading source").line_start,
+        3
+    );
+
+    let block = queries
+        .get_note_stats("Target#^state", WordCountMode::Source)
+        .expect("block stats");
+    assert_eq!(block.word_count, 1);
+    assert_eq!(block.line_count, 1);
+    assert_eq!(block.backlink_count, 1);
+    assert_eq!(block.source.as_ref().expect("block source").line_start, 7);
+
+    let whole = queries
+        .get_note_stats("Target", WordCountMode::Source)
+        .expect("whole-note stats");
+    assert_eq!(whole.backlink_count, 3);
+    assert!(whole.source.is_none());
+}
+
+#[test]
 fn get_note_stats_counts_blank_lines_without_extra_trailing_line() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("line-count.md"), "first\n\nthird\n").expect("write line count note");
@@ -243,7 +282,9 @@ fn note_lookup_ignores_numeric_sort_prefix_when_no_exact_note_exists() {
     std::fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n\n正文\n")
         .expect("write numbered note");
 
-    let result = queries.read_note("排序标题", None).expect("read note");
+    let result = queries
+        .read_note("排序标题", None, None)
+        .expect("read note");
 
     assert_eq!(result.path, "001-排序标题.md");
 }
@@ -449,7 +490,7 @@ fn get_tags_omits_unneeded_ancestors_from_duplicate_heading_selectors() {
 }
 
 #[test]
-fn read_section_accepts_compact_slash_separated_heading_paths() {
+fn read_note_accepts_compact_slash_separated_heading_paths() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("重复章节.md"),
@@ -458,11 +499,12 @@ fn read_section_accepts_compact_slash_separated_heading_paths() {
     .expect("write duplicate sections");
 
     let result = queries
-        .read_section(
+        .read_note(
             "重复章节.md",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "Parent B/Detail".to_string(),
-            },
+            }),
         )
         .expect("read compact heading path");
 
@@ -692,7 +734,7 @@ fn resolve_ref_supports_alias_and_heading() {
 #[test]
 fn backlinks_include_source_section() {
     let (_dir, queries) = fixture();
-    let result = queries.get_backlinks("林动").expect("backlinks");
+    let result = queries.get_backlinks("林动", &[], &[]).expect("backlinks");
     assert_eq!(result.backlinks.len(), 1);
     assert_eq!(result.backlinks[0].source.path, "发动机.md");
     assert_eq!(
@@ -710,7 +752,7 @@ fn link_outputs_default_to_compact_and_support_verbose() {
     let (_dir, queries) = fixture();
 
     let compact = queries
-        .get_backlinks_output("林动", false)
+        .get_backlinks_output("林动", false, &[], &[])
         .expect("compact backlinks");
     let compact_value = serde_json::to_value(compact).expect("compact json");
     assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md#L5");
@@ -719,7 +761,7 @@ fn link_outputs_default_to_compact_and_support_verbose() {
     assert!(compact_value["backlinks"][0].get("snippet").is_none());
 
     let verbose = queries
-        .get_backlinks_output("林动", true)
+        .get_backlinks_output("林动", true, &[], &[])
         .expect("verbose backlinks");
     let verbose_value = serde_json::to_value(verbose).expect("verbose json");
     assert_eq!(
@@ -763,12 +805,6 @@ fn mcp_output_schemas_have_object_roots() {
 }
 
 #[test]
-fn truncation_preserves_utf8_boundaries() {
-    let text = "林动abc";
-    assert_eq!(truncate_utf8(text, 4), "林");
-}
-
-#[test]
 fn collect_note_context_returns_navigation_items_without_content() {
     let (_dir, queries) = fixture();
 
@@ -802,14 +838,16 @@ fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
 
     assert_eq!(DEFAULT_MAX_READ_NOTE_CHARS, 4 * 1024);
 
-    let result = queries.read_note("发动机.md", None).expect("read note");
+    let result = queries
+        .read_note("发动机.md", None, None)
+        .expect("read note");
 
     assert_eq!(result.content, "# 发动机\n");
     assert!(result.truncated);
     assert_eq!(
         result.next_step.as_deref(),
         Some(
-            "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_chars value."
+            "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value."
         )
     );
 }
@@ -820,7 +858,11 @@ fn read_note_allows_per_request_max_chars_override() {
     queries.vault.config.max_read_note_chars = "# 发动机\n".chars().count();
 
     let result = queries
-        .read_note("发动机.md", Some("# 发动机\n\n## 原理\n".chars().count()))
+        .read_note(
+            "发动机.md",
+            Some("# 发动机\n\n## 原理\n".chars().count()),
+            None,
+        )
         .expect("read note with override");
 
     assert_eq!(result.content, "# 发动机\n\n## 原理\n");
@@ -833,21 +875,22 @@ fn read_note_counts_unicode_characters_not_utf8_bytes() {
     fs::write(dir.path().join("字符.md"), "甲乙丙丁").expect("write unicode note");
     queries.vault.config.max_read_note_chars = 2;
 
-    let result = queries.read_note("字符.md", None).expect("read note");
+    let result = queries.read_note("字符.md", None, None).expect("read note");
 
     assert_eq!(result.content, "甲乙");
     assert!(result.truncated);
 }
 
 #[test]
-fn read_section_by_heading_returns_heading_scope() {
+fn read_note_by_heading_returns_heading_scope() {
     let (_dir, queries) = fixture();
     let result = queries
-        .read_section(
+        .read_note(
             "发动机.md",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "原理".to_string(),
-            },
+            }),
         )
         .expect("read section");
     assert_eq!(result.source.section.unwrap().heading_path, vec!["原理"]);

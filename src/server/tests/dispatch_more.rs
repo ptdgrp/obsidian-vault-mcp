@@ -8,7 +8,7 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, ContextNoteRequest, ContextReferenceRequest, EmptyRequest,
-    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadSectionRequest,
+    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
     RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
     TagsRequest, VaultFilesRequest,
 };
@@ -69,6 +69,19 @@ fn query_tools_expose_request_path_filter_arrays_without_legacy_path_glob() {
         .find(|definition| definition.name == "search_regex")
         .expect("regex definition");
     assert!(regex.input_schema["properties"].get("path_glob").is_none());
+}
+
+#[test]
+fn backlinks_tool_exposes_source_path_filter_arrays() {
+    let definition = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|definition| definition.name == "get_backlinks")
+        .expect("backlinks definition");
+    let properties = definition.input_schema["properties"]
+        .as_object()
+        .expect("input schema properties");
+    assert_eq!(properties["include"]["type"], "array");
+    assert_eq!(properties["exclude"]["type"], "array");
 }
 
 #[test]
@@ -302,8 +315,9 @@ fn append_read_and_rename_block_id_tools_work_through_server_surface() {
     assert_eq!(appended.note, "块.md");
 
     let Json(read) = server
-        .read_section(Parameters(ReadSectionRequest {
+        .read_note(Parameters(ReadNoteRequest {
             note: "块.md".to_string(),
+            max_chars: None,
             heading: Some("正文".to_string()),
             block_id: None,
             line: None,

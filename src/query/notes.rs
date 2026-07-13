@@ -2,16 +2,18 @@ use std::fs;
 
 use rayon::prelude::*;
 
-use crate::parser::ParsedNote;
-use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
+use crate::parser::{ParsedNote, slice_text, source_for_line};
+use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
 
 use super::files::human_size;
+use super::section::{section_source, selector_from_reference};
 use super::{
     ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
-    VaultQueries, WordCountMode, find_indexed_note, read_and_parse, truncate_chars,
+    SectionSelector, VaultQueries, WordCountMode, find_indexed_note, read_and_parse,
+    truncate_chars,
 };
 
-const READ_NOTE_NEXT_STEP: &str = "Use get_note_outline to discover structure, then read_section with a heading, line, or block selector for targeted access. If you still need a larger prefix, retry read_note with a larger max_chars value.";
+const READ_NOTE_NEXT_STEP: &str = "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value.";
 
 impl VaultQueries {
     pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
@@ -33,17 +35,33 @@ impl VaultQueries {
         &self,
         note: &str,
         max_chars: Option<usize>,
+        explicit_selector: Option<SectionSelector>,
     ) -> anyhow::Result<ReadNoteResult> {
-        let path = self.resolve_note_path(note)?;
-        let mut content = fs::read_to_string(&path)?;
-        let mut truncated = false;
-        let budget = max_chars.unwrap_or(self.vault.config.max_read_note_chars);
-        if content.chars().count() > budget {
-            content = truncate_chars(&content, budget);
-            truncated = true;
+        let reference = RefResolver::parse_ref(note);
+        if reference.reference.is_some() && explicit_selector.is_some() {
+            anyhow::bail!("reference fragment cannot be combined with an explicit selector");
         }
+        let selector = explicit_selector.or(selector_from_reference(&reference.reference)?);
+        let path = self.resolve_reference_note_path(&reference)?;
+        let content = fs::read_to_string(&path)?;
+        let relative_path = self.vault.relative_path(&path);
+        let parsed = self.parse_file_cached(&path, relative_path.clone())?;
+        let total_lines = content.lines().count().max(1) as u64;
+        let source = match selector.as_ref() {
+            Some(selector) => section_source(&relative_path, &content, &parsed, selector)?,
+            None => source_for_line(&relative_path, &content, &parsed, 1, total_lines),
+        };
+        let selected = slice_text(&content, source.byte_start, source.byte_end);
+        let budget = max_chars.unwrap_or(self.vault.config.max_read_note_chars);
+        let truncated = selected.chars().count() > budget;
+        let content = if truncated {
+            truncate_chars(&selected, budget)
+        } else {
+            selected
+        };
         Ok(ReadNoteResult {
-            path: self.vault.relative_path(&path),
+            path: relative_path,
+            source,
             content,
             truncated,
             next_step: truncated.then_some(READ_NOTE_NEXT_STEP.to_string()),
@@ -55,20 +73,41 @@ impl VaultQueries {
         note: &str,
         word_count_mode: WordCountMode,
     ) -> anyhow::Result<NoteStatsResult> {
-        let path = self.resolve_note_path(note)?;
+        let reference = RefResolver::parse_ref(note);
+        let selector = selector_from_reference(&reference.reference)?;
+        if matches!(selector, Some(SectionSelector::Lines { .. })) {
+            anyhow::bail!("get_note_stats supports heading and block references only");
+        }
+        let path = self.resolve_reference_note_path(&reference)?;
         let content = fs::read_to_string(&path)?;
         let note = self.vault.relative_path(&path);
+        let parsed = self.parse_file_cached(&path, note.clone())?;
+        let source = selector
+            .as_ref()
+            .map(|selector| section_source(&note, &content, &parsed, selector))
+            .transpose()?;
+        let selected = source
+            .as_ref()
+            .map(|source| slice_text(&content, source.byte_start, source.byte_end))
+            .unwrap_or(content);
         let word_count = match word_count_mode {
-            WordCountMode::Source => count_words(&content),
-            WordCountMode::Visible => count_words(&visible_markdown_text(&content)),
+            WordCountMode::Source => count_words(&selected),
+            WordCountMode::Visible => count_words(&visible_markdown_text(&selected)),
+        };
+        let backlink_count = match (&selector, &source) {
+            (Some(selector), Some(source)) => {
+                self.backlink_count_for_scope(&note, &parsed, selector, source)?
+            }
+            _ => self.backlink_count_for_path(&note)?,
         };
         Ok(NoteStatsResult {
             note: note.clone(),
             word_count_mode,
             word_count,
-            character_count: content.chars().count(),
-            line_count: content.lines().count(),
-            backlink_count: self.backlink_count_for_path(&note)?,
+            character_count: selected.chars().count(),
+            line_count: selected.lines().count(),
+            backlink_count,
+            source,
         })
     }
 
@@ -105,6 +144,18 @@ impl VaultQueries {
         }
         let notes = self.index_notes()?;
         let indexed = find_indexed_note(note, &notes)?;
+        Ok(indexed.file.path.clone())
+    }
+
+    fn resolve_reference_note_path(
+        &self,
+        reference: &ObsidianRef,
+    ) -> anyhow::Result<camino::Utf8PathBuf> {
+        if let Ok((path, _)) = self.vault.read_note(&reference.target) {
+            return Ok(path);
+        }
+        let notes = self.index_notes()?;
+        let indexed = find_indexed_note(&reference.raw, &notes)?;
         Ok(indexed.file.path.clone())
     }
 }

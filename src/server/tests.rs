@@ -6,10 +6,10 @@ use tempfile::tempdir;
 
 use super::{
     BacklinksRequest, CategoriesRequest, ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest,
-    ReadSectionRequest, RenameHeadingRequest, RenameNoteRequest, TagsRequest,
+    RenameHeadingRequest, RenameNoteRequest, TagsRequest,
 };
 use crate::{
-    query::{SectionSelector, TagScope},
+    query::TagScope,
     resolver::ResolveResult,
     server::{NoteStatsRequest, ResolveRefRequest},
     vault::{Vault, VaultConfig},
@@ -62,36 +62,6 @@ fn all_tool_input_schemas_have_plain_object_roots() {
 }
 
 #[test]
-fn read_section_request_schema_has_plain_object_root() {
-    let schema = serde_json::to_value(schemars::schema_for!(ReadSectionRequest)).expect("schema");
-
-    assert_eq!(schema["type"], "object");
-    for key in FORBIDDEN_TOP_LEVEL_SCHEMA_KEYS {
-        assert!(schema.get(key).is_none());
-    }
-}
-
-#[test]
-fn read_section_request_accepts_obsidian_line_reference() {
-    let (_, selector) = ReadSectionRequest {
-        note: "note.md".to_string(),
-        heading: None,
-        block_id: None,
-        line: Some("#L3-L5".to_string()),
-    }
-    .into_parts()
-    .expect("line selector");
-
-    assert!(matches!(
-        selector,
-        SectionSelector::Lines {
-            line_start: 3,
-            line_end: 5
-        }
-    ));
-}
-
-#[test]
 fn resolve_ref_tool_returns_resolved_heading_result() {
     let (_dir, server) = fixture();
 
@@ -113,52 +83,15 @@ fn resolve_ref_tool_returns_resolved_heading_result() {
 }
 
 #[test]
-fn read_section_rejects_malformed_line_selector() {
-    let (_dir, server) = fixture();
-
-    let result = server.read_section(Parameters(ReadSectionRequest {
-        note: "发动机.md".to_string(),
-        heading: None,
-        block_id: None,
-        line: Some("#L0-L2".to_string()),
-    }));
-    let error = match result {
-        Ok(_) => panic!("invalid line range should fail"),
-        Err(error) => error,
-    };
-
-    assert_eq!(error, "invalid line range");
-}
-
-#[test]
-fn read_section_without_selector_lists_available_headings_and_block_ids() {
-    let (dir, server) = fixture();
-    fs::write(dir.path().join("块.md"), "# 块\n\n段落\n^state\n").expect("write block note");
-
-    let result = server.read_section(Parameters(ReadSectionRequest {
-        note: "块.md".to_string(),
-        heading: None,
-        block_id: None,
-        line: None,
-    }));
-    let error = match result {
-        Ok(_) => panic!("missing selector should fail"),
-        Err(error) => error,
-    };
-
-    assert!(error.contains("Available selectors in \"块.md\""));
-    assert!(!error.contains("headings:"));
-    assert!(error.contains("block_ids: \"^state\""));
-    assert!(error.contains("retry read_section with heading, block_id, or line"));
-}
-
-#[test]
 fn read_note_surfaces_missing_note_error() {
     let (_dir, server) = fixture();
 
     let result = server.read_note(Parameters(ReadNoteRequest {
         note: "缺失.md".to_string(),
         max_chars: None,
+        heading: None,
+        block_id: None,
+        line: None,
     }));
     let error = match result {
         Ok(_) => panic!("missing note should fail"),
@@ -182,6 +115,35 @@ fn read_note_schema_exposes_max_chars_not_max_bytes() {
 
     assert!(properties.contains_key("max_chars"));
     assert!(!properties.contains_key("max_bytes"));
+}
+
+#[test]
+fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
+    let definitions = ObsidianVaultMcp::tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|tool| tool.name == "read_note")
+        .expect("read_note tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("read_note input properties");
+    for selector in ["heading", "block_id", "line", "max_chars"] {
+        assert!(properties.contains_key(selector), "missing {selector}");
+    }
+    assert!(!definitions.iter().any(|tool| tool.name == "read_section"));
+
+    let (_dir, server) = fixture();
+    let Json(result) = server
+        .read_note(Parameters(ReadNoteRequest {
+            note: "发动机".to_string(),
+            max_chars: Some(4),
+            heading: Some("原理".to_string()),
+            block_id: None,
+            line: None,
+        }))
+        .expect("read heading through MCP");
+    assert_eq!(result.source.line_start, 3);
+    assert!(result.truncated);
 }
 
 #[test]
@@ -226,6 +188,8 @@ fn backlinks_tool_returns_verbose_results_for_reference() {
         .get_backlinks(Parameters(BacklinksRequest {
             target: "[[林动#身体]]".to_string(),
             verbose: true,
+            include: vec![],
+            exclude: vec![],
         }))
         .expect("get backlinks");
 
@@ -250,6 +214,20 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
     assert_eq!(result.line_count, 7);
     assert_eq!(result.backlink_count, 1);
     assert!(result.character_count > result.word_count);
+}
+
+#[test]
+fn note_stats_tool_returns_source_for_a_scoped_reference() {
+    let (_dir, server) = fixture();
+
+    let Json(result) = server
+        .get_note_stats(Parameters(NoteStatsRequest {
+            note: "发动机#原理".to_string(),
+            word_count_mode: Default::default(),
+        }))
+        .expect("scoped note stats");
+
+    assert_eq!(result.source.expect("source").line_start, 3);
 }
 
 #[test]

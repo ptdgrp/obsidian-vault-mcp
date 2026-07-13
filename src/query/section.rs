@@ -1,48 +1,6 @@
-use std::fs;
+use crate::parser::{HeadingInfo, ParsedNote, ReferenceInfo, SourceSpan, source_for_line};
 
-use crate::parser::{HeadingInfo, ParsedNote, SourceSpan, slice_text, source_for_line};
-
-use super::{
-    ReadSectionResult, SectionSelector, VaultQueries, edit_distance::levenshtein_distance,
-    truncate_utf8,
-};
-
-impl VaultQueries {
-    pub fn read_section(
-        &self,
-        note: &str,
-        selector: SectionSelector,
-    ) -> anyhow::Result<ReadSectionResult> {
-        let path = self.resolve_note_path(note)?;
-        let content = fs::read_to_string(&path)?;
-        let relative_path = self.vault.relative_path(&path);
-        let parsed = self.parse_file_cached(&path, relative_path.clone())?;
-        let source = section_source(&relative_path, &content, &parsed, &selector)?;
-        let mut section_content = slice_text(&content, source.byte_start, source.byte_end);
-        let mut truncated = false;
-        if section_content.len() > self.vault.config.max_output_bytes {
-            section_content =
-                truncate_utf8(&section_content, self.vault.config.max_output_bytes).to_string();
-            truncated = true;
-        }
-
-        Ok(ReadSectionResult {
-            note: relative_path,
-            selector,
-            source,
-            content: section_content,
-            truncated,
-        })
-    }
-
-    pub(crate) fn read_section_selector_hint(&self, note: &str) -> anyhow::Result<String> {
-        let path = self.resolve_note_path(note)?;
-        let relative_path = self.vault.relative_path(&path);
-        let parsed = self.parse_file_cached(&path, relative_path.clone())?;
-
-        Ok(section_selector_hint_message(&relative_path, &parsed))
-    }
-}
+use super::{SectionSelector, edit_distance::levenshtein_distance};
 
 pub(crate) fn section_source(
     relative_path: &str,
@@ -103,6 +61,69 @@ pub(crate) fn section_source(
         line_start,
         line_end,
     ))
+}
+
+pub(crate) fn selector_from_reference(
+    reference: &Option<ReferenceInfo>,
+) -> anyhow::Result<Option<SectionSelector>> {
+    match reference {
+        None => Ok(None),
+        Some(ReferenceInfo::BlockId { value }) => Ok(Some(SectionSelector::Block {
+            block_id: value.clone(),
+        })),
+        Some(ReferenceInfo::Heading { value }) => selector_from_fragment(value),
+        Some(ReferenceInfo::MultiHeading { value }) => Ok(Some(SectionSelector::Heading {
+            heading: value.join("/"),
+        })),
+    }
+}
+
+fn selector_from_fragment(fragment: &str) -> anyhow::Result<Option<SectionSelector>> {
+    let Some(line_fragment) = fragment.strip_prefix('L') else {
+        return Ok(Some(SectionSelector::Heading {
+            heading: fragment.to_string(),
+        }));
+    };
+
+    let Some((start, end)) = line_fragment.split_once('-') else {
+        return parse_line_selector(line_fragment, line_fragment);
+    };
+    let end = if end.is_empty() {
+        u64::MAX.to_string()
+    } else if let Some(end) = end.strip_prefix('L') {
+        end.to_string()
+    } else {
+        return Ok(Some(SectionSelector::Heading {
+            heading: fragment.to_string(),
+        }));
+    };
+    if start.is_empty() || !end.chars().all(char::is_numeric) {
+        return Ok(Some(SectionSelector::Heading {
+            heading: fragment.to_string(),
+        }));
+    }
+    parse_line_selector(start, &end)
+}
+
+fn parse_line_selector(start: &str, end: &str) -> anyhow::Result<Option<SectionSelector>> {
+    if !start.chars().all(char::is_numeric) || !end.chars().all(char::is_numeric) {
+        return Ok(Some(SectionSelector::Heading {
+            heading: format!("L{start}"),
+        }));
+    }
+    let line_start = start
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("invalid line range"))?;
+    let line_end = end
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("invalid line range"))?;
+    if line_start == 0 || line_end < line_start {
+        anyhow::bail!("invalid line range");
+    }
+    Ok(Some(SectionSelector::Lines {
+        line_start,
+        line_end,
+    }))
 }
 
 pub(crate) struct ParsedHeadingSelector<'a> {
@@ -241,57 +262,4 @@ fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String
     }
 
     suggestions
-}
-
-fn section_selector_hint_message(relative_path: &str, parsed: &ParsedNote) -> String {
-    let headings = parsed
-        .headings
-        .iter()
-        .filter(|it| it.level != 1)
-        .take(10)
-        .map(|heading| {
-            format!(
-                "{} {}",
-                "#".repeat(usize::from(heading.level)),
-                heading.text
-            )
-        })
-        .collect::<Vec<_>>();
-    let block_ids = parsed
-        .blocks
-        .iter()
-        .take(10)
-        .map(|block| format!("^{}", block.id))
-        .collect::<Vec<_>>();
-
-    let mut parts = Vec::new();
-    if headings.is_empty() && block_ids.is_empty() {
-        parts.push("no headings or block ids found; use a line selector like #L1-L20".to_string());
-    } else {
-        if !headings.is_empty() {
-            parts.push(format!(
-                "headings: {}",
-                headings
-                    .iter()
-                    .map(|it| wrapping_char(it.trim_start_matches("#").trim_start(), '"'))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if !block_ids.is_empty() {
-            parts.push(format!(
-                "block_ids: {}",
-                block_ids
-                    .iter()
-                    .map(|it| wrapping_char(it, '"'))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-    }
-
-    format!(
-        "provide exactly one selector: heading, block_id, or line. Available selectors in {relative_path:?}: {}. retry read_section with heading, block_id, or line",
-        parts.join("; ")
-    )
 }

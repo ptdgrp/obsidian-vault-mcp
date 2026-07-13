@@ -14,12 +14,12 @@ pub(crate) mod section;
 #[cfg(test)]
 mod tests;
 
-use std::{borrow::Cow, fs, sync::Arc};
+use std::{fs, sync::Arc};
 
 use camino::Utf8Path;
 use clap::ValueEnum;
 use rayon::prelude::*;
-use schemars::{JsonSchema, Schema, SchemaGenerator};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 use crate::parser::{
@@ -50,6 +50,7 @@ pub struct NoteSummary {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadNoteResult {
     pub path: String,
+    pub source: SourceSpan,
     pub content: String,
     pub truncated: bool,
     /// How to retrieve omitted content when `truncated` is true.
@@ -71,6 +72,9 @@ pub struct NoteStatsResult {
     pub line_count: usize,
     /// Total number of inbound links to this note across the visible vault.
     pub backlink_count: usize,
+    /// Selected source span when `note` includes a heading or block reference.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceSpan>,
 }
 
 #[derive(
@@ -286,7 +290,7 @@ pub struct SearchRegexResult {
 pub struct TextMatch {
     /// Lightweight source for LLM navigation. Byte offsets are intentionally omitted.
     pub source: SearchSource,
-    /// Short preview text. Use read_section for full evidence.
+    /// Short preview text. Use read_note for full evidence.
     pub snippet: String,
 }
 
@@ -636,89 +640,11 @@ pub struct ContextItem {
     pub size: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ReadSectionResult {
-    pub note: String,
-    pub selector: SectionSelector,
-    pub source: SourceSpan,
-    pub content: String,
-    pub truncated: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum SectionSelector {
+#[derive(Clone, Debug)]
+pub(crate) enum SectionSelector {
     Heading { heading: String },
     Block { block_id: String },
     Lines { line_start: u64, line_end: u64 },
-}
-
-impl Serialize for SectionSelector {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            SectionSelector::Heading { heading } => {
-                let mut state = serializer.serialize_struct("SectionSelector", 2)?;
-                state.serialize_field("kind", "heading")?;
-                state.serialize_field("heading", heading)?;
-                state.end()
-            }
-            SectionSelector::Block { block_id } => {
-                let mut state = serializer.serialize_struct("SectionSelector", 2)?;
-                state.serialize_field("kind", "block")?;
-                state.serialize_field("block_id", block_id)?;
-                state.end()
-            }
-            SectionSelector::Lines {
-                line_start: _,
-                line_end: _,
-            } => {
-                let mut state = serializer.serialize_struct("SectionSelector", 1)?;
-                state.serialize_field("kind", "lines")?;
-                state.end()
-            }
-        }
-    }
-}
-
-impl JsonSchema for SectionSelector {
-    fn schema_name() -> Cow<'static, str> {
-        "SectionSelector".into()
-    }
-
-    fn json_schema(_: &mut SchemaGenerator) -> Schema {
-        serde_json::json!({
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "kind": { "const": "heading" },
-                        "heading": { "type": "string" }
-                    },
-                    "required": ["kind", "heading"]
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "kind": { "const": "block" },
-                        "block_id": { "type": "string" }
-                    },
-                    "required": ["kind", "block_id"]
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "kind": { "const": "lines" }
-                    },
-                    "required": ["kind"]
-                }
-            ]
-        })
-        .try_into()
-        .expect("section selector schema")
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -984,17 +910,6 @@ fn read_snippet(file: &NoteFile, source: &SourceSpan) -> String {
         .ok()
         .map(|content| slice_text(&content, source.byte_start, source.byte_end))
         .unwrap_or_default()
-}
-
-fn truncate_utf8(input: &str, max_bytes: usize) -> &str {
-    if input.len() <= max_bytes {
-        return input;
-    }
-    let mut end = max_bytes;
-    while !input.is_char_boundary(end) {
-        end -= 1;
-    }
-    &input[..end]
 }
 
 fn truncate_chars(input: &str, max_chars: usize) -> String {

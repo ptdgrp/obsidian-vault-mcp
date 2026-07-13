@@ -43,10 +43,6 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     follow_symlinks: bool,
 
-    /// Max bytes returned by a single tool call
-    #[arg(long, default_value_t = 262_144)]
-    max_output_bytes: usize,
-
     /// Max Unicode characters returned by read_note
     #[arg(long, default_value_t = DEFAULT_MAX_READ_NOTE_CHARS)]
     max_read_note_chars: usize,
@@ -109,8 +105,22 @@ enum Command {
     /// List markdown notes in vault
     ListNotes,
 
-    /// Read one Markdown note body
-    ReadNote { note: String },
+    /// Read one Markdown note, heading section, block, or line range
+    ReadNote {
+        note: String,
+
+        #[arg(long)]
+        heading: Option<String>,
+
+        #[arg(long)]
+        block_id: Option<String>,
+
+        #[arg(long)]
+        line: Option<String>,
+
+        #[arg(long)]
+        max_chars: Option<usize>,
+    },
 
     /// Print one note's extracted Obsidian structure
     GetNoteStructure { note: String },
@@ -163,6 +173,14 @@ enum Command {
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        /// Vault-relative glob patterns that backlink source notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching backlink source notes.
+        #[arg(long)]
+        exclude: Vec<String>,
     },
 
     /// List unique body and frontmatter tag names
@@ -276,20 +294,6 @@ enum Command {
 
     /// Resolve a reference, then collect bounded context
     CollectReferenceContext { reference: String },
-
-    /// Read a heading, block id, or line reference from a note
-    ReadSection {
-        note: String,
-
-        #[arg(long)]
-        heading: Option<String>,
-
-        #[arg(long)]
-        block_id: Option<String>,
-
-        #[arg(long)]
-        line: Option<String>,
-    },
 
     /// Find local links that do not resolve to any note
     FindUnresolvedLinks,
@@ -446,8 +450,18 @@ async fn main() -> anyhow::Result<()> {
             Command::Doctor | Command::ListNotes => {
                 print_value(&queries.list_notes()?)?;
             }
-            Command::ReadNote { note } => {
-                print_value(&queries.read_note(&note, None)?)?;
+            Command::ReadNote {
+                note,
+                heading,
+                block_id,
+                line,
+                max_chars,
+            } => {
+                let (note, selector) = crate::server::read_note_parts(note, heading, block_id, line)
+                    .map_err(|_| anyhow::anyhow!(
+                        "provide exactly one selector: --heading, --block-id, or --line"
+                    ))?;
+                print_value(&queries.read_note(&note, max_chars, selector)?)?;
             }
             Command::GetNoteStructure { note } => {
                 print_value(&queries.get_note_structure(&note)?)?;
@@ -481,8 +495,13 @@ async fn main() -> anyhow::Result<()> {
             Command::GetOutlinks { note, verbose } => {
                 print_value(&queries.get_outlinks_output(&note, verbose)?)?;
             }
-            Command::GetBacklinks { target, verbose } => {
-                print_value(&queries.get_backlinks_output(&target, verbose)?)?;
+            Command::GetBacklinks {
+                target,
+                verbose,
+                include,
+                exclude,
+            } => {
+                print_value(&queries.get_backlinks_output(&target, verbose, &include, &exclude)?)?;
             }
             Command::ListTags {
                 scope,
@@ -570,26 +589,6 @@ async fn main() -> anyhow::Result<()> {
             }
             Command::CollectReferenceContext { reference } => {
                 print_value(&queries.collect_reference_context(&reference)?)?;
-            }
-            Command::ReadSection {
-                note,
-                heading,
-                block_id,
-                line,
-            } => {
-                let selector_count = [heading.is_some(), block_id.is_some(), line.is_some()]
-                    .into_iter()
-                    .filter(|selected| *selected)
-                    .count();
-                if selector_count == 0 {
-                    anyhow::bail!("{}", queries.read_section_selector_hint(&note)?);
-                }
-                let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_| {
-                    anyhow::anyhow!(
-                        "provide exactly one selector: --heading, --block-id, or --line"
-                    )
-                })?;
-                print_value(&queries.read_section(&note, selector)?)?;
             }
             Command::FindUnresolvedLinks => {
                 print_value(&queries.find_unresolved_links()?)?;
@@ -686,7 +685,6 @@ fn vault_config(cli: &Cli) -> VaultConfig {
         include: cli.include.clone(),
         exclude: cli.exclude.clone(),
         follow_symlinks: cli.follow_symlinks,
-        max_output_bytes: cli.max_output_bytes,
         max_read_note_chars: cli.max_read_note_chars,
         max_results: cli.max_results,
         parse_cache_ttl_secs: cli.parse_cache_ttl_secs,

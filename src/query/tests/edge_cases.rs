@@ -74,7 +74,7 @@ fn read_note_reports_unresolved_reference_for_missing_note() {
     let (_dir, queries) = fixture();
 
     let error = queries
-        .read_note("缺失.md", None)
+        .read_note("缺失.md", None, None)
         .expect_err("missing note should fail");
 
     assert!(error.to_string().contains("unresolved note reference"));
@@ -92,23 +92,24 @@ fn note_lookups_suggest_unique_filename_when_obsidian_ref_has_wrong_directory() 
 
     let reference = "[[错误目录/唯一笔记#章节|显示名]]";
     let read_note_error = queries
-        .read_note(reference, None)
+        .read_note(reference, None, None)
         .expect_err("missing reference should suggest the actual file");
-    let read_section_error = queries
-        .read_section(
+    let conflict_error = queries
+        .read_note(
             reference,
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "章节".to_string(),
-            },
+            }),
         )
-        .expect_err("section lookup should share the file suggestion");
+        .expect_err("fragment and explicit selector should conflict");
 
-    for error in [read_note_error, read_section_error] {
-        let message = error.to_string();
-        assert!(message.contains("unresolved note reference"));
-        assert!(message.contains(reference));
-        assert!(message.contains("正确目录/唯一笔记"));
-    }
+    let message = read_note_error.to_string();
+    assert!(message.contains("unresolved note reference"));
+    assert!(message.contains(reference));
+    assert!(message.contains("正确目录/唯一笔记"));
+
+    assert!(conflict_error.to_string().contains("selector"));
 }
 
 #[test]
@@ -150,7 +151,7 @@ fn empty_vault_queries_return_empty_results() {
 }
 
 #[test]
-fn search_source_and_section_selector_serialize_as_public_contracts() {
+fn search_source_serializes_as_a_public_contract() {
     let source = SearchSource {
         path: "note.md".to_string(),
         line_start: 3,
@@ -165,28 +166,6 @@ fn search_source_and_section_selector_serialize_as_public_contracts() {
     let source_json = serde_json::to_value(source).expect("source json");
     assert_eq!(source_json["path"], "note.md#L3-L5");
     assert!(source_json.get("line_start").is_none());
-
-    let heading = serde_json::to_value(SectionSelector::Heading {
-        heading: "原理".to_string(),
-    })
-    .expect("heading selector");
-    assert_eq!(heading["kind"], "heading");
-    assert_eq!(heading["heading"], "原理");
-
-    let block = serde_json::to_value(SectionSelector::Block {
-        block_id: "state".to_string(),
-    })
-    .expect("block selector");
-    assert_eq!(block["kind"], "block");
-    assert_eq!(block["block_id"], "state");
-
-    let lines = serde_json::to_value(SectionSelector::Lines {
-        line_start: 1,
-        line_end: 3,
-    })
-    .expect("lines selector");
-    assert_eq!(lines["kind"], "lines");
-    assert!(lines.get("line_start").is_none());
 }
 
 #[test]

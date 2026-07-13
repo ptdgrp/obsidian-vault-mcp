@@ -4,6 +4,72 @@ use super::fixture;
 use crate::query::SectionSelector;
 
 #[test]
+fn read_note_accepts_heading_block_and_line_ref_scopes() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("发动机.md"),
+        "# 发动机\n\n## 原理\n\n链接到 [[林动]] ^state\n",
+    )
+    .expect("write scoped fixture");
+
+    let heading = queries
+        .read_note("发动机#原理", None, None)
+        .expect("read heading ref");
+    assert_eq!(heading.content, "## 原理\n\n链接到 [[林动]] ^state\n");
+    assert_eq!(heading.source.line_start, 3);
+
+    let block = queries
+        .read_note("发动机#^state", None, None)
+        .expect("read block ref");
+    assert_eq!(block.source.line_start, 5);
+
+    let single_line = queries
+        .read_note("发动机#L3", None, None)
+        .expect("read single line ref");
+    assert_eq!(single_line.content, "## 原理\n");
+
+    let bounded = queries
+        .read_note("发动机#L3-L5", None, None)
+        .expect("read bounded line ref");
+    assert_eq!(bounded.source.line_end, 5);
+
+    let to_end = queries
+        .read_note("发动机#L1-", None, None)
+        .expect("read open-ended line ref");
+    assert_eq!(to_end.source.line_end, 5);
+
+    let error = queries
+        .read_note(
+            "发动机#原理",
+            None,
+            Some(SectionSelector::Block {
+                block_id: "state".to_string(),
+            }),
+        )
+        .expect_err("conflicting selectors");
+    assert!(error.to_string().contains("selector"));
+}
+
+#[test]
+fn read_note_truncates_selected_scope_by_unicode_characters() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("字符范围.md"),
+        "# 字符范围\n\n## 部分\n\n甲乙丙\n",
+    )
+    .expect("write unicode scoped fixture");
+
+    let result = queries
+        .read_note("字符范围#部分", Some(2), None)
+        .expect("read selected scope");
+
+    assert_eq!(result.content, "##");
+    assert!(result.truncated);
+    assert_eq!(result.source.line_start, 3);
+    assert_eq!(result.source.line_end, 5);
+}
+
+#[test]
 fn search_text_truncates_to_max_results_and_marks_truncated() {
     let (_dir, mut queries) = fixture();
     queries.vault.config.max_results = 1;
@@ -193,16 +259,17 @@ fn empty_text_and_regex_queries_match_each_line() {
 }
 
 #[test]
-fn read_section_supports_block_selectors_and_truncates_large_output() {
-    let (dir, mut queries) = fixture();
+fn read_note_supports_explicit_selectors_and_selected_truncation() {
+    let (dir, queries) = fixture();
     fs::write(dir.path().join("块.md"), "# 块\n\n段落\n^state\n").expect("write block note");
 
     let result = queries
-        .read_section(
+        .read_note(
             "块",
-            SectionSelector::Block {
+            None,
+            Some(SectionSelector::Block {
                 block_id: "state".to_string(),
-            },
+            }),
         )
         .expect("read block");
 
@@ -212,13 +279,13 @@ fn read_section_supports_block_selectors_and_truncates_large_output() {
     assert_eq!(result.content, "段落\n^state\n");
     assert!(!result.truncated);
 
-    queries.vault.config.max_output_bytes = 9;
     let truncated = queries
-        .read_section(
+        .read_note(
             "发动机",
-            SectionSelector::Heading {
+            Some(5),
+            Some(SectionSelector::Heading {
                 heading: "原理".to_string(),
-            },
+            }),
         )
         .expect("read heading");
     assert!(truncated.truncated);
@@ -226,16 +293,17 @@ fn read_section_supports_block_selectors_and_truncates_large_output() {
 }
 
 #[test]
-fn read_section_clamps_line_ranges_to_existing_lines() {
+fn read_note_clamps_line_ranges_to_existing_lines() {
     let (_dir, queries) = fixture();
 
     let result = queries
-        .read_section(
+        .read_note(
             "发动机",
-            SectionSelector::Lines {
+            None,
+            Some(SectionSelector::Lines {
                 line_start: 1,
                 line_end: 99,
-            },
+            }),
         )
         .expect("read lines");
 
@@ -246,16 +314,17 @@ fn read_section_clamps_line_ranges_to_existing_lines() {
 }
 
 #[test]
-fn read_section_rejects_level_one_heading_without_suggesting_it() {
+fn read_note_rejects_level_one_heading_without_suggesting_it() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("根章节.md"), "# 根章节\n\n正文\n").expect("write root note");
 
     let error = queries
-        .read_section(
+        .read_note(
             "根章节",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "根章节".to_string(),
-            },
+            }),
         )
         .expect_err("level-one heading should not be selectable");
 
@@ -266,15 +335,16 @@ fn read_section_rejects_level_one_heading_without_suggesting_it() {
 }
 
 #[test]
-fn read_section_accepts_markdown_heading_syntax() {
+fn read_note_accepts_markdown_heading_syntax() {
     let (_dir, queries) = fixture();
 
     let result = queries
-        .read_section(
+        .read_note(
             "发动机",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "## 原理".to_string(),
-            },
+            }),
         )
         .expect("read heading with markdown marker");
 
@@ -285,7 +355,7 @@ fn read_section_accepts_markdown_heading_syntax() {
 }
 
 #[test]
-fn read_section_markdown_heading_syntax_requires_matching_level() {
+fn read_note_markdown_heading_syntax_requires_matching_level() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("同名标题.md"),
@@ -294,11 +364,12 @@ fn read_section_markdown_heading_syntax_requires_matching_level() {
     .expect("write note");
 
     let result = queries
-        .read_section(
+        .read_note(
             "同名标题",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "### Target".to_string(),
-            },
+            }),
         )
         .expect("read level-constrained heading");
 
@@ -308,7 +379,7 @@ fn read_section_markdown_heading_syntax_requires_matching_level() {
 }
 
 #[test]
-fn read_section_treats_trailing_heading_colons_as_optional() {
+fn read_note_treats_trailing_heading_colons_as_optional() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("冒号.md"),
@@ -317,29 +388,31 @@ fn read_section_treats_trailing_heading_colons_as_optional() {
     .expect("write note");
 
     let ascii = queries
-        .read_section(
+        .read_note(
             "冒号",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "### Heading".to_string(),
-            },
+            }),
         )
         .expect("read ascii colon heading");
     assert!(ascii.content.contains("ASCII colon"));
     assert!(!ascii.content.contains("Wrong level"));
 
     let fullwidth = queries
-        .read_section(
+        .read_note(
             "冒号",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "### 中文".to_string(),
-            },
+            }),
         )
         .expect("read fullwidth colon heading");
     assert!(fullwidth.content.contains("Fullwidth colon"));
 }
 
 #[test]
-fn read_section_suggests_available_headings_when_heading_is_missing() {
+fn read_note_suggests_available_headings_when_heading_is_missing() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("建议.md"),
@@ -348,11 +421,12 @@ fn read_section_suggests_available_headings_when_heading_is_missing() {
     .expect("write note");
 
     let error = queries
-        .read_section(
+        .read_note(
             "建议",
-            SectionSelector::Heading {
+            None,
+            Some(SectionSelector::Heading {
                 heading: "Principl".to_string(),
-            },
+            }),
         )
         .expect_err("missing heading should fail");
 

@@ -37,13 +37,14 @@ cargo test
 cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files --max_files 100
 cargo run -- --vault /path/to/vault --parse-cache-ttl-secs 600 --parse-cache-max-entries 1024 serve
-cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
+cargo run -- --vault /path/to/vault read_note "人物/林动.md#身体" --max-chars 4096
 cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
 cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
+cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --include '正文/**/*.md' --exclude '**/草稿/**'
 cargo run -- --vault /path/to/vault search_text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**"
 cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**"
 cargo run -- --vault /path/to/vault list_tags --include "正文/**/*.md" --exclude "**/草稿/**"
@@ -54,8 +55,8 @@ cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --valu
 cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
 cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
 cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]'
-cargo run -- --vault /path/to/vault read_section "人物/林动.md" --heading "身体"
-cargo run -- --vault /path/to/vault read_section "人物/林动.md" --line '#L1-L20'
+cargo run -- --vault /path/to/vault read_note "人物/林动.md#身体"
+cargo run -- --vault /path/to/vault read_note "人物/林动.md" --line '#L1-L20'
 cargo run -- --vault /path/to/vault find_unresolved_links
 cargo run -- --vault /path/to/vault find_ambiguous_links
 cargo run -- --vault /path/to/vault get_vault_graph
@@ -176,7 +177,6 @@ See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
   `exists`, `equals`, or `regex` mode
 - `collect_note_context`
 - `collect_reference_context`
-- `read_section`
 - `append_section` - append content at a selected section boundary
 - `patch_section` - replace a relative line range inside a selected section
 - `replace_section` - replace one complete selected section
@@ -198,9 +198,9 @@ MCP tools.
 
 - Start with `list_vault_files` to understand the visible file paths.
 - Use `list_notes` when note paths, titles, and human-readable sizes are needed.
-- Use `get_note_outline` before `read_section` to select a heading without
+- Use `get_note_outline` before `read_note` to select a heading without
   reading the whole note.
-- For edits, read the target with `read_section`, then use `append_section`,
+- For edits, read the target with `read_note`, then use `append_section`,
   `patch_section`, `replace_section`, or `delete_section`. `patch_section`
   takes 1-based line numbers relative to the returned section, so it does not
   rely on a fragile old-text match.
@@ -208,18 +208,15 @@ MCP tools.
   It defaults to `dry_run: true`; inspect `changed_notes` and
   `updated_references`, then call it again with `dry_run: false` to apply.
 - `collect_note_context` and `collect_reference_context` return grouped note
-  navigation only. Use `get_note_outline` and `read_section` to inspect a
+  navigation only. Use `get_note_outline` and `read_note` to inspect a
   selected note.
-- `read_note` is a bounded fallback for exact source text: it returns at most
-  4 KiB by default (and never exceeds `max_output_bytes`). When it is
-  truncated, either increase `max-read-note-bytes` or follow its `next_step`
-  with `get_note_outline` and `read_section`.
-  `max-read-note-bytes` accepts bytes or binary `b`, `k`, and `m` suffixes,
-  including decimals such as `12.4k`; fractional byte counts round up.
+- `read_note` reads a whole note or a bare `Note#Heading`, `Note#^block`,
+  `Note#L1`, `Note#L1-L20`, or `Note#L1-` scope. It truncates at the configured
+  Unicode-character limit by default; use per-request `--max-chars` when needed.
 - Use `search_text` for literal recall and `search_regex` for structured phrase
   patterns such as chapter ranges, years, or recurring motifs.
 - Use `list_tags` to discover body and frontmatter tag names, then `get_tags`
-  to locate selected tags before reading context with `read_section`. Use
+  to locate selected tags before reading context with `read_note`. Use
   `list_categories` and `get_categories` when folder names act as implicit
   categories such as `人物`, `正文`, or `设定`.
   `query_frontmatter` when the condition is a metadata field such as
