@@ -29,7 +29,7 @@ cargo test
 cargo run -- --vault /path/to/vault list_notes
 cargo run -- --vault /path/to/vault list_vault_files
 cargo run -- --vault /path/to/vault --max-read-note-bytes 4k read_note "人物/林动.md"
-cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
+cargo run -- --vault /path/to/vault get_note_structure "人物/林动.md"
 cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
 cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
 cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
