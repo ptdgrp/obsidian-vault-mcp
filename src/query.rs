@@ -1,6 +1,7 @@
 mod cache;
 mod categories;
 mod context;
+mod edit_distance;
 mod files;
 mod graph;
 mod links;
@@ -28,7 +29,7 @@ use crate::parser::{
 use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 
-use self::cache::ParseCache;
+use self::{cache::ParseCache, edit_distance::levenshtein_distance};
 
 pub use crate::parser::TagScope;
 
@@ -933,11 +934,49 @@ pub(crate) fn find_indexed_note<'a>(
             "ambiguous note reference: {:?}",
             candidates
         )),
-        ResolveResult::Unresolved { reference } => Err(anyhow::anyhow!(
-            "unresolved note reference: {:?}",
-            reference.raw
-        )),
+        ResolveResult::Unresolved { reference } => {
+            if let Some(closest) = suggested_note_path(&reference.target, notes) {
+                return Err(anyhow::anyhow!(
+                    "unresolved note reference: {:?} (did you mean {:?})",
+                    reference.raw,
+                    closest
+                ));
+            }
+            Err(anyhow::anyhow!(
+                "unresolved note reference: {:?}",
+                reference.raw
+            ))
+        }
     }
+}
+
+fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
+    let target = target.trim_end_matches(".md");
+    let target_stem = target.rsplit('/').next().unwrap_or(target);
+    let exact_stems = notes
+        .iter()
+        .filter(|note| {
+            note.file
+                .relative_path
+                .trim_end_matches(".md")
+                .rsplit('/')
+                .next()
+                == Some(target_stem)
+        })
+        .collect::<Vec<_>>();
+    if let [note] = exact_stems.as_slice() {
+        return Some(note.file.relative_path.trim_end_matches(".md").to_string());
+    }
+
+    notes
+        .iter()
+        .map(|note| {
+            let path = note.file.relative_path.trim_end_matches(".md");
+            (levenshtein_distance(target, path), path)
+        })
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, path)| *distance <= 3 && !path.is_empty())
+        .map(|(_, path)| path.to_string())
 }
 
 fn read_snippet(file: &NoteFile, source: &SourceSpan) -> String {

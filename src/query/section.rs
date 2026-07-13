@@ -2,7 +2,10 @@ use std::fs;
 
 use crate::parser::{HeadingInfo, ParsedNote, SourceSpan, slice_text, source_for_line};
 
-use super::{ReadSectionResult, SectionSelector, VaultQueries, truncate_utf8};
+use super::{
+    ReadSectionResult, SectionSelector, VaultQueries, edit_distance::levenshtein_distance,
+    truncate_utf8,
+};
 
 impl VaultQueries {
     pub fn read_section(
@@ -218,7 +221,7 @@ fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String
     let mut suggestions = Vec::new();
 
     for candidate in parsed.headings.iter().filter(|it| it.level != 1) {
-        let distance = edit_distance(
+        let distance = levenshtein_distance(
             requested_heading.comparable_text,
             comparable_heading_text(candidate.text.as_str()),
         );
@@ -238,33 +241,6 @@ fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String
     }
 
     suggestions
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let left_chars = left.chars().collect::<Vec<_>>();
-    let right_chars = right.chars().collect::<Vec<_>>();
-    if left_chars.is_empty() {
-        return right_chars.len();
-    }
-    if right_chars.is_empty() {
-        return left_chars.len();
-    }
-
-    let mut previous = (0..=right_chars.len()).collect::<Vec<_>>();
-    let mut current = vec![0; right_chars.len() + 1];
-
-    for (left_index, left_char) in left_chars.iter().enumerate() {
-        current[0] = left_index + 1;
-        for (right_index, right_char) in right_chars.iter().enumerate() {
-            let substitution_cost = usize::from(left_char != right_char);
-            current[right_index + 1] = (previous[right_index + 1] + 1)
-                .min(current[right_index] + 1)
-                .min(previous[right_index] + substitution_cost);
-        }
-        std::mem::swap(&mut previous, &mut current);
-    }
-
-    previous[right_chars.len()]
 }
 
 fn section_selector_hint_message(relative_path: &str, parsed: &ParsedNote) -> String {
