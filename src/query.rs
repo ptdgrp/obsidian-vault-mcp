@@ -13,11 +13,11 @@ pub(crate) mod section;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 use camino::Utf8Path;
 use rayon::prelude::*;
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 use crate::parser::{ParsedNote, ReferenceInfo, SectionInfo, SourceSpan, path_with_line_ref};
@@ -28,6 +28,28 @@ use self::{cache::ParseCache, edit_distance::levenshtein_distance, public::Resol
 
 pub use crate::parser::TagScope;
 
+/// Schema-only stand-in for non-negative Rust integer fields exposed over MCP.
+///
+/// `schemars` labels unsigned integers with its non-standard `uint` format,
+/// which some MCP clients report as an unknown JSON Schema format.
+pub(crate) struct McpNonNegativeInteger;
+
+impl JsonSchema for McpNonNegativeInteger {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "McpNonNegativeInteger".into()
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        serde_json::json!({"type": "integer", "minimum": 0})
+            .try_into()
+            .expect("valid non-negative integer schema")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesResult {
     pub notes: Vec<NoteSummary>,
@@ -36,8 +58,11 @@ pub struct ListNotesResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListNotesPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_notes: usize,
 }
 
@@ -69,12 +94,16 @@ pub struct NoteStatsResult {
     /// Resolved note, heading, or block scope.
     pub scope: String,
     /// Word count computed from the raw Markdown source text.
+    #[schemars(with = "McpNonNegativeInteger")]
     pub word_count: usize,
     /// Character count computed from the note's Markdown source text.
+    #[schemars(with = "McpNonNegativeInteger")]
     pub character_count: usize,
     /// Line count computed from the note's Markdown source text.
+    #[schemars(with = "McpNonNegativeInteger")]
     pub line_count: usize,
     /// Total number of inbound links to this note across the visible vault.
+    #[schemars(with = "McpNonNegativeInteger")]
     pub backlink_count: usize,
 }
 
@@ -85,6 +114,7 @@ pub struct NoteStatsResult {
 /// shape avoids repeating the note path and full section object on every item.
 pub struct NoteStructureResult {
     pub note: String,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub link_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontmatter_fields: Option<Vec<String>>,
@@ -97,12 +127,14 @@ pub struct NoteStructureResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocks: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<BTreeMap<String, McpNonNegativeInteger>>")]
     pub omitted: Option<BTreeMap<String, usize>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct CompactStructureHeading {
     pub heading: String,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub line: u64,
 }
 
@@ -116,13 +148,17 @@ pub struct NoteOutlineResult {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OutlineHeading {
     pub heading: String,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub line: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NoteOutlinePagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_headings: usize,
 }
 
@@ -140,8 +176,11 @@ pub struct SearchRegexResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_matches: usize,
 }
 
@@ -222,8 +261,11 @@ pub struct BacklinkReference {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BacklinksPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_backlinks: usize,
 }
 
@@ -259,8 +301,11 @@ pub struct UnresolvedOutlinkTarget {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OutlinksPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_links: usize,
 }
 
@@ -273,8 +318,11 @@ pub struct ListTagsResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListTagsPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_tags: usize,
 }
 
@@ -286,8 +334,11 @@ pub struct GetTagResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetTagPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_matches: usize,
 }
 
@@ -300,8 +351,11 @@ pub struct ListCategoriesResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListCategoriesPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_categories: usize,
 }
 
@@ -313,8 +367,11 @@ pub struct GetCategoryResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetCategoryPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_notes: usize,
 }
 
@@ -335,6 +392,7 @@ pub struct FrontmatterQueryOptions {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 100 matching notes.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -354,8 +412,11 @@ pub struct FrontmatterQueryResult {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct FrontmatterQueryPagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_notes: usize,
 }
 
@@ -397,18 +458,23 @@ pub struct AuditAmbiguousLink {
     pub target: String,
     pub candidates: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub omitted_candidates: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AuditLinkTotals {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub unresolved: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub ambiguous: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Pagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
 }
 
@@ -429,8 +495,10 @@ pub struct NeighborhoodResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub omitted_notes: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub omitted_links: Option<usize>,
 }
 
@@ -450,6 +518,7 @@ pub struct NeighborhoodNote {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub distance: usize,
 }
 

@@ -61,6 +61,43 @@ fn all_tool_input_schemas_have_plain_object_roots() {
 }
 
 #[test]
+fn mcp_tool_schemas_do_not_use_uint_format() {
+    for tool in ObsidianVaultMcp::tool_definitions() {
+        assert_schema_has_no_uint_format(
+            &serde_json::Value::Object((*tool.input_schema).clone()),
+            &tool.name,
+        );
+        if let Some(output_schema) = &tool.output_schema {
+            assert_schema_has_no_uint_format(
+                &serde_json::Value::Object((**output_schema).clone()),
+                &tool.name,
+            );
+        }
+    }
+}
+
+fn assert_schema_has_no_uint_format(schema: &serde_json::Value, tool_name: &str) {
+    match schema {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                assert_schema_has_no_uint_format(value, tool_name);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            assert_ne!(
+                values.get("format").and_then(serde_json::Value::as_str),
+                Some("uint"),
+                "{tool_name} schema contains the unsupported uint format"
+            );
+            for value in values.values() {
+                assert_schema_has_no_uint_format(value, tool_name);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
 fn resolve_ref_tool_returns_resolved_heading_result() {
     let (_dir, server) = fixture();
 

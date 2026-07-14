@@ -3,9 +3,9 @@ use crate::{
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
         GetCategoryResult, GetTagResult, ListCategoriesResult, ListNotesResult, ListTagsResult,
-        NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
-        NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagScope, VaultQueries,
+        McpNonNegativeInteger, NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult,
+        NoteStatsResult, NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult,
+        SearchRegexResult, SearchTextResult, SectionSelector, TagScope, VaultQueries,
     },
     vault::Vault,
 };
@@ -77,12 +77,14 @@ pub struct ListNotesRequest {
     #[serde(default)]
     pub exclude: Vec<String>,
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AuditLinksRequest {
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -90,6 +92,7 @@ pub struct AuditLinksRequest {
 pub struct NeighborhoodRequest {
     pub target: String,
     #[serde(default = "default_neighborhood_depth")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub depth: usize,
     #[serde(default)]
     pub direction: NeighborhoodDirection,
@@ -101,6 +104,7 @@ pub struct ReadNoteRequest {
     /// Vault-relative path, note stem, alias, or bare Obsidian reference.
     pub note: String,
     /// Optional character limit for this request.
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub max_chars: Option<usize>,
     /// Heading text, heading anchor, or slash-separated heading path.
     pub heading: Option<String>,
@@ -124,6 +128,7 @@ pub struct NoteOutlineRequest {
     pub note: String,
     /// One-based page number. Each page contains up to 100 headings.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -153,6 +158,7 @@ pub struct BacklinksRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 50 backlink occurrences.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -163,6 +169,7 @@ pub struct OutlinksRequest {
     pub note: String,
     /// One-based page number. Each page contains up to 50 link occurrences.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -180,6 +187,7 @@ pub struct ListTagsRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 100 tags.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -199,6 +207,7 @@ pub struct GetTagRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 100 locators.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -213,6 +222,7 @@ pub struct ListCategoriesRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 100 categories.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -229,6 +239,7 @@ pub struct GetCategoryRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 100 notes.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -248,6 +259,7 @@ pub struct SearchTextRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 50 matching lines.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
@@ -267,6 +279,7 @@ pub struct SearchRegexRequest {
     pub exclude: Vec<String>,
     /// One-based page number. Each page contains up to 50 matching lines.
     #[serde(default = "default_page")]
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
 }
 
