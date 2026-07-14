@@ -11,24 +11,19 @@ server supports structural section edits as well as read operations.
 | Tool | Description |
 | --- | --- |
 | `append_section` | Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching. |
-| `collect_note_context` | Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content |
-| `collect_reference_context` | Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content |
+| `audit_links` | Audit unresolved and ambiguous local links across the visible vault. |
 | `delete_section` | Delete exactly one heading, block, or line section. This uses structural selection, not text matching. |
-| `find_ambiguous_links` | Find local links that resolve to multiple visible notes; use before relying on link graph context |
-| `find_unresolved_links` | Find local links that do not resolve to any visible note; use as a vault health check |
-| `get_backlinks` | Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets |
-| `get_categories` | Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
-| `get_graph_neighborhood` | Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context |
-| `get_note_outline` | Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note. |
+| `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
+| `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
+| `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
+| `get_note_outline` | Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note. |
 | `get_note_stats` | Return one note or bare heading/block reference's word, character, line, and backlink counts |
 | `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
-| `get_outlinks` | Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets |
-| `get_tags` | Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
-| `get_vault_graph` | Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context |
+| `get_outlinks` | Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups |
+| `get_tag` | Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_categories` | List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
-| `list_notes` | List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname. |
+| `list_notes` | Page through visible Markdown notes for lightweight navigation. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
-| `list_vault_files` | List gitignore-aware visible vault files as flat entries with paths |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
 | `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
@@ -58,85 +53,60 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `line_end` | `integer` | yes |  |
-| `line_start` | `integer` | yes |  |
-| `note` | `string` | yes |  |
+| `changed` | `string` | yes |  |
 
 
-## 🔧 `collect_note_context`
+## 🔧 `audit_links`
 
-Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content
+Audit unresolved and ambiguous local links across the visible vault.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `page` | `integer` | no |  |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `groups` | `ContextGroup[]` | yes |  |
-| `omitted_count` | `integer` | yes |  |
-| `reference` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `ambiguous` | `AuditAmbiguousLink[]` | yes |  |
+| `pagination` | `Pagination` | yes |  |
+| `totals` | `AuditLinkTotals` | yes |  |
+| `unresolved` | `AuditUnresolvedLink[]` | yes |  |
 
 Nested types:
 
-### `ContextGroup`
+### `AuditAmbiguousLink`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `items` | `ContextItem[]` | yes |  |
-| `kind` | `string` | yes |  |
+| `candidates` | `string[]` | yes |  |
+| `omitted_candidates` | `integer \| null` | no |  |
+| `source` | `string` | yes |  |
+| `target` | `string` | yes |  |
 
-### `ContextItem`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes |  |
-| `size` | `string` | yes | Human-readable file size using binary units. |
-| `title` | `string \| null` | no |  |
-
-
-## 🔧 `collect_reference_context`
-
-Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content
-
-Input:
+### `AuditLinkTotals`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `reference` | `string` | yes | Reference such as "Note", "[[Note]]", or "[[Note#Heading]]". |
+| `ambiguous` | `integer` | yes |  |
+| `unresolved` | `integer` | yes |  |
 
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `groups` | `ContextGroup[]` | yes |  |
-| `omitted_count` | `integer` | yes |  |
-| `reference` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
-
-Nested types:
-
-### `ContextGroup`
+### `AuditUnresolvedLink`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `items` | `ContextItem[]` | yes |  |
-| `kind` | `string` | yes |  |
+| `source` | `string` | yes |  |
+| `target` | `string` | yes |  |
 
-### `ContextItem`
+### `Pagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | yes |  |
-| `size` | `string` | yes | Human-readable file size using binary units. |
-| `title` | `string \| null` | no |  |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
 ## 🔧 `delete_section`
@@ -157,132 +127,12 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `line_end` | `integer` | yes |  |
-| `line_start` | `integer` | yes |  |
-| `note` | `string` | yes |  |
-
-
-## 🔧 `find_ambiguous_links`
-
-Find local links that resolve to multiple visible notes; use before relying on link graph context
-
-Input:
-
-Type: `object`
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `links` | `LinkEvidence[]` | yes |  |
-| `truncated` | `boolean` | yes |  |
-
-Nested types:
-
-### `LinkEvidence`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `resolved` | `ResolveSummary` | yes |  |
-| `snippet` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-| `target` | `string` | yes |  |
-
-### `ResolveCandidate`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `match_kind` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
-### `ResolveSummary`
-
-| Variant | Fields |
-| --- | --- |
-| `resolved` | `block_id: string \| null`, `heading: string \| null`, `path: string` |
-| `ambiguous` | `candidates: ResolveCandidate[]` |
-| `unresolved` |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
-
-
-## 🔧 `find_unresolved_links`
-
-Find local links that do not resolve to any visible note; use as a vault health check
-
-Input:
-
-Type: `object`
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `links` | `LinkEvidence[]` | yes |  |
-| `truncated` | `boolean` | yes |  |
-
-Nested types:
-
-### `LinkEvidence`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `resolved` | `ResolveSummary` | yes |  |
-| `snippet` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-| `target` | `string` | yes |  |
-
-### `ResolveCandidate`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `match_kind` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
-### `ResolveSummary`
-
-| Variant | Fields |
-| --- | --- |
-| `resolved` | `block_id: string \| null`, `heading: string \| null`, `path: string` |
-| `ambiguous` | `candidates: ResolveCandidate[]` |
-| `unresolved` |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `changed` | `string` | yes |  |
 
 
 ## 🔧 `get_backlinks`
 
-Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets
+Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence.
 
 Input:
 
@@ -290,109 +140,83 @@ Input:
 | --- | --- | --- | --- |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching backlink source notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A backlink source note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 50 backlink occurrences. |
 | `target` | `string` | yes | Note path, stem, alias, or Obsidian reference to find inbound links for. |
-| `verbose` | `boolean` | no | Return detailed source spans and snippets when true. Defaults to compact output. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `backlinks` | `LinkEvidenceOutput[]` | yes |  |
-| `resolution` | `ResolveSummary` | yes |  |
-| `target` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `pagination` | `BacklinksPagination` | yes |  |
+| `references` | `BacklinkReference[]` | yes |  |
+| `scope` | `string` | yes |  |
 
 Nested types:
 
-### `LinkEvidenceOutput`
+### `BacklinkReference`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `location` | `string` | yes |  |
-| `resolved` | `ResolveSummary` | yes |  |
-| `section` | `string \| null` | no |  |
-| `snippet` | `string \| null` | no |  |
-| `source` | `SearchSource \| null` | no |  |
+| `sources` | `string[]` | yes |  |
 | `target` | `string` | yes |  |
 
-### `ResolveCandidate`
+### `BacklinksPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `match_kind` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
-### `ResolveSummary`
-
-| Variant | Fields |
-| --- | --- |
-| `resolved` | `block_id: string \| null`, `heading: string \| null`, `path: string` |
-| `ambiguous` | `candidates: ResolveCandidate[]` |
-| `unresolved` |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `page` | `integer` | yes |  |
+| `total_backlinks` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
-## 🔧 `get_categories`
+## 🔧 `get_category`
 
-Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
+Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `categories` | `string[]` | yes | Exact folder-derived category names to locate. |
+| `category` | `string` | yes | Exact folder-derived category name to locate. |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 notes. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `categories` | `CategoryOutputBucket[]` | yes |  |
+| `notes` | `string[]` | yes |  |
+| `pagination` | `GetCategoryPagination` | yes |  |
 
 Nested types:
 
-### `CategoryOutputBucket`
+### `GetCategoryPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `category` | `string` | yes |  |
-| `files` | `string[]` | yes | Vault-relative Markdown note paths in this folder-derived category. |
+| `page` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
-## 🔧 `get_graph_neighborhood`
+## 🔧 `get_note_neighborhood`
 
-Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context
+Return a bounded resolved-link neighborhood around one note reference.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `depth` | `integer` | no | Number of resolved local link hops to traverse from the target. |
-| `direction` | `GraphNeighborhoodDirection` | no | Edge direction to traverse. |
-| `include_unresolved` | `boolean` | no | Include unresolved and ambiguous edges touching returned nodes. |
-| `target` | `string` | yes | Note path, stem, alias, or Obsidian reference used as the graph center. |
+| `depth` | `integer` | no |  |
+| `direction` | `NeighborhoodDirection` | no |  |
+| `target` | `string` | yes |  |
 
 Nested types:
 
-### `GraphNeighborhoodDirection`
+### `NeighborhoodDirection`
 
 | Value |
 | --- |
@@ -405,92 +229,77 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `edges` | `GraphEdge[]` | yes |  |
-| `nodes` | `GraphNode[]` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `center` | `NeighborhoodCenter` | yes |  |
+| `links` | `NeighborhoodLink[]` | yes |  |
+| `notes` | `NeighborhoodNote[]` | yes |  |
+| `omitted_links` | `integer \| null` | no |  |
+| `omitted_notes` | `integer \| null` | no |  |
+| `truncated` | `boolean \| null` | no |  |
 
 Nested types:
 
-### `GraphEdge`
+### `NeighborhoodCenter`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `from` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-| `status` | `string` | yes |  |
-| `target` | `string` | yes |  |
-| `to` | `string` | yes |  |
-
-### `GraphNode`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no |  |
+| `heading` | `string \| null` | no |  |
 | `path` | `string` | yes |  |
-| `tags` | `string[]` | no |  |
 | `title` | `string \| null` | no |  |
 
-### `SearchSource`
+### `NeighborhoodLink`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
+| `from` | `string` | yes |  |
+| `to` | `string` | yes |  |
 
-### `SectionInfo`
+### `NeighborhoodNote`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `distance` | `integer` | yes |  |
+| `path` | `string` | yes |  |
+| `title` | `string \| null` | no |  |
 
 
 ## 🔧 `get_note_outline`
 
-Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note.
+Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `heading` | `string \| null` | no | Optional heading or slash-separated heading path. When set, returns only its ancestor chain. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 headings. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `headings` | `OutlineHeading[]` | yes |  |
 | `note` | `string` | yes |  |
-| `outline` | `OutlineNode[]` | yes |  |
+| `pagination` | `NoteOutlinePagination` | yes |  |
 
 Nested types:
 
-### `OutlineNode`
+### `NoteOutlinePagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `children` | `OutlineNode[]` | no |  |
+| `page` | `integer` | yes |  |
+| `total_headings` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+
+### `OutlineHeading`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
 | `heading` | `string` | yes |  |
-| `heading_path` | `string[]` | yes |  |
 | `level` | `integer` | yes |  |
-| `source` | `SearchSource` | yes |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `line` | `integer` | yes |  |
 
 
 ## 🔧 `get_note_stats`
@@ -502,13 +311,6 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, alias, or bare heading/block reference. |
-| `word_count_mode` | `WordCountMode` | no | Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts. |
-
-Nested types:
-
-### `WordCountMode`
-
-Type: `source | visible`
 
 
 Output:
@@ -518,31 +320,8 @@ Output:
 | `backlink_count` | `integer` | yes | Total number of inbound links to this note across the visible vault. |
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
-| `note` | `string` | yes | Vault-relative resolved note path. |
-| `source` | `SourceSpan \| null` | no | Selected source span when `note` includes a heading or block reference. |
-| `word_count` | `integer` | yes | Word count computed with `word_count_mode`. |
-| `word_count_mode` | `WordCountMode` | yes | Counting strategy used for `word_count`. |
-
-Nested types:
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
-
-### `SourceSpan`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative path with Obsidian-style line reference, e.g. note.md#L1 or note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | yes |  |
-
-### `WordCountMode`
-
-Type: `source | visible`
+| `scope` | `string` | yes | Resolved note, heading, or block scope. |
+| `word_count` | `integer` | yes | Word count computed from the raw Markdown source text. |
 
 
 ## 🔧 `get_note_structure`
@@ -560,144 +339,83 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `blocks` | `CompactBlockInfo[]` | no |  |
-| `embeds` | `CompactEmbedInfo[]` | no |  |
-| `frontmatter` | `unknown` | no |  |
-| `headings` | `CompactHeadingInfo[]` | no |  |
-| `links` | `CompactLinkInfo[]` | no |  |
-| `path` | `string` | yes |  |
-| `tags` | `CompactTagInfo[]` | no |  |
+| `blocks` | `array \| null` | no |  |
+| `embeds` | `array \| null` | no |  |
+| `frontmatter_fields` | `array \| null` | no |  |
+| `headings` | `array \| null` | no |  |
+| `link_count` | `integer` | yes |  |
+| `note` | `string` | yes |  |
+| `omitted` | `array \| null` | no |  |
+| `tags` | `array \| null` | no |  |
 
 Nested types:
 
-### `CompactBlockInfo`
+### `CompactStructureHeading`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `id` | `string` | yes |  |
+| `heading` | `string` | yes |  |
 | `line` | `integer` | yes |  |
-| `section` | `string \| null` | no |  |
-
-### `CompactEmbedInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `line` | `integer` | yes |  |
-| `reference` | `ReferenceInfo \| null` | no |  |
-| `section` | `string \| null` | no |  |
-| `target` | `string` | yes |  |
-
-### `CompactHeadingInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `level` | `integer` | yes |  |
-| `line` | `integer` | yes |  |
-| `path` | `string[]` | no |  |
-| `text` | `string` | yes |  |
-
-### `CompactLinkInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `kind` | `LinkKind` | no |  |
-| `line` | `integer` | yes |  |
-| `reference` | `ReferenceInfo \| null` | no |  |
-| `section` | `string \| null` | no |  |
-| `target` | `string` | yes |  |
-
-### `CompactTagInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `line` | `integer` | yes |  |
-| `section` | `string \| null` | no |  |
-| `tag` | `string` | yes |  |
-
-### `LinkKind`
-
-| Value |
-| --- |
-| `wikilink` |
-| `markdown` |
-
-### `ReferenceInfo`
-
-| Variant | Fields |
-| --- | --- |
-| `heading` | `value: string` |
-| `multi_heading` | `value: string[]` |
-| `block_id` | `value: string` |
 
 
 ## 🔧 `get_outlinks`
 
-Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets
+Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-| `verbose` | `boolean` | no | Return detailed source spans and snippets when true. Defaults to compact output. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 50 link occurrences. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `links` | `LinkEvidenceOutput[]` | yes |  |
+| `ambiguous_targets` | `AmbiguousOutlinkTarget[]` | yes |  |
 | `note` | `string` | yes |  |
+| `pagination` | `OutlinksPagination` | yes |  |
+| `targets` | `OutlinkTarget[]` | yes |  |
+| `unresolved_targets` | `UnresolvedOutlinkTarget[]` | yes |  |
 
 Nested types:
 
-### `LinkEvidenceOutput`
+### `AmbiguousOutlinkTarget`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `location` | `string` | yes |  |
-| `resolved` | `ResolveSummary` | yes |  |
-| `section` | `string \| null` | no |  |
-| `snippet` | `string \| null` | no |  |
-| `source` | `SearchSource \| null` | no |  |
+| `candidates` | `string[]` | yes |  |
+| `reference` | `string` | yes |  |
+| `source` | `string` | yes |  |
+
+### `OutlinkTarget`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `string` | yes |  |
 | `target` | `string` | yes |  |
 
-### `ResolveCandidate`
+### `OutlinksPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `match_kind` | `string` | yes |  |
-| `path` | `string` | yes |  |
+| `page` | `integer` | yes |  |
+| `total_links` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
-### `ResolveSummary`
-
-| Variant | Fields |
-| --- | --- |
-| `resolved` | `block_id: string \| null`, `heading: string \| null`, `path: string` |
-| `ambiguous` | `candidates: ResolveCandidate[]` |
-| `unresolved` |  |
-
-### `SearchSource`
+### `UnresolvedOutlinkTarget`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `reference` | `string` | yes |  |
+| `source` | `string` | yes |  |
 
 
-## 🔧 `get_tags`
+## 🔧 `get_tag`
 
-Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
+Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.
 
 Input:
 
@@ -705,9 +423,9 @@ Input:
 | --- | --- | --- | --- |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 locators. |
 | `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
-| `tags` | `string[]` | yes | Exact tags to locate. Both "状态/身体" and "#状态/身体" are accepted. |
-| `verbose` | `boolean` | no | Return detailed section metadata when true. Defaults to compact LLM-friendly output. |
+| `tag` | `string` | yes | Exact tag to locate. Both "状态/身体" and "#状态/身体" are accepted. |
 
 Nested types:
 
@@ -726,105 +444,18 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `tags` | `TagOutputBucket[]` | yes |  |
+| `matches` | `string[]` | yes |  |
+| `pagination` | `GetTagPagination` | yes |  |
 
 Nested types:
 
-### `CompactTagMatch`
+### `GetTagPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, with #L line reference for body tags. |
-| `section` | `string \| null` | no |  |
-| `source_kind` | `TagSourceKind` | yes |  |
-
-### `DetailedSection`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `array \| null` | no |  |
-
-### `DetailedTagOccurrence`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `location` | `string` | yes | Vault-relative path, with #L line reference when line data exists. |
-| `section` | `DetailedSection \| null` | no |  |
-| `source_kind` | `TagSourceKind` | yes |  |
-
-### `TagOutputBucket`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `notes` | `CompactTagMatch[]` | yes |  |
-| `occurrences` | `DetailedTagOccurrence[]` | no |  |
-| `tag` | `string` | yes |  |
-
-### `TagSourceKind`
-
-| Value |
-| --- |
-| `note` |
-| `body` |
-| `section` |
-| `line` |
-| `frontmatter` |
-
-
-## 🔧 `get_vault_graph`
-
-Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context
-
-Input:
-
-Type: `object`
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `edges` | `GraphEdge[]` | yes |  |
-| `nodes` | `GraphNode[]` | yes |  |
-| `truncated` | `boolean` | yes |  |
-
-Nested types:
-
-### `GraphEdge`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `alias` | `string \| null` | no |  |
-| `from` | `string` | yes |  |
-| `source` | `SearchSource` | yes |  |
-| `status` | `string` | yes |  |
-| `target` | `string` | yes |  |
-| `to` | `string` | yes |  |
-
-### `GraphNode`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes |  |
-| `tags` | `string[]` | no |  |
-| `title` | `string \| null` | no |  |
-
-### `SearchSource`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `page` | `integer` | yes |  |
+| `total_matches` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
 ## 🔧 `list_categories`
@@ -837,6 +468,7 @@ Input:
 | --- | --- | --- | --- |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 categories. |
 
 
 Output:
@@ -844,15 +476,30 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `categories` | `string[]` | yes | Unique folder-derived category names. |
+| `pagination` | `ListCategoriesPagination` | yes |  |
+
+Nested types:
+
+### `ListCategoriesPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_categories` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
 ## 🔧 `list_notes`
 
-List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname.
+Page through visible Markdown notes for lightweight navigation.
 
 Input:
 
-Type: `object`
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `exclude` | `string[]` | no |  |
+| `include` | `string[]` | no |  |
+| `page` | `integer` | no |  |
 
 
 Output:
@@ -860,15 +507,23 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `notes` | `NoteSummary[]` | yes |  |
+| `pagination` | `ListNotesPagination` | yes |  |
 
 Nested types:
+
+### `ListNotesPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 ### `NoteSummary`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | yes |  |
-| `size` | `string` | yes | Human-readable file size using binary units. |
 | `title` | `string \| null` | no |  |
 
 
@@ -882,6 +537,7 @@ Input:
 | --- | --- | --- | --- |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 tags. |
 | `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
 
 Nested types:
@@ -901,62 +557,18 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `pagination` | `ListTagsPagination` | yes |  |
 | `tags` | `string[]` | yes | Unique tag names available in the requested scope. |
-
-
-## 🔧 `list_vault_files`
-
-List gitignore-aware visible vault files as flat entries with paths
-
-Input:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `include_attachments` | `boolean` | no | Include non-Markdown files such as images. |
-| `include_files` | `boolean` | no | Include Markdown notes. |
-| `include_readme_outline` | `boolean` | no | Include selectable non-H1 heading titles for README.md files. |
-| `max_files` | `integer` | no | Maximum number of visible file entries returned. |
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `files` | `VaultFile[]` | yes | Visible files, sorted by natural vault-relative path order. |
-| `summary` | `VaultFilesSummary` | yes | Whole-vault counts after ignore/exclude filtering. |
-| `truncated_files` | `integer` | no | Number of files omitted because max_files was reached. |
 
 Nested types:
 
-### `VaultFile`
-
-One visible file in the vault.
+### `ListTagsPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `kind` | `VaultFileKind` | yes | Markdown note or attachment. |
-| `modified` | `string \| null` | no | Last modified time in the current system timezone. |
-| `outline` | `array \| null` | no | Flat list of README selectable non-H1 heading titles when include_readme_outline is true. |
-| `path` | `string` | yes | Vault-relative file path. |
-| `size` | `string` | yes | Human-readable file size using binary units. |
-| `title` | `string \| null` | no | Display title for note files. Priority: first level-one heading, frontmatter title, then pathname. |
-
-### `VaultFileKind`
-
-Kind of file represented by the flat vault file list.
-
-Type: `note | attachment`
-
-### `VaultFilesSummary`
-
-Aggregate counts for the returned file list.
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `attachments` | `integer` | yes | Non-Markdown files. |
-| `directories` | `integer` | yes | Unique parent directories containing returned files, including root when applicable. |
-| `empty_directories` | `integer` | yes | Always zero for the flat file list. |
-| `notes` | `integer` | yes | Markdown files. |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_tags` | `integer` | yes |  |
 
 
 ## 🔧 `query_frontmatter`
@@ -967,8 +579,11 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `field` | `string` | yes | Top-level frontmatter field name. |
+| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
 | `mode` | `FrontmatterMatchMode` | yes | Match mode. Use exists to find notes that contain the field without matching a value. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 100 matching notes. |
 | `value` | `string \| null` | no | Value used by equals or regex mode. |
 
 Nested types:
@@ -986,28 +601,18 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `field` | `string` | yes |  |
-| `matches` | `FrontmatterMatch[]` | yes |  |
-| `mode` | `FrontmatterMatchMode` | yes |  |
-| `truncated` | `boolean` | yes |  |
-| `value` | `string \| null` | no |  |
+| `notes` | `string[]` | yes |  |
+| `pagination` | `FrontmatterQueryPagination` | yes |  |
 
 Nested types:
 
-### `FrontmatterMatch`
+### `FrontmatterQueryPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes |  |
-| `value` | `unknown` | yes |  |
-
-### `FrontmatterMatchMode`
-
-| Value |
-| --- |
-| `exists` |
-| `equals` |
-| `regex` |
+| `page` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 
 ## 🔧 `read_note`
@@ -1030,27 +635,8 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `content` | `string` | yes |  |
-| `next_step` | `string \| null` | no | How to retrieve omitted content when `truncated` is true. |
-| `path` | `string` | yes |  |
-| `source` | `SourceSpan` | yes |  |
+| `source` | `string` | yes |  |
 | `truncated` | `boolean` | yes |  |
-
-Nested types:
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
-
-### `SourceSpan`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative path with Obsidian-style line reference, e.g. note.md#L1 or note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | yes |  |
 
 
 ## 🔧 `rename_block_id`
@@ -1109,7 +695,7 @@ Input:
 | --- | --- | --- | --- |
 | `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
 | `new_path` | `string` | yes | New vault-relative Markdown path. Parent directories are created when applying. |
-| `note` | `string` | yes | Existing vault-relative path, note stem, or alias. |
+| `path` | `string` | yes | Existing safe vault-relative Markdown path. |
 
 
 Output:
@@ -1140,9 +726,7 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `line_end` | `integer` | yes |  |
-| `line_start` | `integer` | yes |  |
-| `note` | `string` | yes |  |
+| `changed` | `string` | yes |  |
 
 
 ## 🔧 `resolve_ref`
@@ -1160,40 +744,10 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `result` | `ResolveResult` | yes |  |
-
-Nested types:
-
-### `ObsidianRef`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `raw` | `string` | yes |  |
-| `reference` | `ReferenceInfo \| null` | no |  |
-| `target` | `string` | yes |  |
-
-### `ReferenceInfo`
-
-| Variant | Fields |
-| --- | --- |
-| `heading` | `value: string` |
-| `multi_heading` | `value: string[]` |
-| `block_id` | `value: string` |
-
-### `ResolveCandidate`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `match_kind` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
-### `ResolveResult`
-
-| Variant | Fields |
-| --- | --- |
-| `resolved` | `block_id: string \| null`, `heading: string \| null`, `path: string`, `reference: ObsidianRef` |
-| `ambiguous` | `candidates: ResolveCandidate[]`, `reference: ObsidianRef` |
-| `unresolved` | `reference: ObsidianRef` |
+| `ambiguous_targets` | `array \| null` | no |  |
+| `suggested_target` | `string \| null` | no |  |
+| `target` | `string \| null` | no |  |
+| `unresolved_target` | `string \| null` | no |  |
 
 
 ## 🔧 `search_regex`
@@ -1205,9 +759,9 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `context_lines` | `integer` | no | Number of surrounding lines to include in each snippet. |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 50 matching lines. |
 | `pattern` | `string` | yes | Rust regex pattern matched line by line. |
 
 
@@ -1216,32 +770,24 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `matches` | `TextMatch[]` | yes |  |
-| `pattern` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `pagination` | `SearchPagination` | yes |  |
 
 Nested types:
 
-### `SearchSource`
+### `SearchPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `page` | `integer` | yes |  |
+| `total_matches` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 ### `TextMatch`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `snippet` | `string` | yes | Short preview text. Use read_note for full evidence. |
-| `source` | `SearchSource` | yes | Lightweight source for LLM navigation. Byte offsets are intentionally omitted. |
+| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
+| `source` | `string` | yes | Vault-relative path with Obsidian-style line reference. |
 
 
 ## 🔧 `search_text`
@@ -1253,9 +799,9 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `context_lines` | `integer` | no | Number of surrounding lines to include in each snippet. |
 | `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
 | `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `page` | `integer` | no | One-based page number. Each page contains up to 50 matching lines. |
 | `query` | `string` | yes | Literal text to search for. |
 
 
@@ -1264,29 +810,21 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `matches` | `TextMatch[]` | yes |  |
-| `query` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `pagination` | `SearchPagination` | yes |  |
 
 Nested types:
 
-### `SearchSource`
+### `SearchPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `path` | `string` | yes | Vault-relative note path with Obsidian-style line reference, e.g. note.md#L1-L99. |
-| `section` | `SectionInfo \| null` | no | Nearest containing heading, when available. |
-
-### `SectionInfo`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `heading` | `string` | yes |  |
-| `heading_level` | `integer` | yes |  |
-| `heading_path` | `string[]` | yes |  |
+| `page` | `integer` | yes |  |
+| `total_matches` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
 
 ### `TextMatch`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `snippet` | `string` | yes | Short preview text. Use read_note for full evidence. |
-| `source` | `SearchSource` | yes | Lightweight source for LLM navigation. Byte offsets are intentionally omitted. |
+| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
+| `source` | `string` | yes | Vault-relative path with Obsidian-style line reference. |

@@ -2,27 +2,28 @@
 
 [中文 README](./README.zh-CN.md)
 
-MCP server for Obsidian-style Markdown vaults with structural section edits.
+MCP server for Obsidian-style Markdown vaults with compact, task-oriented tools
+and structural section edits.
 
-This service is intentionally mechanical:
+The server is deliberately mechanical:
 
 - reads the current vault from disk for each tool call
-- does not maintain a database, vector index, watcher, or persistent cache
 - keeps only an in-memory Markdown parse cache keyed by path, file size, and
   modified time
 - expires parse cache entries after 10 minutes by default and caps the cache at
   1024 parsed notes
 - edits notes only through explicit section operations; each write is atomic
-- ignores hidden dot paths by default, such as `.obsidian/`, `.git/`, `.agents/`,
-  and `.hidden.md`
+- ignores hidden dot paths by default, such as `.obsidian/`, `.git/`,
+  `.agents/`, and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
-  scanning visible files
-- returns Obsidian-style line references and heading sections so an LLM can cite evidence
+  scanning visible Markdown notes
+- returns vault-relative paths, Obsidian-style line references, and nearest
+  headings so an LLM can cite evidence
 
 It does not infer story domains such as "character", "organization", or
-"chapter". File paths and Markdown headings are the source of meaning. The
-server exposes those paths so an LLM can reason from evidence instead of
-guessing.
+"chapter". File paths, Markdown headings, local links, tags, and frontmatter are
+the source of meaning. The server exposes those facts so an LLM can reason from
+evidence instead of guessing.
 
 ## Build
 
@@ -31,56 +32,151 @@ cargo check
 cargo test
 ```
 
-## CLI
+## CLI quick start
+
+Start with the first page of notes, then move from broad navigation to precise
+reads and relation checks:
 
 ```sh
-cargo run -- --vault /path/to/vault list_notes
-cargo run -- --vault /path/to/vault list_vault_files --max_files 100
-cargo run -- --vault /path/to/vault --parse-cache-ttl-secs 600 --parse-cache-max-entries 1024 serve
-cargo run -- --vault /path/to/vault read_note "人物/林动.md#身体" --max-chars 4096
+cargo run -- --vault /path/to/vault list-notes --page 1
+cargo run -- --vault /path/to/vault get-note-outline "人物/林动.md" --page 1
+cargo run -- --vault /path/to/vault read-note "人物/林动.md#身体" --max-chars 4096
 cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
-cargo run -- --vault /path/to/vault get_note_outline "人物/林动.md"
-cargo run -- --vault /path/to/vault resolve_ref '[[林动#身体]]'
-cargo run -- --vault /path/to/vault get_outlinks "人物/林动.md"
-cargo run -- --vault /path/to/vault get_backlinks '[[林动]]'
-cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --verbose
-cargo run -- --vault /path/to/vault get_backlinks '[[林动]]' --include '正文/**/*.md' --exclude '**/草稿/**'
-cargo run -- --vault /path/to/vault search_text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault search_regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault list_tags --include "正文/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault get_tags "状态/身体" --include "正文/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault list_categories --include "正文/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault get_categories "人物" --include "正文/**/*.md" --exclude "**/草稿/**"
-cargo run -- --vault /path/to/vault query_frontmatter phase --mode equals --value active
-cargo run -- --vault /path/to/vault query_frontmatter arc --mode regex --value "引擎.*"
-cargo run -- --vault /path/to/vault collect_note_context "人物/林动.md"
-cargo run -- --vault /path/to/vault collect_reference_context '[[林动#身体]]'
-cargo run -- --vault /path/to/vault read_note "人物/林动.md#身体"
-cargo run -- --vault /path/to/vault read_note "人物/林动.md" --line '#L1-L20'
-cargo run -- --vault /path/to/vault find_unresolved_links
-cargo run -- --vault /path/to/vault find_ambiguous_links
-cargo run -- --vault /path/to/vault get_vault_graph
-cargo run -- --vault /path/to/vault get_graph_neighborhood "林动" --depth 1 --direction both
+cargo run -- --vault /path/to/vault get-note-stats "人物/林动.md"
+cargo run -- --vault /path/to/vault resolve-ref '[[林动#身体]]'
+cargo run -- --vault /path/to/vault get-outlinks "人物/林动.md" --page 1
+cargo run -- --vault /path/to/vault get-backlinks '[[林动]]' --page 1
+cargo run -- --vault /path/to/vault get-note-neighborhood "林动" --depth 1 --direction both
+cargo run -- --vault /path/to/vault audit-links --page 1
+cargo run -- --vault /path/to/vault search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
+cargo run -- --vault /path/to/vault search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
+cargo run -- --vault /path/to/vault list-tags --page 1
+cargo run -- --vault /path/to/vault get-tag "状态/身体" --page 1
+cargo run -- --vault /path/to/vault list-categories --page 1
+cargo run -- --vault /path/to/vault get-category "人物" --page 1
+cargo run -- --vault /path/to/vault query-frontmatter phase --mode equals --value active --page 1
+cargo run -- --vault /path/to/vault append-section "人物/林动.md" "新增内容" --heading "身体"
+cargo run -- --vault /path/to/vault replace-section "人物/林动.md" "替换内容" --heading "身体"
+cargo run -- --vault /path/to/vault delete-section "人物/林动.md" --heading "旧设定"
+cargo run -- --vault /path/to/vault rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
 ```
 
-## Request path filters
+Run the MCP server:
 
-`list_tags`, `get_tags`, `list_categories`, `get_categories`, `search_text`,
-and `search_regex` accept optional `include: string[]` and `exclude: string[]`
-MCP fields. Their CLI counterparts accept repeatable `--include <GLOB>` and
-`--exclude <GLOB>` flags.
+```sh
+cargo run -- --vault /path/to/vault serve
+```
 
-Patterns use `globset` syntax against vault-relative Markdown note paths. An
-empty or omitted `include` array leaves the request unrestricted; otherwise a
-note must match at least one include pattern. Multiple includes are a union,
-multiple excludes are a union, and an exclude match always wins. Request
-filters only narrow the notes already visible through vault configuration,
-gitignore, and default ignored-path rules.
+Common cache settings:
 
-`search_regex.path_glob` has been removed. Migrate
-`path_glob: "正文/**/*.md"` to `include: ["正文/**/*.md"]`.
+```sh
+cargo run -- --vault /path/to/vault \
+  --parse-cache-ttl-secs 600 \
+  --parse-cache-max-entries 1024 \
+  serve
+```
 
-## Zed MCP
+## Four-layer tool model
+
+The public tools are organized around the question an agent is trying to answer:
+
+1. Notes enumeration: `list_notes` pages through visible Markdown notes. Use it
+   first when you need candidate paths, titles, and sizes.
+2. Internal note structure: `get_note_outline`, `read_note`,
+   `get_note_structure`, and `get_note_stats` inspect one note or one selected
+   heading, block, or line range.
+3. External note relations: `resolve_ref`, `get_outlinks`, `get_backlinks`,
+   `get_note_neighborhood`, `list_tags`, `get_tag`, `list_categories`,
+   `get_category`, `query_frontmatter`, `search_text`, and `search_regex` answer
+   focused cross-note questions.
+4. Relation audit: `audit_links` reports unresolved and ambiguous local links
+   across visible notes so broad work can start from a known link-health state.
+
+Editing tools use the same structural selectors: `append_section`,
+`replace_section`, `delete_section`, `rename_heading`, `rename_note`, and
+`rename_block_id`.
+
+## Pagination and filters
+
+Paged tools accept a fixed numeric `page` value. Page numbers are one-based;
+`page: 1` is the first page. There are no cursors or opaque tokens. If `page`
+is greater than the available page count, the response keeps the requested page
+number and returns an empty result list with pagination totals.
+
+Request filters use vault-relative Markdown note paths. An empty or omitted
+`include` array leaves the request unrestricted; otherwise a note must match at
+least one include pattern. Multiple includes are a union, multiple excludes are
+a union, and an exclude match always wins.
+
+`get_note_neighborhood` is intentionally not paged. It returns a bounded
+resolved-link neighborhood controlled by `depth` and `direction`, so narrow the
+target or depth when the result is too broad. Use `audit_links --page 1` when
+you need a paged relation-health sweep.
+
+## References and paths
+
+A path is a vault-relative Markdown note path such as `人物/林动.md`. It names a
+file directly and is the clearest choice once `list_notes` or another tool has
+returned a path.
+
+A reference is an Obsidian-style note target such as `[[林动#身体]]`,
+`林动#身体`, or `人物/林动.md#L1-L20`. References may point at a note, heading,
+block id, or line range. Use `resolve_ref` when a human-facing reference must be
+checked before reading or following links.
+
+Ambiguous references are not guessed. The tools either require a uniquely
+resolved target or report the ambiguity so the caller can pick a concrete path
+or selector.
+
+## Tool contracts
+
+See [docs/tools.md](docs/tools.md) for the generated MCP input and output
+contracts.
+
+Primary read/query tools:
+
+- `list_notes`
+- `get_note_outline`
+- `read_note`
+- `get_note_structure`
+- `get_note_stats`
+- `resolve_ref`
+- `get_outlinks`
+- `get_backlinks`
+- `get_note_neighborhood`
+- `audit_links`
+- `search_text`
+- `search_regex`
+- `list_tags`
+- `get_tag`
+- `list_categories`
+- `get_category`
+- `query_frontmatter`
+
+Primary edit tools:
+
+- `append_section`
+- `replace_section`
+- `delete_section`
+- `rename_heading`
+- `rename_note`
+- `rename_block_id`
+
+## Recommended workflow
+
+1. Start with `list_notes --page 1`.
+2. Use path filters when the question belongs to a known folder or subset.
+3. Use `get_note_outline` to choose a section before reading.
+4. Use `read_note` with a path, heading, block id, or line range selector for
+   the smallest useful evidence span.
+5. Use `resolve_ref`, `get_outlinks`, `get_backlinks`, or
+   `get_note_neighborhood` for explicit local-link questions.
+6. Use `search_text`, `search_regex`, tags, categories, and frontmatter queries
+   for recall questions that are not already anchored to one note.
+7. Use `audit_links` before large refactors or audits that depend on link
+   reliability.
+
+## MCP configuration
 
 ```json
 {
@@ -93,7 +189,7 @@ gitignore, and default ignored-path rules.
 }
 ```
 
-The server writes protocol data to stdout only. Logs must stay on stderr.
+The server writes protocol data to stdout only. Logs stay on stderr.
 
 ## Observability
 
@@ -124,124 +220,13 @@ Tool arguments, note contents, query text, and regex patterns are not recorded
 by default. On normal shutdown, the process force flushes pending spans and
 logs, then waits up to 5 seconds for OTEL shutdown.
 
-## Vault File List Semantics
+## Safety boundaries
 
-`list_vault_files` is the recommended first tool call when an agent does not yet
-know the vault layout.
+This server has no database, vector index, file watcher, or persistent on-disk
+cache. Default operation reads the vault; writes happen only through explicit
+structural edit tools. Each tool call checks file metadata, and changed files
+are reparsed before use.
 
-The response is a flat file list:
-
-- every returned item has a vault-relative `path`
-- directories are not returned as standalone nodes
-- Markdown files are returned when `include_files` is true
-- non-Markdown files are counted as attachments; pass `include_attachments:
-  true` to return attachment entries
-- empty directories are omitted
-- gitignore rules are applied during scanning
-
-For example, this filesystem shape:
-
-```text
-资料库/技术设定/
-  README.md
-  001-发动机.md
-```
-
-is returned as file entries for `资料库/技术设定/README.md` and
-`资料库/技术设定/001-发动机.md`. The path carries the directory context.
-
-Use `include_readme_outline: true` only when a README's selectable non-H1
-heading list is needed; otherwise note entries include just their display title
-(H1, frontmatter title, then pathname). The default hides attachment entries to
-keep tool output small.
-
-## P0 Tools
-
-See [docs/tools.md](docs/tools.md) for detailed input and output contracts.
-
-- `list_notes`
-- `list_vault_files`
-- `read_note`
-- `get_note_structure`
-- `get_note_outline`
-- `search_text`
-- `search_regex`
-- `resolve_ref`
-- `get_outlinks`
-- `get_backlinks`
-- `list_tags` - unique body and frontmatter tag names
-- `get_tags` - note and line references for selected tags
-- `list_categories` - unique folder-derived category names
-- `get_categories` - Markdown note files for selected folder-derived categories
-- `query_frontmatter` - query a top-level frontmatter field by explicit
-  `exists`, `equals`, or `regex` mode
-- `collect_note_context`
-- `collect_reference_context`
-- `append_section` - append content at a selected section boundary
-- `patch_section` - replace a relative line range inside a selected section
-- `replace_section` - replace one complete selected section
-- `delete_section` - delete one complete selected section
-- `rename_heading` - preview or apply a heading rename and update uniquely resolved wikilinks
-- `find_unresolved_links`
-- `find_ambiguous_links`
-- `get_graph_neighborhood` - bounded graph context around one note; prefer this
-  for normal agent use
-- `get_vault_graph` - full local-link graph for audit, visualization, or
-  debugging
-
-Every snippet-like result includes a `source` object with `path` containing an
-Obsidian-style line reference, such as `人物/林动.md#L1-L20`, and nearest heading
-`section` when available. Byte offsets are internal only and are not returned by
-MCP tools.
-
-## Tool Use Guide
-
-- Start with `list_vault_files` to understand the visible file paths.
-- Use `list_notes` when note paths, titles, and human-readable sizes are needed.
-- Use `get_note_outline` before `read_note` to select a heading without
-  reading the whole note.
-- For edits, read the target with `read_note`, then use `append_section`,
-  `patch_section`, `replace_section`, or `delete_section`. `patch_section`
-  takes 1-based line numbers relative to the returned section, so it does not
-  rely on a fragile old-text match.
-- Use `rename_heading` for a heading rename rather than `replace_section`.
-  It defaults to `dry_run: true`; inspect `changed_notes` and
-  `updated_references`, then call it again with `dry_run: false` to apply.
-- `collect_note_context` and `collect_reference_context` return grouped note
-  navigation only. Use `get_note_outline` and `read_note` to inspect a
-  selected note.
-- `read_note` reads a whole note or a bare `Note#Heading`, `Note#^block`,
-  `Note#L1`, `Note#L1-L20`, or `Note#L1-` scope. It truncates at the configured
-  Unicode-character limit by default; use per-request `--max-chars` when needed.
-- Use `search_text` for literal recall and `search_regex` for structured phrase
-  patterns such as chapter ranges, years, or recurring motifs.
-- Use `list_tags` to discover body and frontmatter tag names, then `get_tags`
-  to locate selected tags before reading context with `read_note`. Use
-  `list_categories` and `get_categories` when folder names act as implicit
-  categories such as `人物`, `正文`, or `设定`.
-  `query_frontmatter` when the condition is a metadata field such as
-  `phase: active`; choose `exists`, `equals`, or `regex` explicitly.
-- Search tools return lightweight navigation results by default: path with line
-  reference, nearest section, and a short preview. They omit byte offsets and
-  return only the matching line unless `context_lines` is explicitly set.
-- Use `resolve_ref` before trusting an Obsidian reference target if ambiguity matters.
-- Use `get_outlinks`, `get_backlinks`, and `get_graph_neighborhood` for focused
-  local-link context. This includes
-  Obsidian wikilinks and Markdown links whose relative path stays inside the
-  vault.
-- Use `get_vault_graph` only when the full graph is explicitly needed for audit,
-  visualization, debugging, or global health checks.
-- Use `find_unresolved_links` and `find_ambiguous_links` as health checks before
-  larger analysis.
-
-## Safety Boundary
-
-The server has no database, vector index, file watcher, or disk-backed cache.
-It reads the vault by default and writes only through the four explicit,
-structure-selected section operations. Each tool call checks current file
-metadata before reusing a parsed Markdown document from memory, so changed
-files are reparsed.
-Cached parse entries expire after `--parse-cache-ttl-secs` seconds and are also
-bounded by `--parse-cache-max-entries`.
-Hidden dot paths are ignored by default so Obsidian config, git data, and agent
-skill files do not contaminate story context.
+Hidden paths and gitignored paths are excluded from visible notes by default, so
+Obsidian settings, git data, agent skill files, and generated artifacts do not
+enter normal note results.
