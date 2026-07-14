@@ -78,6 +78,7 @@ pub struct ReadNoteResult {
     pub source: String,
     pub content: String,
     #[serde(skip_serializing_if = "is_false")]
+    #[schemars(with = "Option<bool>")]
     pub truncated: bool,
 }
 

@@ -1,7 +1,14 @@
-use std::{fs, process::Command};
+use std::{
+    fs,
+    io::{self, BufRead, BufReader, Write},
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::mpsc::{self, Receiver},
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
+};
 
 use serde_json::Value;
-use tempfile::{TempDir, tempdir};
+use tempfile::{tempdir, TempDir};
 
 fn write_note(dir: &TempDir, path: &str, content: &str) {
     let full_path = dir.path().join(path);
@@ -25,6 +32,118 @@ fn run_raw_cli(args: &[&str]) -> std::process::Output {
         .args(args)
         .output()
         .expect("run cli")
+}
+
+const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
+
+struct McpStdioClient {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    responses: Receiver<io::Result<String>>,
+    reader: Option<JoinHandle<()>>,
+}
+
+impl McpStdioClient {
+    fn spawn(dir: &TempDir) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+            .arg("--vault")
+            .arg(dir.path())
+            .arg("serve")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("spawn MCP server");
+        let stdin = child.stdin.take().expect("MCP server stdin");
+        let stdout = child.stdout.take().expect("MCP server stdout");
+        let (sender, responses) = mpsc::channel();
+        let reader = thread::spawn(move || {
+            let mut stdout = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match stdout.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) if sender.send(Ok(line)).is_err() => break,
+                    Ok(_) => {}
+                    Err(error) => {
+                        let _ = sender.send(Err(error));
+                        break;
+                    }
+                }
+            }
+        });
+
+        Self {
+            child,
+            stdin: Some(stdin),
+            responses,
+            reader: Some(reader),
+        }
+    }
+
+    fn request(&mut self, message: Value) -> Value {
+        self.write(message);
+        let line = match self.responses.recv_timeout(MCP_STDIO_TIMEOUT) {
+            Ok(Ok(line)) => line,
+            Ok(Err(error)) => panic!("read MCP response: {error}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                panic!("timed out waiting for MCP response after {MCP_STDIO_TIMEOUT:?}")
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("MCP server closed stdout before responding")
+            }
+        };
+        serde_json::from_str(&line).expect("parse MCP response")
+    }
+
+    fn notification(&mut self, message: Value) {
+        self.write(message);
+    }
+
+    fn write(&mut self, message: Value) {
+        let stdin = self.stdin.as_mut().expect("MCP server stdin is open");
+        serde_json::to_writer(&mut *stdin, &message).expect("serialize MCP request");
+        stdin.write_all(b"\n").expect("terminate MCP request");
+        stdin.flush().expect("flush MCP request");
+    }
+
+    fn shutdown(mut self) {
+        drop(self.stdin.take());
+        let deadline = Instant::now() + MCP_STDIO_TIMEOUT;
+        let status = loop {
+            match self.child.try_wait().expect("check MCP server status") {
+                Some(_) => break self.child.wait().expect("wait for MCP server"),
+                None if Instant::now() >= deadline => {
+                    self.child.kill().expect("kill unresponsive MCP server");
+                    let status = self.child.wait().expect("wait for killed MCP server");
+                    panic!("MCP server did not exit after stdin closed: {status}");
+                }
+                None => thread::sleep(Duration::from_millis(10)),
+            }
+        };
+        self.reader
+            .take()
+            .expect("MCP stdout reader")
+            .join()
+            .expect("join MCP stdout reader");
+        assert!(
+            status.success(),
+            "MCP server exited unsuccessfully: {status}"
+        );
+    }
+}
+
+impl Drop for McpStdioClient {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
 }
 
 #[test]
@@ -585,4 +704,60 @@ fn get_backlinks_accepts_repeatable_source_path_filters() {
             }
         })
     );
+}
+
+#[test]
+fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "smoke.md", "# Smoke\n\nready\n");
+
+    let mut client = McpStdioClient::spawn(&dir);
+    let initialize = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "smoke", "version": "1"}
+        }
+    }));
+    assert_eq!(initialize["id"], 1);
+
+    client.notification(serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    }));
+
+    let tools = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    }));
+    assert_eq!(tools["id"], 2);
+    assert!(tools["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .any(|tool| tool["name"] == "read_note"));
+
+    let read_note = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {"name": "read_note", "arguments": {"note": "smoke.md"}}
+    }));
+    assert_eq!(read_note["id"], 3);
+    let structured = &read_note["result"]["structuredContent"];
+    assert!(structured["source"]
+        .as_str()
+        .expect("read source")
+        .contains("smoke.md"));
+    assert!(structured["content"]
+        .as_str()
+        .expect("read content")
+        .contains("ready"));
+
+    client.shutdown();
 }

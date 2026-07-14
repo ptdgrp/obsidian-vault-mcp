@@ -635,7 +635,7 @@ Output:
 | --- | --- | --- | --- |
 | `content` | `string` | yes |  |
 | `source` | `string` | yes |  |
-| `truncated` | `boolean` | yes |  |
+| `truncated` | `boolean \| null` | no |  |
 
 
 ## 🔧 `rename_block_id`

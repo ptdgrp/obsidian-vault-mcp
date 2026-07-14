@@ -39,6 +39,55 @@ pub(super) fn fixture() -> (tempfile::TempDir, ObsidianVaultMcp) {
 }
 
 #[test]
+fn public_tool_definitions_preserve_names_and_object_schemas() {
+    let tools = ObsidianVaultMcp::tool_definitions();
+    let names = tools
+        .iter()
+        .map(|tool| tool.name.as_ref())
+        .collect::<Vec<&str>>();
+    assert_eq!(
+        names,
+        vec![
+            "append_section",
+            "audit_links",
+            "delete_section",
+            "get_backlinks",
+            "get_category",
+            "get_note_neighborhood",
+            "get_note_outline",
+            "get_note_stats",
+            "get_note_structure",
+            "get_outlinks",
+            "get_tag",
+            "list_categories",
+            "list_notes",
+            "list_tags",
+            "query_frontmatter",
+            "read_note",
+            "rename_block_id",
+            "rename_heading",
+            "rename_note",
+            "replace_section",
+            "resolve_ref",
+            "search_regex",
+            "search_text",
+        ]
+    );
+    for tool in tools {
+        assert_eq!(
+            tool.input_schema.get("type").and_then(|value| value.as_str()),
+            Some("object")
+        );
+        if let Some(output_schema) = &tool.output_schema {
+            assert_eq!(
+                output_schema.get("type").and_then(|value| value.as_str()),
+                Some("object")
+            );
+        }
+    }
+}
+
+#[test]
 fn all_tool_input_schemas_have_plain_object_roots() {
     for tool in ObsidianVaultMcp::tool_definitions() {
         assert_eq!(
@@ -74,6 +123,26 @@ fn mcp_tool_schemas_do_not_use_uint_format() {
             );
         }
     }
+}
+
+#[test]
+fn read_note_output_schema_allows_omitted_truncated() {
+    let read_note = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "read_note")
+        .expect("read_note tool");
+    let required = read_note
+        .output_schema
+        .as_ref()
+        .expect("read_note output schema")
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .expect("read_note output required fields");
+
+    assert!(
+        !required.iter().any(|field| field == "truncated"),
+        "read_note omits truncated when false, so the output schema must not require it"
+    );
 }
 
 fn assert_schema_has_no_uint_format(schema: &serde_json::Value, tool_name: &str) {
