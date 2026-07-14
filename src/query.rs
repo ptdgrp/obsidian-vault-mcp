@@ -64,6 +64,10 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn default_page() -> usize {
+    1
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NoteStatsResult {
     /// Resolved note, heading, or block scope.
@@ -129,24 +133,29 @@ pub struct NoteOutlinePagination {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchTextResult {
-    pub query: String,
     pub matches: Vec<TextMatch>,
-    pub truncated: bool,
+    pub pagination: SearchPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchRegexResult {
-    pub pattern: String,
     pub matches: Vec<TextMatch>,
-    pub truncated: bool,
+    pub pagination: SearchPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_matches: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct TextMatch {
-    /// Lightweight source for LLM navigation. Byte offsets are intentionally omitted.
-    pub source: SearchSource,
-    /// Short preview text. Use read_note for full evidence.
-    pub snippet: String,
+    /// Vault-relative path with Obsidian-style line reference.
+    pub source: String,
+    /// Short centered preview text. Use read_note for full evidence.
+    pub preview: String,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -261,100 +270,57 @@ pub struct OutlinksPagination {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct TagsResult {
-    pub tags: Vec<TagBucket>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListTagsResult {
     /// Unique tag names available in the requested scope.
     pub tags: Vec<String>,
+    pub pagination: ListTagsPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CompactTagMatch {
-    /// Vault-relative path, with #L line reference for body tags.
-    pub note: String,
-    pub source_kind: TagSourceKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub section: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct DetailedTagOccurrence {
-    /// Vault-relative path, with #L line reference when line data exists.
-    pub location: String,
-    pub source_kind: TagSourceKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub section: Option<DetailedSection>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct DetailedSection {
-    pub heading: String,
-    pub heading_level: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub heading_path: Option<Vec<String>>,
+pub struct ListTagsPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_tags: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetTagsResult {
-    pub tags: Vec<TagOutputBucket>,
+pub struct GetTagResult {
+    pub matches: Vec<String>,
+    pub pagination: GetTagPagination,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetTagPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_matches: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListCategoriesResult {
     /// Unique folder-derived category names.
     pub categories: Vec<String>,
+    pub pagination: ListCategoriesPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct GetCategoriesResult {
-    pub categories: Vec<CategoryOutputBucket>,
+pub struct ListCategoriesPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_categories: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct CategoryOutputBucket {
-    pub category: String,
-    /// Vault-relative Markdown note paths in this folder-derived category.
-    pub files: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct TagOutputBucket {
-    pub tag: String,
-    pub notes: Vec<CompactTagMatch>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub occurrences: Vec<DetailedTagOccurrence>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct TagBucket {
-    pub tag: String,
+pub struct GetCategoryResult {
     pub notes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub occurrences: Vec<TagOccurrence>,
+    pub pagination: GetCategoryPagination,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct TagOccurrence {
-    pub note: String,
-    pub source_kind: TagSourceKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<SearchSource>,
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub compact_section: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TagSourceKind {
-    Note,
-    Body,
-    Section,
-    Line,
-    Frontmatter,
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GetCategoryPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_notes: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -366,6 +332,15 @@ pub struct FrontmatterQueryOptions {
     /// Value used by equals or regex mode.
     #[serde(default)]
     pub value: Option<String>,
+    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// Vault-relative glob patterns. Matching notes are excluded.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 100 matching notes.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -378,18 +353,15 @@ pub enum FrontmatterMatchMode {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct FrontmatterQueryResult {
-    pub field: String,
-    pub mode: FrontmatterMatchMode,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<String>,
-    pub matches: Vec<FrontmatterMatch>,
-    pub truncated: bool,
+    pub notes: Vec<String>,
+    pub pagination: FrontmatterQueryPagination,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct FrontmatterMatch {
-    pub note: String,
-    pub value: serde_json::Value,
+pub struct FrontmatterQueryPagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_notes: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

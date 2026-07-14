@@ -219,8 +219,11 @@ fn empty_vault_queries_return_empty_results() {
     let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     assert!(notes.notes.is_empty());
 
-    let categories = queries.list_categories(&[], &[]).expect("list categories");
+    let categories = queries
+        .list_categories(&[], &[], 1)
+        .expect("list categories");
     assert!(categories.categories.is_empty());
+    assert_eq!(categories.pagination.total_categories, 0);
 }
 
 #[test]

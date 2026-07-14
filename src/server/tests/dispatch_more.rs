@@ -8,9 +8,9 @@ use crate::query::{
 };
 use crate::server::{
     AppendSectionRequest, AuditLinksRequest, ContextNoteRequest, ContextReferenceRequest,
-    EmptyRequest, ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest, NoteStructureRequest,
-    ObsidianVaultMcp, ReadNoteRequest, RenameBlockIdRequest, ReplaceSectionRequest,
-    SearchRegexRequest, SearchTextRequest, TagsRequest, VaultFilesRequest,
+    EmptyRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest,
+    NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest, RenameBlockIdRequest,
+    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, VaultFilesRequest,
 };
 
 #[test]
@@ -47,9 +47,9 @@ fn query_tools_expose_request_path_filter_arrays_without_legacy_path_glob() {
     let definitions = ObsidianVaultMcp::tool_definitions();
     for name in [
         "list_tags",
-        "get_tags",
+        "get_tag",
         "list_categories",
-        "get_categories",
+        "get_category",
         "search_text",
         "search_regex",
     ] {
@@ -113,29 +113,24 @@ fn query_tool_path_filters_reach_tag_and_search_handlers() {
     let exclude = vec!["**/草稿/**".to_string()];
 
     let Json(tags) = server
-        .get_tags(Parameters(TagsRequest {
-            tags: vec!["筛选标签".to_string()],
+        .get_tag(Parameters(GetTagRequest {
+            tag: "筛选标签".to_string(),
             scope: TagScope::Note,
-            verbose: false,
             include: include.clone(),
             exclude: exclude.clone(),
+            page: 1,
         }))
         .expect("filtered tags");
-    assert_eq!(tags.tags[0].notes.len(), 2);
-    assert!(
-        tags.tags[0]
-            .notes
-            .iter()
-            .all(|tag| tag.note != "正文/草稿/drop.md")
-    );
+    assert_eq!(tags.matches.len(), 2);
+    assert!(tags.matches.iter().all(|path| path != "正文/草稿/drop.md"));
 
     let Json(matches) = server
         .search_text(Parameters(SearchTextRequest {
             query: "shared filtered content".to_string(),
             case_sensitive: false,
-            context_lines: 0,
             include,
             exclude,
+            page: 1,
         }))
         .expect("filtered text search");
     assert_eq!(matches.matches.len(), 2);
@@ -143,7 +138,7 @@ fn query_tool_path_filters_reach_tag_and_search_handlers() {
         matches
             .matches
             .iter()
-            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+            .all(|matched| !matched.source.starts_with("正文/草稿/drop.md"))
     );
 }
 
@@ -199,9 +194,9 @@ fn search_and_frontmatter_tools_surface_results_and_regex_errors() {
         .search_text(Parameters(SearchTextRequest {
             query: "林动".to_string(),
             case_sensitive: false,
-            context_lines: 0,
             include: vec![],
             exclude: vec![],
+            page: 1,
         }))
         .expect("search text");
     assert_eq!(text_result.matches.len(), 2);
@@ -211,16 +206,19 @@ fn search_and_frontmatter_tools_surface_results_and_regex_errors() {
             field: "aliases".to_string(),
             mode: FrontmatterMatchMode::Exists,
             value: None,
+            include: vec![],
+            exclude: vec![],
+            page: 1,
         }))
         .expect("query frontmatter");
-    assert_eq!(frontmatter.matches.len(), 1);
+    assert_eq!(frontmatter.notes.len(), 1);
 
     let regex_error = match server.search_regex(Parameters(SearchRegexRequest {
         pattern: "(".to_string(),
         case_sensitive: false,
-        context_lines: 0,
         include: vec![],
         exclude: vec![],
+        page: 1,
     })) {
         Ok(_) => panic!("invalid regex should fail"),
         Err(error) => error,
@@ -393,15 +391,15 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
     assert_eq!(outline.headings[0].heading, "原理");
 
     let Json(tags) = server
-        .get_tags(Parameters(TagsRequest {
-            tags: vec!["状态/身体".to_string()],
+        .get_tag(Parameters(GetTagRequest {
+            tag: "状态/身体".to_string(),
             scope: TagScope::Note,
-            verbose: true,
             include: vec![],
             exclude: vec![],
+            page: 1,
         }))
-        .expect("get tags");
-    assert_eq!(tags.tags.len(), 1);
+        .expect("get tag");
+    assert_eq!(tags.matches, vec!["林动.md".to_string()]);
 
     let Json(ambiguous) = server
         .find_ambiguous_links(Parameters(EmptyRequest {}))

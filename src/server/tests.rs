@@ -5,9 +5,8 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use tempfile::tempdir;
 
 use super::{
-    BacklinksRequest, CategoriesRequest, NoteOutlineRequest, NoteStructureRequest,
+    BacklinksRequest, GetCategoryRequest, GetTagRequest, NoteOutlineRequest, NoteStructureRequest,
     ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest, RenameHeadingRequest, RenameNoteRequest,
-    TagsRequest,
 };
 use crate::{
     query::TagScope,
@@ -313,30 +312,31 @@ fn note_outline_schema_uses_page_not_heading_selector() {
 }
 
 #[test]
-fn get_tags_and_get_categories_reject_empty_inputs() {
+fn get_tag_and_get_category_reject_empty_inputs() {
     let (_dir, server) = fixture();
 
-    let tags_error = match server.get_tags(Parameters(TagsRequest {
-        tags: Vec::new(),
+    let tags_error = match server.get_tag(Parameters(GetTagRequest {
+        tag: String::new(),
         scope: TagScope::Note,
-        verbose: false,
         include: vec![],
         exclude: vec![],
+        page: 1,
     })) {
-        Ok(_) => panic!("empty tags should fail"),
+        Ok(_) => panic!("empty tag should fail"),
         Err(error) => error,
     };
-    assert!(tags_error.contains("provide at least one tag"));
+    assert!(tags_error.contains("provide a non-empty tag"));
 
-    let categories_error = match server.get_categories(Parameters(CategoriesRequest {
-        categories: Vec::new(),
+    let categories_error = match server.get_category(Parameters(GetCategoryRequest {
+        category: String::new(),
         include: vec![],
         exclude: vec![],
+        page: 1,
     })) {
-        Ok(_) => panic!("empty categories should fail"),
+        Ok(_) => panic!("empty category should fail"),
         Err(error) => error,
     };
-    assert!(categories_error.contains("provide at least one category"));
+    assert!(categories_error.contains("provide a non-empty category"));
 }
 
 #[test]

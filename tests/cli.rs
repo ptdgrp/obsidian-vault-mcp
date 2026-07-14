@@ -168,9 +168,9 @@ fn query_commands_apply_repeatable_request_path_filters() {
     ];
     let assertions: [(&[&str], &str); 6] = [
         (&["list-tags"], "筛选标签"),
-        (&["get-tags", "筛选标签"], "正文/keep.md"),
+        (&["get-tag", "筛选标签"], "正文/keep.md"),
         (&["list-categories"], "正文"),
-        (&["get-categories", "正文", "资料"], "正文/keep.md"),
+        (&["get-category", "正文"], "正文/keep.md"),
         (&["search-text", "shared filtered content"], "正文/keep.md"),
         (&["search-regex", "shared filtered content"], "正文/keep.md"),
     ];
@@ -178,6 +178,7 @@ fn query_commands_apply_repeatable_request_path_filters() {
     for (command, expected) in assertions {
         let mut args = command.to_vec();
         args.extend(filters);
+        args.extend(["--page", "1"]);
         let output = run_cli(&dir, &args);
         assert!(
             output.status.success(),
@@ -204,6 +205,90 @@ fn query_commands_apply_repeatable_request_path_filters() {
     );
     assert!(!legacy.status.success());
     assert!(String::from_utf8_lossy(&legacy.stderr).contains("--path-glob"));
+}
+
+#[test]
+fn compact_discovery_commands_return_paged_public_json() {
+    let dir = tempdir().expect("tempdir");
+    write_note(
+        &dir,
+        "正文/keep.md",
+        "---\nphase: active\n---\n# Keep\n\nshared content #状态/身体\n",
+    );
+    write_note(
+        &dir,
+        "正文/other.md",
+        "# Other\n\nshared content #状态/身体\n",
+    );
+
+    let search = run_cli(&dir, &["search-text", "shared content", "--page", "1"]);
+    assert!(
+        search.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let search: Value = serde_json::from_slice(&search.stdout).expect("search json");
+    assert_eq!(search["matches"][0]["source"], "正文/keep.md#L6");
+    assert_eq!(search["matches"][0]["preview"], "shared content #状态/身体");
+    assert_eq!(search["pagination"]["total_matches"], 2);
+    assert!(search.get("query").is_none());
+    assert!(search["matches"][0].get("snippet").is_none());
+
+    let tag = run_cli(
+        &dir,
+        &["get-tag", "状态/身体", "--scope", "line", "--page", "1"],
+    );
+    assert!(
+        tag.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&tag.stderr)
+    );
+    let tag: Value = serde_json::from_slice(&tag.stdout).expect("tag json");
+    assert_eq!(
+        tag["matches"],
+        serde_json::json!(["正文/keep.md#L6", "正文/other.md#L3"])
+    );
+    assert_eq!(tag["pagination"]["total_matches"], 2);
+    assert!(tag.get("tags").is_none());
+
+    let category = run_cli(&dir, &["get-category", "/正文/", "--page", "1"]);
+    assert!(
+        category.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&category.stderr)
+    );
+    let category: Value = serde_json::from_slice(&category.stdout).expect("category json");
+    assert_eq!(
+        category["notes"],
+        serde_json::json!(["正文/keep.md", "正文/other.md"])
+    );
+    assert_eq!(category["pagination"]["total_notes"], 2);
+    assert!(category.get("categories").is_none());
+
+    let frontmatter = run_cli(
+        &dir,
+        &[
+            "query-frontmatter",
+            "phase",
+            "--mode",
+            "equals",
+            "--value",
+            "active",
+            "--include",
+            "正文/**/*.md",
+            "--page",
+            "1",
+        ],
+    );
+    assert!(
+        frontmatter.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&frontmatter.stderr)
+    );
+    let frontmatter: Value = serde_json::from_slice(&frontmatter.stdout).expect("frontmatter json");
+    assert_eq!(frontmatter["notes"], serde_json::json!(["正文/keep.md"]));
+    assert_eq!(frontmatter["pagination"]["total_notes"], 1);
+    assert!(frontmatter.get("matches").is_none());
 }
 
 #[test]

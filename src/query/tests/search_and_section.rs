@@ -69,17 +69,120 @@ fn read_note_truncates_selected_scope_by_unicode_characters() {
 }
 
 #[test]
-fn search_text_truncates_to_max_results_and_marks_truncated() {
-    let (_dir, mut queries) = fixture();
-    queries.vault.config.max_results = 1;
+fn search_text_returns_compact_fixed_pages_and_one_match_per_line() {
+    let (dir, queries) = fixture();
+    let lines = (1..=51)
+        .map(|index| format!("line {index:03} needle needle"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(dir.path().join("分页搜索.md"), format!("{lines}\n")).expect("write search page");
+
+    let page_1 = queries
+        .search_text("needle", true, &[], &[], 1)
+        .expect("search page 1");
+    let page_2 = queries
+        .search_text("needle", true, &[], &[], 2)
+        .expect("search page 2");
+    let out_of_range = queries
+        .search_text("needle", true, &[], &[], 3)
+        .expect("search page 3");
+    let empty = queries
+        .search_text("absent", true, &[], &[], 1)
+        .expect("empty search");
+
+    let local_page_1 = page_1
+        .matches
+        .iter()
+        .filter(|matched| matched.source.starts_with("分页搜索.md#L"))
+        .collect::<Vec<_>>();
+    assert_eq!(local_page_1.len(), 50);
+    assert_eq!(local_page_1[0].source, "分页搜索.md#L1");
+    assert_eq!(local_page_1[49].source, "分页搜索.md#L50");
+    assert_eq!(page_1.pagination.page, 1);
+    assert_eq!(page_1.pagination.total_pages, 2);
+    assert_eq!(page_1.pagination.total_matches, 51);
+    assert_eq!(
+        page_2.matches,
+        vec![crate::query::TextMatch {
+            source: "分页搜索.md#L51".to_string(),
+            preview: "line 051 needle needle".to_string(),
+        }]
+    );
+    assert_eq!(out_of_range.matches.len(), 0);
+    assert_eq!(out_of_range.pagination.total_pages, 2);
+    assert_eq!(empty.pagination.total_matches, 0);
+    assert!(queries.search_text("needle", true, &[], &[], 0).is_err());
+
+    let value = serde_json::to_value(&page_1).expect("search json");
+    assert!(value.get("query").is_none());
+    assert!(value.get("truncated").is_none());
+    assert!(value["matches"][0]["source"].is_string());
+    assert!(value["matches"][0].get("snippet").is_none());
+}
+
+#[test]
+fn search_regex_returns_compact_fixed_pages_and_one_match_per_line() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("正则分页.md"),
+        "alpha 01 beta 01\nalpha 02 beta 02\n",
+    )
+    .expect("write regex page");
 
     let result = queries
-        .search_text("林动", false, 0, &[], &[])
-        .expect("search text");
+        .search_regex("alpha \\d+|beta \\d+", true, &[], &[], 1)
+        .expect("regex page");
 
-    assert_eq!(result.matches.len(), 1);
-    assert!(result.truncated);
-    assert!(result.matches[0].snippet.contains("林动"));
+    let matches = result
+        .matches
+        .iter()
+        .filter(|matched| matched.source.starts_with("正则分页.md#L"))
+        .collect::<Vec<_>>();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].source, "正则分页.md#L1");
+    assert_eq!(matches[1].source, "正则分页.md#L2");
+    assert_eq!(result.pagination.total_matches, 2);
+    assert!(queries.search_regex("(", true, &[], &[], 1).is_err());
+    assert!(queries.search_regex("alpha", true, &[], &[], 0).is_err());
+
+    let value = serde_json::to_value(&result).expect("regex json");
+    assert!(value.get("pattern").is_none());
+    assert!(value.get("truncated").is_none());
+}
+
+#[test]
+fn search_preview_is_centered_on_first_match_and_unicode_safe() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("预览.md"),
+        format!(
+            "{}needle{} later needle\nneedle{}\nshort needle line\n",
+            "前".repeat(180),
+            "后".repeat(180),
+            "尾".repeat(300)
+        ),
+    )
+    .expect("write preview fixture");
+
+    let result = queries
+        .search_text("needle", true, &[], &["林动.md".to_string()], 1)
+        .expect("preview search");
+    let previews = result
+        .matches
+        .iter()
+        .filter(|matched| matched.source.starts_with("预览.md#L"))
+        .map(|matched| matched.preview.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(previews.len(), 3);
+    assert!(previews[0].contains("needle"));
+    assert!(previews[0].chars().count() <= 240);
+    assert!(previews[0].starts_with("..."));
+    assert!(previews[0].ends_with("..."));
+    assert_eq!(previews[0].matches("needle").count(), 1);
+    assert!(!previews[1].starts_with("..."));
+    assert!(previews[1].ends_with("..."));
+    assert_eq!(previews[2], "short needle line");
 }
 
 #[test]
@@ -87,13 +190,13 @@ fn searches_report_invalid_include_and_exclude_globs() {
     let (_dir, queries) = fixture();
 
     let include_error = queries
-        .search_regex("林动", false, 0, &["[".to_string()], &[])
+        .search_regex("林动", false, &["[".to_string()], &[], 1)
         .expect_err("invalid include glob should fail");
     assert!(include_error.to_string().contains("include"));
     assert!(include_error.to_string().contains('['));
 
     let exclude_error = queries
-        .search_text("林动", false, 0, &[], &["[".to_string()])
+        .search_text("林动", false, &[], &["[".to_string()], 1)
         .expect_err("invalid exclude glob should fail");
     assert!(exclude_error.to_string().contains("exclude"));
     assert!(exclude_error.to_string().contains('['));
@@ -106,95 +209,58 @@ fn searches_honor_case_sensitivity() {
         .expect("write case fixture");
 
     let insensitive_text = queries
-        .search_text("needle", false, 0, &[], &[])
+        .search_text("needle", false, &[], &[], 1)
         .expect("case-insensitive text search");
     let sensitive_text = queries
-        .search_text("needle", true, 0, &[], &[])
+        .search_text("needle", true, &[], &[], 1)
         .expect("case-sensitive text search");
     let insensitive_regex = queries
-        .search_regex("needle", false, 0, &[], &[])
+        .search_regex("needle", false, &[], &[], 1)
         .expect("case-insensitive regex search");
     let sensitive_regex = queries
-        .search_regex("needle", true, 0, &[], &[])
+        .search_regex("needle", true, &[], &[], 1)
         .expect("case-sensitive regex search");
 
-    assert_eq!(insensitive_text.matches.len(), 2);
-    assert_eq!(sensitive_text.matches.len(), 1);
-    assert_eq!(insensitive_regex.matches.len(), 2);
-    assert_eq!(sensitive_regex.matches.len(), 1);
-    assert_eq!(sensitive_text.matches[0].source.line_start, 4);
-    assert_eq!(sensitive_regex.matches[0].source.line_start, 4);
-}
-
-#[test]
-fn search_context_lines_clamp_at_file_boundaries() {
-    let (dir, queries) = fixture();
-    fs::write(
-        dir.path().join("上下文.md"),
-        "first needle\nsecond\nthird\nlast needle\n",
-    )
-    .expect("write context fixture");
-
-    let result = queries
-        .search_text("needle", true, 2, &[], &[])
-        .expect("search with context");
-
-    let matches = result
-        .matches
-        .iter()
-        .filter(|matched| matched.source.path == "上下文.md")
-        .collect::<Vec<_>>();
-    assert_eq!(matches.len(), 2);
     assert_eq!(
-        (matches[0].source.line_start, matches[0].source.line_end),
-        (1, 3)
+        insensitive_text
+            .matches
+            .iter()
+            .filter(|matched| matched.source.starts_with("大小写.md#L"))
+            .count(),
+        2
     );
-    assert_eq!(matches[0].snippet, "first needle\nsecond\nthird\n");
     assert_eq!(
-        (matches[1].source.line_start, matches[1].source.line_end),
-        (2, 4)
+        sensitive_text
+            .matches
+            .iter()
+            .filter(|matched| matched.source.starts_with("大小写.md#L"))
+            .count(),
+        1
     );
-    assert_eq!(matches[1].snippet, "second\nthird\nlast needle\n");
-}
-
-#[test]
-fn search_results_are_stably_sorted_before_global_truncation() {
-    let (dir, mut queries) = fixture();
-    fs::write(dir.path().join("10.md"), "needle\nneedle\n").expect("write 10");
-    fs::write(dir.path().join("2.md"), "needle\nneedle\n").expect("write 2");
-    queries.vault.config.max_results = 3;
-
-    let result = queries
-        .search_text("needle", true, 0, &[], &[])
-        .expect("sorted truncated search");
-    let locations = result
-        .matches
-        .iter()
-        .map(|matched| (matched.source.path.as_str(), matched.source.line_start))
-        .collect::<Vec<_>>();
-
-    assert_eq!(locations, vec![("2.md", 1), ("2.md", 2), ("10.md", 1)]);
-    assert!(result.truncated);
-}
-
-#[test]
-fn search_snippets_truncate_by_unicode_characters() {
-    let (dir, queries) = fixture();
-    let content = format!("needle{}\n", "界".repeat(300));
-    fs::write(dir.path().join("长片段.md"), content).expect("write long snippet");
-
-    let result = queries
-        .search_text("needle", true, 0, &[], &[])
-        .expect("search long Unicode line");
-    let matched = result
-        .matches
-        .iter()
-        .find(|matched| matched.source.path == "长片段.md")
-        .expect("long snippet match");
-
-    assert_eq!(matched.snippet.chars().count(), 243);
-    assert!(matched.snippet.starts_with("needle"));
-    assert!(matched.snippet.ends_with("..."));
+    assert_eq!(
+        insensitive_regex
+            .matches
+            .iter()
+            .filter(|matched| matched.source.starts_with("大小写.md#L"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        sensitive_regex
+            .matches
+            .iter()
+            .filter(|matched| matched.source.starts_with("大小写.md#L"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        sensitive_text.matches.last().unwrap().source,
+        "大小写.md#L4"
+    );
+    assert_eq!(
+        sensitive_regex.matches.last().unwrap().source,
+        "大小写.md#L4"
+    );
 }
 
 #[test]
@@ -207,25 +273,24 @@ fn regex_search_is_line_oriented_and_supports_line_anchors() {
     .expect("write line-oriented fixture");
 
     let across_lines = queries
-        .search_regex("start.*end", true, 0, &[], &[])
+        .search_regex("start.*end", true, &[], &[], 1)
         .expect("line-oriented regex search");
     let anchored = queries
-        .search_regex("^alpha omega$", true, 0, &[], &[])
+        .search_regex("^alpha omega$", true, &[], &[], 1)
         .expect("anchored regex search");
 
     assert!(
         !across_lines
             .matches
             .iter()
-            .any(|matched| matched.source.path == "逐行.md")
+            .any(|matched| matched.source.starts_with("逐行.md#L"))
     );
     let anchored_match = anchored
         .matches
         .iter()
-        .find(|matched| matched.source.path == "逐行.md")
+        .find(|matched| matched.source == "逐行.md#L3")
         .expect("anchored line match");
-    assert_eq!(anchored_match.source.line_start, 3);
-    assert_eq!(anchored_match.source.line_end, 3);
+    assert_eq!(anchored_match.preview, "alpha omega");
 }
 
 #[test]
@@ -234,16 +299,16 @@ fn empty_text_and_regex_queries_match_each_line() {
     fs::write(dir.path().join("空查询.md"), "first\nsecond\n").expect("write empty query fixture");
 
     let text = queries
-        .search_text("", true, 0, &[], &[])
+        .search_text("", true, &[], &[], 1)
         .expect("empty text search");
     let regex = queries
-        .search_regex("", true, 0, &[], &[])
+        .search_regex("", true, &[], &[], 1)
         .expect("empty regex search");
 
     assert_eq!(
         text.matches
             .iter()
-            .filter(|matched| matched.source.path == "空查询.md")
+            .filter(|matched| matched.source.starts_with("空查询.md#L"))
             .count(),
         2
     );
@@ -251,7 +316,7 @@ fn empty_text_and_regex_queries_match_each_line() {
         regex
             .matches
             .iter()
-            .filter(|matched| matched.source.path == "空查询.md")
+            .filter(|matched| matched.source.starts_with("空查询.md#L"))
             .count(),
         2
     );
