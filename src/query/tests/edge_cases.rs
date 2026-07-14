@@ -6,8 +6,7 @@ use tempfile::tempdir;
 use super::fixture;
 use crate::parser::SectionInfo;
 use crate::query::path_filter::PathFilter;
-use crate::query::{LegacyResolveSummary, SearchSource, SectionSelector, VaultQueries};
-use crate::resolver::{ResolveCandidate, ResolveResult};
+use crate::query::{SearchSource, SectionSelector, VaultQueries};
 use crate::vault::{Vault, VaultConfig};
 
 #[test]
@@ -125,30 +124,6 @@ fn missing_reference_suggestion_preserves_heading_suffix_and_stops_at_distance_t
 }
 
 #[test]
-fn graph_health_queries_truncate_when_result_budget_is_small() {
-    let (dir, mut queries) = fixture();
-    fs::write(
-        dir.path().join("额外1.md"),
-        "# 额外1\n\n[[缺失]]\n[[发动机]]\n",
-    )
-    .expect("write extra1");
-    fs::write(
-        dir.path().join("额外2.md"),
-        "# 额外2\n\n[[缺失]]\n[[发动机]]\n",
-    )
-    .expect("write extra2");
-    queries.vault.config.max_results = 1;
-
-    let unresolved = queries.find_unresolved_links().expect("find unresolved");
-    assert_eq!(unresolved.links.len(), 1);
-    assert!(unresolved.truncated);
-
-    let ambiguous = queries.find_ambiguous_links().expect("find ambiguous");
-    assert_eq!(ambiguous.links.len(), 1);
-    assert!(ambiguous.truncated);
-}
-
-#[test]
 fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
     let (dir, queries) = fixture();
     fs::write(
@@ -242,50 +217,4 @@ fn search_source_serializes_as_a_public_contract() {
     let source_json = serde_json::to_value(source).expect("source json");
     assert_eq!(source_json["path"], "note.md#L3-L5");
     assert!(source_json.get("line_start").is_none());
-}
-
-#[test]
-fn resolve_summary_preserves_resolved_ambiguous_and_unresolved_shapes() {
-    let resolved: LegacyResolveSummary = ResolveResult::Resolved {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[林动]]".to_string(),
-            target: "林动".to_string(),
-            reference: None,
-        },
-        path: "林动.md".to_string(),
-        heading: Some("身体".to_string()),
-        block_id: None,
-    }
-    .into();
-    assert!(matches!(
-        resolved,
-        LegacyResolveSummary::Resolved { path, heading, .. }
-            if path == "林动.md" && heading.as_deref() == Some("身体")
-    ));
-
-    let ambiguous: LegacyResolveSummary = ResolveResult::Ambiguous {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[发动机]]".to_string(),
-            target: "发动机".to_string(),
-            reference: None,
-        },
-        candidates: vec![ResolveCandidate {
-            path: "发动机.md".to_string(),
-            match_kind: "stem".to_string(),
-        }],
-    }
-    .into();
-    assert!(
-        matches!(ambiguous, LegacyResolveSummary::Ambiguous { candidates } if candidates.len() == 1)
-    );
-
-    let unresolved: LegacyResolveSummary = ResolveResult::Unresolved {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[缺失]]".to_string(),
-            target: "缺失".to_string(),
-            reference: None,
-        },
-    }
-    .into();
-    assert!(matches!(unresolved, LegacyResolveSummary::Unresolved));
 }

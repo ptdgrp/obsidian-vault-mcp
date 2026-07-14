@@ -18,14 +18,14 @@ fn open_rejects_missing_or_file_roots() {
     let missing = Utf8PathBuf::from_path_buf(dir.path().join("missing")).expect("utf8 path");
     let error =
         Vault::open(missing.clone(), VaultConfig::default()).expect_err("missing root should fail");
-    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing.to_string()));
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing));
 
     let file = dir.path().join("vault.md");
     fs::write(&file, "# not a directory\n").expect("write file root");
     let file = Utf8PathBuf::from_path_buf(file).expect("utf8 path");
     let error =
         Vault::open(file.clone(), VaultConfig::default()).expect_err("file root should fail");
-    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file.to_string()));
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file));
 }
 
 #[test]
