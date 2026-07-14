@@ -125,6 +125,26 @@ fn mcp_tool_schemas_do_not_use_uint_format() {
     }
 }
 
+#[test]
+fn read_note_output_schema_allows_omitted_truncated() {
+    let read_note = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "read_note")
+        .expect("read_note tool");
+    let required = read_note
+        .output_schema
+        .as_ref()
+        .expect("read_note output schema")
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .expect("read_note output required fields");
+
+    assert!(
+        !required.iter().any(|field| field == "truncated"),
+        "read_note omits truncated when false, so the output schema must not require it"
+    );
+}
+
 fn assert_schema_has_no_uint_format(schema: &serde_json::Value, tool_name: &str) {
     match schema {
         serde_json::Value::Array(values) => {
