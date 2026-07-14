@@ -6,7 +6,7 @@ use super::notes::note_title;
 use super::{
     AuditAmbiguousLink, AuditLinkTotals, AuditLinksResult, AuditUnresolvedLink, NeighborhoodCenter,
     NeighborhoodDirection, NeighborhoodLink, NeighborhoodNote, NeighborhoodResult, Pagination,
-    VaultQueries,
+    VaultQueries, reference_display,
 };
 
 impl VaultQueries {
@@ -46,8 +46,9 @@ impl VaultQueries {
         let mut edges = BTreeSet::new();
         for note in &notes {
             for link in &note.parsed.links {
+                let reference = reference_display(&link.target, &link.reference);
                 if let ResolveResult::Resolved { path, .. } =
-                    RefResolver::resolve(&link.target, &notes)
+                    RefResolver::resolve(&reference, &notes)
                 {
                     edges.insert(NeighborhoodLink {
                         from: note.file.relative_path.clone(),
@@ -140,11 +141,11 @@ impl VaultQueries {
         for note in &notes {
             for link in &note.parsed.links {
                 let source = super::link_location(&link.source.clone().into());
-                match RefResolver::resolve(&link.target, &notes) {
-                    ResolveResult::Unresolved { .. } => unresolved.push(AuditUnresolvedLink {
-                        source,
-                        target: link.target.clone(),
-                    }),
+                let target = reference_display(&link.target, &link.reference);
+                match RefResolver::resolve(&target, &notes) {
+                    ResolveResult::Unresolved { .. } => {
+                        unresolved.push(AuditUnresolvedLink { source, target })
+                    }
                     ResolveResult::Ambiguous { candidates, .. } => {
                         let omitted_candidates = if candidates.len() > 20 {
                             Some(candidates.len() - 20)
@@ -153,7 +154,7 @@ impl VaultQueries {
                         };
                         ambiguous.push(AuditAmbiguousLink {
                             source,
-                            target: link.target.clone(),
+                            target,
                             candidates: candidates
                                 .into_iter()
                                 .take(20)

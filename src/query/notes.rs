@@ -214,7 +214,7 @@ fn compact_note_structure(note: ParsedNote) -> NoteStructureResult {
     );
     let blocks = sorted_unique(note.blocks.iter().map(|block| block.id.clone()));
 
-    let mut omitted = Vec::new();
+    let mut omitted = std::collections::BTreeMap::new();
     let headings = limit_group("headings", headings, &mut omitted, LIMIT);
     let embeds = limit_group("embeds", embeds, &mut omitted, LIMIT);
     let tags = limit_group("tags", tags, &mut omitted, LIMIT);
@@ -296,11 +296,11 @@ fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
 fn limit_group<T>(
     name: &str,
     mut values: Vec<T>,
-    omitted: &mut Vec<String>,
+    omitted: &mut std::collections::BTreeMap<String, usize>,
     limit: usize,
 ) -> Option<Vec<T>> {
     if values.len() > limit {
-        omitted.push(name.to_string());
+        omitted.insert(name.to_string(), values.len() - limit);
         values.truncate(limit);
     }
     (!values.is_empty()).then_some(values)

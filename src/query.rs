@@ -13,7 +13,7 @@ pub(crate) mod section;
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use camino::Utf8Path;
 use rayon::prelude::*;
@@ -97,7 +97,7 @@ pub struct NoteStructureResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocks: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub omitted: Option<Vec<String>>,
+    pub omitted: Option<BTreeMap<String, usize>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -116,7 +116,6 @@ pub struct NoteOutlineResult {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OutlineHeading {
     pub heading: String,
-    pub level: u8,
     pub line: u64,
 }
 

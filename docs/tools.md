@@ -298,7 +298,6 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `heading` | `string` | yes |  |
-| `level` | `integer` | yes |  |
 | `line` | `integer` | yes |  |
 
 
@@ -345,7 +344,7 @@ Output:
 | `headings` | `array \| null` | no |  |
 | `link_count` | `integer` | yes |  |
 | `note` | `string` | yes |  |
-| `omitted` | `array \| null` | no |  |
+| `omitted` | `object \| null` | no |  |
 | `tags` | `array \| null` | no |  |
 
 Nested types:

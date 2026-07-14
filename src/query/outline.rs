@@ -13,15 +13,10 @@ impl VaultQueries {
             .filter(|heading| heading.level != 1)
             .map(|heading| OutlineHeading {
                 heading: heading.path.join("/"),
-                level: heading.level,
                 line: heading.source.line_start,
             })
             .collect::<Vec<_>>();
         let total_headings = headings.len();
-        let total_pages = total_headings.div_ceil(NOTE_OUTLINE_PAGE_SIZE);
-        if page > total_pages.max(1) {
-            anyhow::bail!("page {page} out of range; total pages: {total_pages}");
-        }
         let slice = PageSlice::new(headings, page, NOTE_OUTLINE_PAGE_SIZE)?;
         let pagination = slice.pagination();
         Ok(NoteOutlineResult {

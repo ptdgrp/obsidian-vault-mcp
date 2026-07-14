@@ -231,7 +231,10 @@ fn note_structure_returns_bounded_compact_inspection_groups() {
     assert_eq!(tags.len(), 50);
     assert_eq!(tags[0], "front/a");
     assert_eq!(tags[49], "tag47");
-    assert_eq!(value["omitted"], serde_json::json!(["headings", "tags"]));
+    assert_eq!(
+        value["omitted"],
+        serde_json::json!({"headings": 1, "tags": 3})
+    );
 }
 
 #[test]
@@ -1323,7 +1326,7 @@ fn note_outline_returns_heading_tree() {
     let value = serde_json::to_value(&result).expect("outline json");
     assert_eq!(
         value["headings"],
-        serde_json::json!([{"heading": "原理", "level": 2, "line": 3}])
+        serde_json::json!([{"heading": "原理", "line": 3}])
     );
     assert_eq!(
         value["pagination"],
@@ -1347,11 +1350,11 @@ fn note_outline_flattens_non_h1_headings_in_document_order_with_slash_paths() {
     assert_eq!(
         value["headings"],
         serde_json::json!([
-            {"heading": "A", "level": 2, "line": 3},
-            {"heading": "A/A1", "level": 3, "line": 5},
-            {"heading": "B", "level": 2, "line": 9},
-            {"heading": "B/B1", "level": 3, "line": 11},
-            {"heading": "B/B1/B2", "level": 4, "line": 13}
+            {"heading": "A", "line": 3},
+            {"heading": "A/A1", "line": 5},
+            {"heading": "B", "line": 9},
+            {"heading": "B/B1", "line": 11},
+            {"heading": "B/B1/B2", "line": 13}
         ])
     );
 }
@@ -1398,17 +1401,24 @@ fn note_outline_paginates_flat_headings_with_fixed_100_item_pages() {
     .expect("page 2 json");
     assert_eq!(
         page_2["headings"],
-        serde_json::json!([{"heading": "Heading 101", "level": 2, "line": 203}])
+        serde_json::json!([{"heading": "Heading 101", "line": 203}])
     );
     assert_eq!(
         page_2["pagination"],
         serde_json::json!({"page": 2, "total_pages": 2, "total_headings": 101})
     );
 
-    let error = queries
-        .get_note_outline("分页.md", 3)
-        .expect_err("out of range page");
-    assert!(error.to_string().contains("page 3 out of range"));
+    let page_3 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 3)
+            .expect("outline page 3"),
+    )
+    .expect("page 3 json");
+    assert_eq!(page_3["headings"], serde_json::json!([]));
+    assert_eq!(
+        page_3["pagination"],
+        serde_json::json!({"page": 3, "total_pages": 2, "total_headings": 101})
+    );
 }
 
 #[test]

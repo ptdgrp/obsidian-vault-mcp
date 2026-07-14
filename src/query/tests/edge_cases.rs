@@ -155,6 +155,34 @@ fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
 }
 
 #[test]
+fn audit_links_treats_missing_heading_and_block_selectors_as_unresolved() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target note");
+    fs::write(
+        dir.path().join("selector-audit.md"),
+        "# Selector Audit\n\n[[Target#Missing Heading]]\n\n[[Target#^missing-block]]\n\n[[Target#Present]]\n\n[[Target#^present]]\n",
+    )
+    .expect("write selector audit note");
+
+    let result = queries.audit_links(1).expect("audit links");
+    let source_targets = result
+        .unresolved
+        .iter()
+        .filter(|link| link.source.starts_with("selector-audit.md#L"))
+        .map(|link| link.target.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        source_targets,
+        vec!["Target#Missing Heading", "Target#^missing-block"]
+    );
+}
+
+#[test]
 fn note_neighborhood_traverses_only_resolved_links_and_omits_center() {
     let (dir, queries) = fixture();
     fs::write(
@@ -182,6 +210,34 @@ fn note_neighborhood_traverses_only_resolved_links_and_omits_center() {
             .any(|link| link.from == "邻居.md" && link.to == "林动.md")
     );
     assert!(!result.links.iter().any(|link| link.to == "缺失目标"));
+}
+
+#[test]
+fn note_neighborhood_excludes_edges_with_unresolved_selectors() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("Target.md"), "# Target\n\n## Present\n").expect("write target");
+    fs::write(
+        dir.path().join("Selector Source.md"),
+        "# Selector Source\n\n[[Target#Missing Heading]]\n",
+    )
+    .expect("write selector source");
+
+    let result = queries
+        .get_note_neighborhood("Target", 1, crate::query::NeighborhoodDirection::In)
+        .expect("neighborhood");
+
+    assert!(
+        !result
+            .notes
+            .iter()
+            .any(|note| note.path == "Selector Source.md")
+    );
+    assert!(
+        !result
+            .links
+            .iter()
+            .any(|link| { link.from == "Selector Source.md" && link.to == "Target.md" })
+    );
 }
 
 #[test]
