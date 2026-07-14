@@ -1,13 +1,11 @@
 use crate::{
     mutation::{EditSectionResult, RenameResult, VaultMutations},
     query::{
-        AmbiguousLinksResult, AuditLinksResult, BacklinksResult, ContextResult,
-        FrontmatterQueryOptions, FrontmatterQueryResult, GetCategoryResult, GetTagResult,
-        GraphNeighborhoodOptions, ListCategoriesResult, ListNotesResult, ListTagsResult,
+        AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
+        GetCategoryResult, GetTagResult, ListCategoriesResult, ListNotesResult, ListTagsResult,
         NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
         NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult, SearchRegexResult,
-        SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultGraphResult, VaultQueries,
+        SearchTextResult, SectionSelector, TagScope, VaultQueries,
     },
     vault::Vault,
 };
@@ -70,10 +68,6 @@ impl ObsidianVaultMcp {
         Self::tool_router().list_all()
     }
 }
-
-#[derive(Debug, Deserialize, JsonSchema)]
-/// Empty input for tools that operate on the whole vault.
-pub struct EmptyRequest {}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Page through visible Markdown notes after optional vault-relative path filters.
@@ -277,20 +271,6 @@ pub struct SearchRegexRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for collecting context around one note.
-pub struct ContextNoteRequest {
-    /// Vault-relative path, note stem, or alias.
-    pub note: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-/// Input for collecting context around a reference.
-pub struct ContextReferenceRequest {
-    /// Reference such as "Note", "[[Note]]", or "[[Note#Heading]]".
-    pub reference: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 /// Input for appending content at the end of one selected section.
 pub struct AppendSectionRequest {
     /// Vault-relative path, note stem, or alias.
@@ -433,8 +413,6 @@ fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
     Ok((line_start, line_end))
 }
 
-pub type VaultFilesRequest = VaultFilesOptions;
-pub type GraphNeighborhoodRequest = GraphNeighborhoodOptions;
 pub type FrontmatterQueryRequest = FrontmatterQueryOptions;
 
 fn default_dry_run() -> bool {
@@ -538,16 +516,6 @@ impl ObsidianVaultMcp {
     ) -> Result<Json<NoteOutlineResult>, String> {
         run_tool("get_note_outline", || {
             self.queries().get_note_outline(&note, page)
-        })
-    }
-
-    #[tool(description = "List gitignore-aware visible vault files as flat entries with paths")]
-    fn list_vault_files(
-        &self,
-        Parameters(request): Parameters<VaultFilesRequest>,
-    ) -> Result<Json<VaultFilesResult>, String> {
-        run_tool("list_vault_files", || {
-            self.queries().list_vault_files(request)
         })
     }
 
@@ -719,30 +687,6 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content"
-    )]
-    fn collect_note_context(
-        &self,
-        Parameters(ContextNoteRequest { note }): Parameters<ContextNoteRequest>,
-    ) -> Result<Json<ContextResult>, String> {
-        run_tool("collect_note_context", || {
-            self.queries().collect_note_context(&note)
-        })
-    }
-
-    #[tool(
-        description = "Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content"
-    )]
-    fn collect_reference_context(
-        &self,
-        Parameters(ContextReferenceRequest { reference }): Parameters<ContextReferenceRequest>,
-    ) -> Result<Json<ContextResult>, String> {
-        run_tool("collect_reference_context", || {
-            self.queries().collect_reference_context(&reference)
-        })
-    }
-
-    #[tool(
         description = "Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching."
     )]
     fn append_section(
@@ -847,52 +791,6 @@ impl ObsidianVaultMcp {
         run_tool("rename_block_id", || {
             self.mutations()
                 .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
-        })
-    }
-
-    #[tool(
-        description = "Find local links that do not resolve to any visible note; use as a vault health check"
-    )]
-    fn find_unresolved_links(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<UnresolvedLinksResult>, String> {
-        run_tool("find_unresolved_links", || {
-            self.queries().find_unresolved_links()
-        })
-    }
-
-    #[tool(
-        description = "Find local links that resolve to multiple visible notes; use before relying on link graph context"
-    )]
-    fn find_ambiguous_links(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<AmbiguousLinksResult>, String> {
-        run_tool("find_ambiguous_links", || {
-            self.queries().find_ambiguous_links()
-        })
-    }
-
-    #[tool(
-        description = "Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context"
-    )]
-    fn get_vault_graph(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<VaultGraphResult>, String> {
-        run_tool("get_vault_graph", || self.queries().get_vault_graph())
-    }
-
-    #[tool(
-        description = "Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context"
-    )]
-    fn get_graph_neighborhood(
-        &self,
-        Parameters(request): Parameters<GraphNeighborhoodRequest>,
-    ) -> Result<Json<VaultGraphResult>, String> {
-        run_tool("get_graph_neighborhood", || {
-            self.queries().get_graph_neighborhood(request)
         })
     }
 }

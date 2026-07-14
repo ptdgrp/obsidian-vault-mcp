@@ -20,6 +20,87 @@ fn run_cli(dir: &TempDir, args: &[&str]) -> std::process::Output {
         .expect("run cli")
 }
 
+fn run_raw_cli(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .args(args)
+        .output()
+        .expect("run cli")
+}
+
+#[test]
+fn removed_commands_and_flags_are_unknown_to_cli() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "note.md", "# Note\n");
+
+    for command in [
+        "find-unresolved-links",
+        "find-ambiguous-links",
+        "get-vault-graph",
+        "get-graph-neighborhood",
+        "collect-note-context",
+        "collect-reference-context",
+        "list-vault-files",
+    ] {
+        let output = run_cli(&dir, &[command]);
+        assert!(!output.status.success(), "{command} should be rejected");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(command),
+            "{command} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    for args in [
+        &["list-notes", "--page-size", "50"][..],
+        &["list-notes", "--cursor", "next"][..],
+        &["get-outlinks", "note.md", "--verbose"][..],
+        &["get-backlinks", "note.md", "--verbose"][..],
+        &["list-tags", "--verbose"][..],
+        &["get-tag", "tag", "--verbose"][..],
+        &["search-text", "needle", "--context-lines", "2"][..],
+        &["search-regex", "needle", "--context-lines", "2"][..],
+        &["get-note-outline", "note.md", "--heading", "Section"][..],
+    ] {
+        let output = run_cli(&dir, args);
+        assert!(!output.status.success(), "{args:?} should be rejected");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let flag = args
+            .iter()
+            .find(|arg| arg.starts_with("--"))
+            .expect("removed flag");
+        assert!(stderr.contains(flag), "{args:?} stderr: {stderr}");
+    }
+}
+
+#[test]
+fn removed_commands_new_command_help_uses_mcp_task_definitions() {
+    for (command, description) in [
+        (
+            "list-notes",
+            "Page through visible Markdown notes for lightweight navigation.",
+        ),
+        (
+            "audit-links",
+            "Audit unresolved and ambiguous local links across the visible vault.",
+        ),
+        (
+            "get-note-neighborhood",
+            "Return a bounded resolved-link neighborhood around one note reference.",
+        ),
+    ] {
+        let help = run_raw_cli(&[command, "--help"]);
+        assert!(
+            help.status.success(),
+            "{command} stderr: {}",
+            String::from_utf8_lossy(&help.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&help.stdout).contains(description),
+            "{command} help should contain {description:?}"
+        );
+    }
+}
+
 #[test]
 fn resolve_ref_command_returns_machine_readable_json() {
     let dir = tempdir().expect("tempdir");

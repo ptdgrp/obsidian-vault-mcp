@@ -1,17 +1,156 @@
-use std::fs;
+use std::{collections::BTreeSet, fs};
 
 use rmcp::handler::server::wrapper::{Json, Parameters};
 
 use super::fixture;
-use crate::query::{
-    FrontmatterMatchMode, GraphNeighborhoodDirection, GraphNeighborhoodOptions, TagScope,
-};
+use crate::query::{FrontmatterMatchMode, TagScope};
 use crate::server::{
-    AppendSectionRequest, AuditLinksRequest, ContextNoteRequest, ContextReferenceRequest,
-    EmptyRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest,
-    NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest, RenameBlockIdRequest,
-    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, VaultFilesRequest,
+    AppendSectionRequest, AuditLinksRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest,
+    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
+    RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
 };
+
+const TASK_DEFINITION_LIST_NOTES: &str =
+    "Page through visible Markdown notes for lightweight navigation.";
+const TASK_DEFINITION_AUDIT_LINKS: &str =
+    "Audit unresolved and ambiguous local links across the visible vault.";
+const TASK_DEFINITION_GET_NOTE_NEIGHBORHOOD: &str =
+    "Return a bounded resolved-link neighborhood around one note reference.";
+
+fn tool_properties(name: &str) -> serde_json::Map<String, serde_json::Value> {
+    ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|definition| definition.name == name)
+        .unwrap_or_else(|| panic!("{name} definition"))
+        .input_schema["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{name} input schema properties"))
+        .clone()
+}
+
+#[test]
+fn public_tool_set_matches_task8_contract_exactly() {
+    let actual = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .collect::<BTreeSet<_>>();
+    let expected = [
+        "list_notes",
+        "audit_links",
+        "get_note_neighborhood",
+        "get_note_structure",
+        "get_note_outline",
+        "read_note",
+        "get_note_stats",
+        "search_text",
+        "search_regex",
+        "resolve_ref",
+        "get_outlinks",
+        "get_backlinks",
+        "list_tags",
+        "get_tag",
+        "list_categories",
+        "get_category",
+        "query_frontmatter",
+        "append_section",
+        "replace_section",
+        "delete_section",
+        "rename_note",
+        "rename_heading",
+        "rename_block_id",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<BTreeSet<_>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn public_tool_set_paged_collections_use_fixed_page_contract() {
+    for name in [
+        "list_notes",
+        "audit_links",
+        "get_note_outline",
+        "search_text",
+        "search_regex",
+        "get_outlinks",
+        "get_backlinks",
+        "list_tags",
+        "get_tag",
+        "list_categories",
+        "get_category",
+        "query_frontmatter",
+    ] {
+        let properties = tool_properties(name);
+        assert!(properties.contains_key("page"), "{name} should expose page");
+        assert!(
+            !properties.contains_key("page_size"),
+            "{name} must not expose page_size"
+        );
+        assert!(
+            !properties.contains_key("cursor"),
+            "{name} must not expose cursor"
+        );
+    }
+}
+
+#[test]
+fn public_tool_set_filter_tools_expose_include_exclude_arrays() {
+    for name in [
+        "list_notes",
+        "search_text",
+        "search_regex",
+        "get_backlinks",
+        "list_tags",
+        "get_tag",
+        "list_categories",
+        "get_category",
+        "query_frontmatter",
+    ] {
+        let properties = tool_properties(name);
+        assert_eq!(properties["include"]["type"], "array", "{name} include");
+        assert_eq!(properties["exclude"]["type"], "array", "{name} exclude");
+    }
+}
+
+#[test]
+fn public_tool_set_removed_inputs_stay_absent_from_schemas() {
+    for name in ["get_outlinks", "get_backlinks", "list_tags", "get_tag"] {
+        let properties = tool_properties(name);
+        assert!(!properties.contains_key("verbose"), "{name} verbose");
+    }
+
+    for name in ["search_text", "search_regex"] {
+        let properties = tool_properties(name);
+        assert!(
+            !properties.contains_key("context_lines"),
+            "{name} context_lines"
+        );
+    }
+
+    let outline = tool_properties("get_note_outline");
+    assert!(!outline.contains_key("heading"));
+}
+
+#[test]
+fn public_tool_set_new_task_descriptions_match_canonical_sentences() {
+    let definitions = ObsidianVaultMcp::tool_definitions();
+    for (name, expected) in [
+        ("list_notes", TASK_DEFINITION_LIST_NOTES),
+        ("audit_links", TASK_DEFINITION_AUDIT_LINKS),
+        (
+            "get_note_neighborhood",
+            TASK_DEFINITION_GET_NOTE_NEIGHBORHOOD,
+        ),
+    ] {
+        let definition = definitions
+            .iter()
+            .find(|definition| definition.name == name)
+            .unwrap_or_else(|| panic!("{name} definition"));
+        assert_eq!(definition.description.as_deref(), Some(expected), "{name}");
+    }
+}
 
 #[test]
 fn tool_definitions_are_sorted_and_unknown_tools_stay_absent() {
@@ -227,74 +366,6 @@ fn search_and_frontmatter_tools_surface_results_and_regex_errors() {
 }
 
 #[test]
-fn list_vault_files_tool_respects_limits_and_readme_outline() {
-    let (dir, server) = fixture();
-    fs::create_dir_all(dir.path().join("正文")).expect("正文 dir");
-    fs::write(dir.path().join("正文/README.md"), "# 正文索引\n").expect("write readme");
-    fs::write(dir.path().join("图.png"), b"png").expect("write attachment");
-
-    let Json(files) = server
-        .list_vault_files(Parameters(VaultFilesRequest {
-            include_files: true,
-            include_attachments: true,
-            include_readme_outline: true,
-            max_files: 2,
-        }))
-        .expect("list files");
-    assert_eq!(files.files.len(), 2);
-    assert!(files.truncated_files > 0);
-
-    let Json(full) = server
-        .list_vault_files(Parameters(VaultFilesRequest {
-            include_files: true,
-            include_attachments: true,
-            include_readme_outline: true,
-            max_files: 100,
-        }))
-        .expect("list files full");
-    let readme = full
-        .files
-        .iter()
-        .find(|file| file.path == "正文/README.md")
-        .expect("readme");
-    assert_eq!(readme.outline.as_ref(), Some(&Vec::<String>::new()));
-}
-
-#[test]
-fn context_and_graph_tools_handle_empty_and_successful_cases() {
-    let (_dir, server) = fixture();
-
-    let Json(note_context) = server
-        .collect_note_context(Parameters(ContextNoteRequest {
-            note: "林动.md".to_string(),
-        }))
-        .expect("note context");
-    assert_eq!(note_context.groups[0].kind, "current");
-
-    let Json(reference_context) = server
-        .collect_reference_context(Parameters(ContextReferenceRequest {
-            reference: "[[缺失]]".to_string(),
-        }))
-        .expect("reference context");
-    assert!(reference_context.groups.is_empty());
-
-    let Json(graph) = server
-        .get_vault_graph(Parameters(EmptyRequest {}))
-        .expect("graph");
-    assert!(graph.nodes.iter().any(|node| node.path == "林动.md"));
-
-    let Json(neighborhood) = server
-        .get_graph_neighborhood(Parameters(GraphNeighborhoodOptions {
-            target: "林动".to_string(),
-            depth: 1,
-            direction: GraphNeighborhoodDirection::Both,
-            include_unresolved: false,
-        }))
-        .expect("graph neighborhood");
-    assert!(neighborhood.nodes.iter().any(|node| node.path == "林动.md"));
-}
-
-#[test]
 fn replace_section_and_link_health_tools_work_through_server_surface() {
     let (dir, server) = fixture();
     fs::write(dir.path().join("额外.md"), "# 额外\n\n[[缺失]]\n").expect("write unresolved");
@@ -318,15 +389,11 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
             .contains("已替换")
     );
 
-    let Json(unresolved) = server
-        .find_unresolved_links(Parameters(EmptyRequest {}))
-        .expect("find unresolved");
-    assert!(!unresolved.links.is_empty());
-
-    let Json(ambiguous) = server
-        .find_ambiguous_links(Parameters(EmptyRequest {}))
-        .expect("find ambiguous");
-    assert!(ambiguous.links.is_empty());
+    let Json(audit) = server
+        .audit_links(Parameters(AuditLinksRequest { page: 1 }))
+        .expect("audit links");
+    assert!(!audit.unresolved.is_empty());
+    assert!(audit.ambiguous.is_empty());
 }
 
 #[test]
@@ -407,8 +474,8 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
         .expect("get tag");
     assert_eq!(tags.matches, vec!["标签.md".to_string()]);
 
-    let Json(ambiguous) = server
-        .find_ambiguous_links(Parameters(EmptyRequest {}))
-        .expect("find ambiguous");
-    assert_eq!(ambiguous.links.len(), 1);
+    let Json(audit) = server
+        .audit_links(Parameters(AuditLinksRequest { page: 1 }))
+        .expect("audit links");
+    assert_eq!(audit.ambiguous.len(), 1);
 }

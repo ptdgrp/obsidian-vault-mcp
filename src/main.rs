@@ -102,7 +102,7 @@ enum Command {
     /// Check vault config and list readable notes
     Doctor,
 
-    /// Page through visible Markdown notes for lightweight navigation.
+    #[command(about = "Page through visible Markdown notes for lightweight navigation.")]
     ListNotes {
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -116,13 +116,13 @@ enum Command {
         page: usize,
     },
 
-    /// Audit unresolved and ambiguous local links across the visible vault.
+    #[command(about = "Audit unresolved and ambiguous local links across the visible vault.")]
     AuditLinks {
         #[arg(long, default_value_t = 1)]
         page: usize,
     },
 
-    /// Return a bounded resolved-link neighborhood around one note reference.
+    #[command(about = "Return a bounded resolved-link neighborhood around one note reference.")]
     GetNoteNeighborhood {
         target: String,
         #[arg(long, default_value_t = 1)]
@@ -161,21 +161,6 @@ enum Command {
 
     /// Return one note's word count, character count, and total backlink count
     GetNoteStats { note: String },
-
-    /// Print a gitignore-aware flat list of visible vault files
-    ListVaultFiles {
-        #[arg(long, default_value_t = true)]
-        include_files: bool,
-
-        #[arg(long, default_value_t = false)]
-        include_attachments: bool,
-
-        #[arg(long, default_value_t = false)]
-        include_readme_outline: bool,
-
-        #[arg(long, default_value_t = 100)]
-        max_files: usize,
-    },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
     ResolveRef { reference: String },
@@ -330,34 +315,6 @@ enum Command {
         page: usize,
     },
 
-    /// Collect bounded context around one note
-    CollectNoteContext { note: String },
-
-    /// Resolve a reference, then collect bounded context
-    CollectReferenceContext { reference: String },
-
-    /// Find local links that do not resolve to any note
-    FindUnresolvedLinks,
-
-    /// Find local links that resolve to multiple candidate notes
-    FindAmbiguousLinks,
-
-    /// Build the full local-link vault graph for audit or visualization
-    GetVaultGraph,
-
-    /// Build a bounded local-link graph neighborhood for normal context use
-    GetGraphNeighborhood {
-        target: String,
-
-        #[arg(long, default_value_t = 1)]
-        depth: usize,
-
-        #[arg(long, default_value = "both")]
-        direction: String,
-
-        #[arg(long, default_value_t = false)]
-        include_unresolved: bool,
-    },
     /// Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
     AppendSection {
         /// Vault-relative path, note stem, or alias.
@@ -534,20 +491,6 @@ async fn main() -> anyhow::Result<()> {
             Command::GetNoteStats { note } => {
                 print_value(&queries.get_note_stats(&note)?)?;
             }
-            Command::ListVaultFiles {
-                include_files,
-                include_attachments,
-                include_readme_outline,
-                max_files,
-            } => {
-                let result = queries.list_vault_files(crate::query::VaultFilesOptions {
-                    include_files,
-                    include_attachments,
-                    include_readme_outline,
-                    max_files,
-                })?;
-                print_value(&result)?;
-            }
             Command::ResolveRef { reference } => {
                 print_value(&queries.resolve_ref(&reference)?)?;
             }
@@ -664,36 +607,6 @@ async fn main() -> anyhow::Result<()> {
                     page,
                 )?)?;
             }
-            Command::CollectNoteContext { note } => {
-                print_value(&queries.collect_note_context(&note)?)?;
-            }
-            Command::CollectReferenceContext { reference } => {
-                print_value(&queries.collect_reference_context(&reference)?)?;
-            }
-            Command::FindUnresolvedLinks => {
-                print_value(&queries.find_unresolved_links()?)?;
-            }
-            Command::FindAmbiguousLinks => {
-                print_value(&queries.find_ambiguous_links()?)?;
-            }
-            Command::GetVaultGraph => {
-                print_value(&queries.get_vault_graph()?)?;
-            }
-            Command::GetGraphNeighborhood {
-                target,
-                depth,
-                direction,
-                include_unresolved,
-            } => {
-                print_value(&queries.get_graph_neighborhood(
-                    crate::query::GraphNeighborhoodOptions {
-                        target,
-                        depth,
-                        direction: parse_graph_neighborhood_direction(&direction)?,
-                        include_unresolved,
-                    },
-                )?)?;
-            }
             Command::AppendSection { note, heading, block_id, line, content } => {
                 let (note, selector) = section_parts(note, heading, block_id, line).map_err(|_|anyhow::anyhow!("provide exactly one selector: --heading, --block-id, or --line"))?;
                 print_value(&mutations.append_section(&note, selector, &content)?)?
@@ -721,19 +634,6 @@ async fn main() -> anyhow::Result<()> {
     .await;
     telemetry.shutdown();
     result
-}
-
-fn parse_graph_neighborhood_direction(
-    input: &str,
-) -> anyhow::Result<crate::query::GraphNeighborhoodDirection> {
-    match input {
-        "out" => Ok(crate::query::GraphNeighborhoodDirection::Out),
-        "in" => Ok(crate::query::GraphNeighborhoodDirection::In),
-        "both" => Ok(crate::query::GraphNeighborhoodDirection::Both),
-        _ => Err(anyhow::anyhow!(
-            "invalid graph neighborhood direction: {input}; expected one of: both, out, in"
-        )),
-    }
 }
 
 fn parse_neighborhood_direction(
