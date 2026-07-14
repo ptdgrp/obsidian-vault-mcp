@@ -308,7 +308,10 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
             content: "## 原理\n\n已替换\n".to_string(),
         }))
         .expect("replace section");
-    assert_eq!(replaced.note, "发动机.md");
+    assert_eq!(
+        serde_json::to_value(replaced).expect("replace section json"),
+        serde_json::json!({"changed": "发动机.md#L3-L5"})
+    );
     assert!(
         fs::read_to_string(dir.path().join("发动机.md"))
             .expect("read note")
@@ -345,7 +348,10 @@ fn append_read_and_rename_block_id_tools_work_through_server_surface() {
             content: "\n补充说明\n".to_string(),
         }))
         .expect("append section");
-    assert_eq!(appended.note, "块.md");
+    assert_eq!(
+        serde_json::to_value(appended).expect("append section json"),
+        serde_json::json!({"changed": "块.md#L7-L8"})
+    );
 
     let Json(read) = server
         .read_note(Parameters(ReadNoteRequest {
@@ -399,7 +405,7 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
             page: 1,
         }))
         .expect("get tag");
-    assert_eq!(tags.matches, vec!["林动.md".to_string()]);
+    assert_eq!(tags.matches, vec!["标签.md".to_string()]);
 
     let Json(ambiguous) = server
         .find_ambiguous_links(Parameters(EmptyRequest {}))

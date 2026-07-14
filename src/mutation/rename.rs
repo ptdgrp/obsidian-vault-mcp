@@ -16,18 +16,24 @@ struct TextEdit {
 impl VaultMutations {
     pub fn rename_note(
         &self,
-        note: &str,
+        path: &str,
         new_path: &str,
         dry_run: bool,
     ) -> anyhow::Result<RenameResult> {
         let notes = self.queries.index_notes()?;
-        let target = find_indexed_note(note, &notes)?;
-        let destination = self.queries.vault.resolve_path(new_path)?;
+        let target_path = self.queries.vault.resolve_exact_note_path(path)?;
+        let target_relative_path = self.queries.vault.relative_path(&target_path);
+        let target = notes
+            .iter()
+            .find(|note| note.file.relative_path == target_relative_path)
+            .ok_or_else(|| anyhow::anyhow!("note not found: {path}"))?;
+        let destination = self.queries.vault.resolve_exact_note_path(new_path)?;
         if destination.exists() {
             return Err(anyhow::anyhow!(
                 "destination note already exists: {new_path}"
             ));
         }
+        let new_relative_path = self.queries.vault.relative_path(&destination);
         let mut edits: BTreeMap<String, Vec<TextEdit>> = BTreeMap::new();
         let mut updated_references = 0;
         for source_note in &notes {
@@ -48,14 +54,25 @@ impl VaultMutations {
                     .push(TextEdit {
                         start: link.source.byte_start,
                         end: link.source.byte_end,
-                        replacement: replace_link_target(&link.raw, new_path),
+                        replacement: replace_link_target(&link.raw, &new_relative_path),
                     });
-                updated_references += 1;
+                if source_note.file.relative_path != target.file.relative_path {
+                    updated_references += 1;
+                }
             }
         }
-        let mut changed_notes: Vec<String> = edits.keys().cloned().collect();
-        changed_notes.push(new_path.to_string());
-        changed_notes.sort();
+        let mut changed_notes: Vec<String> = edits
+            .keys()
+            .map(|path| {
+                if path == &target.file.relative_path {
+                    new_relative_path.clone()
+                } else {
+                    path.clone()
+                }
+            })
+            .collect();
+        changed_notes.push(new_relative_path.clone());
+        changed_notes.sort_by(|left, right| natord::compare(left, right));
         changed_notes.dedup();
         if !dry_run {
             let parent = destination

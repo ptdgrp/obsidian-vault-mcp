@@ -216,17 +216,17 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
-    /// Locate selected body or frontmatter tags
-    GetTags {
-        tags: Vec<String>,
+    /// Locate one body or frontmatter tag
+    GetTag {
+        tag: String,
 
         #[arg(long, default_value = "note")]
         scope: String,
-
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
 
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -235,6 +235,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// List unique folder-derived category names
@@ -246,11 +249,14 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
-    /// Locate selected folder-derived categories
-    GetCategories {
-        categories: Vec<String>,
+    /// Locate one folder-derived category
+    GetCategory {
+        category: String,
 
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -259,6 +265,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Query notes by a top-level frontmatter field
@@ -270,6 +279,17 @@ enum Command {
 
         #[arg(long)]
         value: Option<String>,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Literal search
@@ -279,9 +299,6 @@ enum Command {
         #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
-        context_lines: usize,
-
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
         include: Vec<String>,
@@ -289,6 +306,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Regex search
@@ -298,9 +318,6 @@ enum Command {
         #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
-        context_lines: usize,
-
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
         include: Vec<String>,
@@ -308,6 +325,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Collect bounded context around one note
@@ -411,8 +431,8 @@ enum Command {
     },
     /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
     RenameNote {
-        /// Existing vault-relative path, note stem, or alias.
-        note: String,
+        /// Existing safe vault-relative Markdown path.
+        path: String,
         /// New vault-relative Markdown path. Parent directories are created when applying.
         new_path: String,
         /// Preview changed notes and references without writing. Defaults to true.
@@ -546,81 +566,102 @@ async fn main() -> anyhow::Result<()> {
                 scope,
                 include,
                 exclude,
+                page,
             } => {
-                print_value(&queries.list_tags(parse_tag_scope(&scope)?, &include, &exclude)?)?;
-            }
-            Command::GetTags {
-                tags,
-                scope,
-                verbose,
-                include,
-                exclude,
-            } => {
-                if tags.is_empty() {
-                    return Err(anyhow::anyhow!(
-                        "provide at least one tag; use list_tags to discover tag names"
-                    ));
-                }
-                print_value(&queries.get_tags(
-                    &tags,
+                print_value(&queries.list_tags(
                     parse_tag_scope(&scope)?,
-                    verbose,
                     &include,
                     &exclude,
+                    page,
                 )?)?;
             }
-            Command::ListCategories { include, exclude } => {
-                print_value(&queries.list_categories(&include, &exclude)?)?;
-            }
-            Command::GetCategories {
-                categories,
+            Command::GetTag {
+                tag,
+                scope,
                 include,
                 exclude,
+                page,
             } => {
-                if categories.is_empty() {
+                if tag.trim().trim_start_matches('#').is_empty() {
                     return Err(anyhow::anyhow!(
-                        "provide at least one category; use list_categories to discover category names"
+                        "provide a non-empty tag; use list_tags to discover tag names"
                     ));
                 }
-                print_value(&queries.get_categories(&categories, &include, &exclude)?)?;
+                print_value(&queries.get_tag(
+                    &tag,
+                    parse_tag_scope(&scope)?,
+                    &include,
+                    &exclude,
+                    page,
+                )?)?;
             }
-            Command::QueryFrontmatter { field, mode, value } => {
+            Command::ListCategories {
+                include,
+                exclude,
+                page,
+            } => {
+                print_value(&queries.list_categories(&include, &exclude, page)?)?;
+            }
+            Command::GetCategory {
+                category,
+                include,
+                exclude,
+                page,
+            } => {
+                if category.trim().trim_matches('/').is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide a non-empty category; use list_categories to discover category names"
+                    ));
+                }
+                print_value(&queries.get_category(&category, &include, &exclude, page)?)?;
+            }
+            Command::QueryFrontmatter {
+                field,
+                mode,
+                value,
+                include,
+                exclude,
+                page,
+            } => {
                 print_value(&queries.query_frontmatter(
                     crate::query::FrontmatterQueryOptions {
                         field,
                         mode: parse_frontmatter_match_mode(&mode)?,
                         value,
+                        include,
+                        exclude,
+                        page,
                     },
                 )?)?;
             }
             Command::SearchText {
                 query,
                 case_sensitive,
-                context_lines,
                 include,
                 exclude,
+                page,
             } => {
                 print_value(&queries.search_text(
                     &query,
                     case_sensitive,
-                    context_lines,
                     &include,
                     &exclude,
+                    page,
                 )?)?;
             }
             Command::SearchRegex {
                 pattern,
                 case_sensitive,
-                context_lines,
                 include,
                 exclude,
+                page,
             } => {
                 print_value(&queries.search_regex(
                     &pattern,
                     case_sensitive,
-                    context_lines,
                     &include,
                     &exclude,
+                    page,
                 )?)?;
             }
             Command::CollectNoteContext { note } => {
@@ -668,8 +709,8 @@ async fn main() -> anyhow::Result<()> {
             Command::RenameHeading { note, old_heading, new_heading, dry_run } => {
                 print_value(&mutations.rename_heading(&note, &old_heading, &new_heading, dry_run)?)?
             }
-            Command::RenameNote { note, new_path, dry_run } => {
-                print_value(&mutations.rename_note(&note, &new_path, dry_run)?)?
+            Command::RenameNote { path, new_path, dry_run } => {
+                print_value(&mutations.rename_note(&path, &new_path, dry_run)?)?
             }
             Command::RenameBlockId { note, old_block_id, new_block_id, dry_run } => {
                 print_value(&mutations.rename_block_id(&note, &old_block_id, &new_block_id, dry_run)?)?

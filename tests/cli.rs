@@ -335,6 +335,64 @@ fn rename_heading_command_applies_changes_when_dry_run_disabled() {
 }
 
 #[test]
+fn rename_note_command_requires_exact_markdown_paths() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "推进器.md", "# 推进器\n");
+    write_note(&dir, "引用.md", "# 引用\n\n[[推进器.md]]\n");
+    let before_target = fs::read_to_string(dir.path().join("推进器.md")).expect("read target");
+    let before_reference = fs::read_to_string(dir.path().join("引用.md")).expect("read ref");
+
+    let missing_extension = run_cli(
+        &dir,
+        &[
+            "rename-note",
+            "推进器",
+            "archive/推进器.md",
+            "--dry-run=false",
+        ],
+    );
+
+    assert!(!missing_extension.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing_extension.stderr)
+            .contains("exact note path must end with .md")
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("推进器.md")).expect("read target"),
+        before_target
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("引用.md")).expect("read ref"),
+        before_reference
+    );
+
+    let output = run_cli(
+        &dir,
+        &[
+            "rename-note",
+            "推进器.md",
+            "archive/推进器.md",
+            "--dry-run=false",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "dry_run": false,
+            "updated_references": 1,
+            "changed_notes": ["archive/推进器.md", "引用.md"]
+        })
+    );
+}
+
+#[test]
 fn invalid_tag_scope_exits_with_clear_diagnostic() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "林动.md", "# 林动\n");

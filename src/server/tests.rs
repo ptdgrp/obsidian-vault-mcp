@@ -345,7 +345,7 @@ fn rename_note_defaults_to_dry_run_and_reports_changed_notes() {
 
     let Json(result) = server
         .rename_note(Parameters(RenameNoteRequest {
-            note: "引用.md".to_string(),
+            path: "引用.md".to_string(),
             new_path: "archive/引用.md".to_string(),
             dry_run: true,
         }))

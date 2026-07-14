@@ -40,7 +40,7 @@ fn rename_note_dry_run_reports_changes_without_writing_files() {
     let before_target = read_note(&dir, "推进器.md");
     let before_reference = read_note(&dir, "引用.md");
     let preview = mutations
-        .rename_note("推进器", "archive/推进器-新版.md", true)
+        .rename_note("推进器.md", "archive/推进器-新版.md", true)
         .expect("preview");
 
     assert!(preview.dry_run);
@@ -51,6 +51,33 @@ fn rename_note_dry_run_reports_changes_without_writing_files() {
     );
     assert_eq!(read_note(&dir, "推进器.md"), before_target);
     assert_eq!(read_note(&dir, "引用.md"), before_reference);
+}
+
+#[test]
+fn rename_note_reports_complete_natural_changed_notes_and_excludes_target_move_from_reference_count()
+ {
+    let (_dir, mutations) = fixture();
+    write_note(&_dir, "target.md", "# Target\n\n自引用 [[target.md]]\n");
+    write_note(&_dir, "ref10.md", "# Ref 10\n\n[[target.md]]\n");
+    write_note(&_dir, "ref2.md", "# Ref 2\n\n[[target.md]]\n");
+
+    let preview = mutations
+        .rename_note("target.md", "archive/target.md", true)
+        .expect("preview");
+
+    assert_eq!(preview.updated_references, 2);
+    assert_eq!(
+        preview.changed_notes,
+        vec![
+            "archive/target.md".to_string(),
+            "ref2.md".to_string(),
+            "ref10.md".to_string()
+        ]
+    );
+    let value = serde_json::to_value(preview).expect("rename note json");
+    assert!(value.get("note").is_none());
+    assert!(value.get("new_path").is_none());
+    assert!(value.get("old_path").is_none());
 }
 
 #[test]
