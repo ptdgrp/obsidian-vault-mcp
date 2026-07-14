@@ -168,9 +168,8 @@ fn list_and_note_structure_tools_return_note_metadata() {
             note: "发动机.md".to_string(),
         }))
         .expect("get note structure");
-    assert_eq!(structure.path, "发动机.md");
-    assert_eq!(structure.links.len(), 1);
-    assert_eq!(structure.links[0].line, 5);
+    assert_eq!(structure.note, "发动机.md");
+    assert_eq!(structure.link_count, 1);
 }
 
 #[test]
@@ -388,10 +387,10 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
     let Json(outline) = server
         .get_note_outline(Parameters(NoteOutlineRequest {
             note: "发动机.md".to_string(),
-            heading: Some("原理".to_string()),
+            page: 1,
         }))
         .expect("outline");
-    assert_eq!(outline.outline[0].heading, "原理");
+    assert_eq!(outline.headings[0].heading, "原理");
 
     let Json(tags) = server
         .get_tags(Parameters(TagsRequest {

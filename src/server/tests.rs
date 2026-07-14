@@ -5,8 +5,9 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use tempfile::tempdir;
 
 use super::{
-    BacklinksRequest, CategoriesRequest, ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest,
-    RenameHeadingRequest, RenameNoteRequest, TagsRequest,
+    BacklinksRequest, CategoriesRequest, NoteOutlineRequest, NoteStructureRequest,
+    ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest, RenameHeadingRequest, RenameNoteRequest,
+    TagsRequest,
 };
 use crate::{
     query::TagScope,
@@ -134,8 +135,29 @@ fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
             line: None,
         }))
         .expect("read heading through MCP");
-    assert_eq!(result.source.line_start, 3);
+    assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.truncated);
+}
+
+#[test]
+fn note_structure_tool_returns_compact_contract_without_parser_links() {
+    let (_dir, server) = fixture();
+
+    let Json(result) = server
+        .get_note_structure(Parameters(NoteStructureRequest {
+            note: "发动机.md".to_string(),
+        }))
+        .expect("get note structure");
+    let value = serde_json::to_value(result).expect("structure json");
+
+    assert_eq!(value["note"], "发动机.md");
+    assert_eq!(value["link_count"], 1);
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "line": 3}])
+    );
+    assert!(value.get("links").is_none());
+    assert!(value.get("path").is_none());
 }
 
 #[test]
@@ -223,11 +245,10 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
     let Json(result) = server
         .get_note_stats(Parameters(NoteStatsRequest {
             note: "林动.md".to_string(),
-            word_count_mode: Default::default(),
         }))
         .expect("get note stats");
 
-    assert_eq!(result.note, "林动.md");
+    assert_eq!(result.scope, "林动.md");
     assert_eq!(result.word_count, 7);
     assert_eq!(result.line_count, 7);
     assert_eq!(result.backlink_count, 1);
@@ -235,17 +256,60 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
 }
 
 #[test]
-fn note_stats_tool_returns_source_for_a_scoped_reference() {
+fn note_stats_tool_returns_normalized_scope_for_a_scoped_reference() {
     let (_dir, server) = fixture();
 
     let Json(result) = server
         .get_note_stats(Parameters(NoteStatsRequest {
             note: "发动机#原理".to_string(),
-            word_count_mode: Default::default(),
         }))
         .expect("scoped note stats");
 
-    assert_eq!(result.source.expect("source").line_start, 3);
+    let value = serde_json::to_value(result).expect("stats json");
+    assert_eq!(value["scope"], "发动机.md#原理");
+    assert!(value.get("source").is_none());
+    assert!(value.get("word_count_mode").is_none());
+}
+
+#[test]
+fn note_stats_schema_does_not_expose_word_count_mode() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "get_note_stats")
+        .expect("get_note_stats tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("note stats input properties");
+
+    assert!(properties.contains_key("note"));
+    assert!(!properties.contains_key("word_count_mode"));
+}
+
+#[test]
+fn note_outline_schema_uses_page_not_heading_selector() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "get_note_outline")
+        .expect("get_note_outline tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("note outline input properties");
+
+    assert!(properties.contains_key("page"));
+    assert!(!properties.contains_key("heading"));
+
+    let (_dir, server) = fixture();
+    let Json(result) = server
+        .get_note_outline(Parameters(NoteOutlineRequest {
+            note: "发动机.md".to_string(),
+            page: 1,
+        }))
+        .expect("get note outline");
+    let value = serde_json::to_value(result).expect("outline json");
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "level": 2, "line": 3}])
+    );
 }
 
 #[test]

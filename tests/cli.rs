@@ -57,9 +57,13 @@ fn get_note_structure_command_returns_machine_readable_json() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["path"], "发动机.md");
-    assert_eq!(value["headings"][0]["text"], "发动机");
-    assert_eq!(value["links"][0]["target"], "林动");
+    assert_eq!(value["note"], "发动机.md");
+    assert_eq!(value["link_count"], 1);
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "line": 3}])
+    );
+    assert!(value.get("links").is_none());
 }
 
 #[test]
@@ -112,7 +116,7 @@ fn task_oriented_link_commands_return_compact_json() {
 }
 
 #[test]
-fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
+fn get_note_outline_command_returns_flat_paged_heading_list() {
     let dir = tempdir().expect("tempdir");
     write_note(
         &dir,
@@ -120,15 +124,7 @@ fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
         "# Note title\n\n## Parent\n\n### Child\n\n#### Target\n\n### Other\n",
     );
 
-    let output = run_cli(
-        &dir,
-        &[
-            "get-note-outline",
-            "outline.md",
-            "--heading",
-            "Parent/Child/Target",
-        ],
-    );
+    let output = run_cli(&dir, &["get-note-outline", "outline.md", "--page", "1"]);
 
     assert!(
         output.status.success(),
@@ -136,13 +132,20 @@ fn get_note_outline_command_returns_selected_heading_ancestor_chain() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["outline"][0]["heading"], "Parent");
-    assert_eq!(value["outline"][0]["children"][0]["heading"], "Child");
     assert_eq!(
-        value["outline"][0]["children"][0]["children"][0]["heading"],
-        "Target"
+        value["headings"],
+        serde_json::json!([
+            {"heading": "Parent", "level": 2, "line": 3},
+            {"heading": "Parent/Child", "level": 3, "line": 5},
+            {"heading": "Parent/Child/Target", "level": 4, "line": 7},
+            {"heading": "Parent/Other", "level": 3, "line": 9}
+        ])
     );
-    assert_eq!(value["outline"][0]["children"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        value["pagination"],
+        serde_json::json!({"page": 1, "total_pages": 1, "total_headings": 4})
+    );
+    assert!(value.get("outline").is_none());
 }
 
 #[test]
@@ -279,6 +282,8 @@ fn read_note_character_limit_uses_unicode_characters() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(value["content"], "甲乙");
     assert_eq!(value["truncated"], true);
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
 }
 
 #[test]
@@ -308,8 +313,10 @@ fn read_note_accepts_explicit_selectors() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["source"]["path"], "发动机.md#L3-L5");
+    assert_eq!(value["source"], "发动机.md#L3-L5");
     assert!(value["truncated"].as_bool().expect("truncated"));
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
 }
 
 #[test]

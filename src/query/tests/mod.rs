@@ -188,25 +188,51 @@ fn parse_note_extracts_obsidian_structures_and_sections() {
 }
 
 #[test]
-fn get_note_structure_uses_compact_shared_output() {
-    let (_dir, queries) = fixture();
-    let result = queries.get_note_structure("林动").expect("parse result");
-    assert_eq!(result.path, "林动.md");
-    assert_eq!(result.headings[0].text, "林动");
-    assert_eq!(result.headings[0].line, 10);
-    let link = result
-        .links
-        .iter()
-        .find(|link| link.target == "发动机")
-        .expect("发动机 link");
-    assert_eq!(link.alias.as_deref(), Some("发动机"));
-    assert_eq!(link.section.as_deref(), Some("林动"));
+fn note_structure_returns_bounded_compact_inspection_groups() {
+    let (dir, queries) = fixture();
+    let mut content = String::from(
+        "---\naliases: [Alias]\nnested: {key: value}\ntags: [front/b, front/a]\n---\n# Title\n\n[[Target]]\n![[Image.png]]\n![[Image.png]]\n^dup\n^dup\n",
+    );
+    for index in 0..51 {
+        content.push_str(&format!(
+            "\n## Section {index:02}\n\n#tag{index:02} #tag00\n"
+        ));
+    }
+    fs::write(dir.path().join("Structure.md"), content).expect("write structure note");
 
-    let value = serde_json::to_value(result).expect("json");
-    assert!(value["links"][0].get("source").is_none());
-    assert!(value["links"][0].get("raw").is_none());
-    assert!(value["headings"][0].get("source").is_none());
-    assert!(value["headings"][0].get("anchor").is_none());
+    let result = queries
+        .get_note_structure("Structure.md")
+        .expect("structure");
+    let value = serde_json::to_value(result).expect("structure json");
+
+    assert_eq!(value["note"], "Structure.md");
+    assert_eq!(value["link_count"], 1);
+    assert_eq!(
+        value["frontmatter_fields"],
+        serde_json::json!(["aliases", "nested", "tags"])
+    );
+    assert!(value.get("frontmatter").is_none());
+    assert!(value.get("links").is_none());
+    assert_eq!(value["embeds"], serde_json::json!(["Image.png"]));
+    assert_eq!(value["blocks"], serde_json::json!(["dup"]));
+
+    let headings = value["headings"].as_array().expect("headings");
+    assert_eq!(headings.len(), 50);
+    assert_eq!(
+        headings[0],
+        serde_json::json!({"heading": "Section 00", "line": 14})
+    );
+    assert_eq!(
+        headings[49],
+        serde_json::json!({"heading": "Section 49", "line": 210})
+    );
+    assert!(headings.iter().all(|heading| heading["heading"] != "Title"));
+
+    let tags = value["tags"].as_array().expect("tags");
+    assert_eq!(tags.len(), 50);
+    assert_eq!(tags[0], "front/a");
+    assert_eq!(tags[49], "tag47");
+    assert_eq!(value["omitted"], serde_json::json!(["headings", "tags"]));
 }
 
 #[test]
@@ -214,19 +240,19 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
     let (_dir, queries) = fixture();
     let content = "---\naliases:\n  - 动林\ntags:\n  - 主角\n  - 状态/身体\nphase: active\narc: 引擎线\n---\n# 林动\n\n身体 #状态/身体\n\n[[发动机#原理|发动机]]\n\n[[缺失设定]]\n";
 
-    let result = queries
-        .get_note_stats("林动", WordCountMode::Source)
-        .expect("note stats");
-    assert_eq!(result.note, "林动.md");
-    assert_eq!(result.word_count_mode, WordCountMode::Source);
+    let result = queries.get_note_stats("林动").expect("note stats");
+    assert_eq!(result.scope, "林动.md");
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
     assert_eq!(result.line_count, content.lines().count());
     assert_eq!(result.backlink_count, 1);
+    let value = serde_json::to_value(result).expect("stats json");
+    assert!(value.get("word_count_mode").is_none());
+    assert!(value.get("source").is_none());
 }
 
 #[test]
-fn get_note_stats_scopes_text_and_backlinks_to_ref() {
+fn note_stats_scopes_text_and_backlinks_to_normalized_ref() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("Target.md"),
@@ -239,29 +265,27 @@ fn get_note_stats_scopes_text_and_backlinks_to_ref() {
     fs::write(dir.path().join("note-link.md"), "[[Target]]\n").expect("write note link");
 
     let heading = queries
-        .get_note_stats("Target#Section", WordCountMode::Source)
+        .get_note_stats("Target#Section")
         .expect("heading stats");
+    assert_eq!(heading.scope, "Target.md#Section");
     assert_eq!(heading.word_count, 4);
     assert_eq!(heading.line_count, 5);
     assert_eq!(heading.backlink_count, 1);
-    assert_eq!(
-        heading.source.as_ref().expect("heading source").line_start,
-        3
-    );
 
     let block = queries
-        .get_note_stats("Target#^state", WordCountMode::Source)
+        .get_note_stats("Target#^state")
         .expect("block stats");
+    assert_eq!(block.scope, "Target.md#^state");
     assert_eq!(block.word_count, 1);
     assert_eq!(block.line_count, 1);
     assert_eq!(block.backlink_count, 1);
-    assert_eq!(block.source.as_ref().expect("block source").line_start, 7);
 
-    let whole = queries
-        .get_note_stats("Target", WordCountMode::Source)
-        .expect("whole-note stats");
+    let whole = queries.get_note_stats("Target").expect("whole-note stats");
+    assert_eq!(whole.scope, "Target.md");
     assert_eq!(whole.backlink_count, 3);
-    assert!(whole.source.is_none());
+    let value = serde_json::to_value(heading).expect("heading stats json");
+    assert!(value.get("source").is_none());
+    assert!(value.get("mode").is_none());
 }
 
 #[test]
@@ -269,32 +293,9 @@ fn get_note_stats_counts_blank_lines_without_extra_trailing_line() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("line-count.md"), "first\n\nthird\n").expect("write line count note");
 
-    let result = queries
-        .get_note_stats("line-count.md", WordCountMode::Source)
-        .expect("note stats");
+    let result = queries.get_note_stats("line-count.md").expect("note stats");
 
     assert_eq!(result.line_count, 3);
-}
-
-#[test]
-fn get_note_stats_visible_mode_ignores_markdown_metadata_and_comments() {
-    let (dir, queries) = fixture();
-    std::fs::write(
-        dir.path().join("visible.md"),
-        "---\ntitle: Hidden Title\nalias: 隐藏\n---\n# Visible Title\n\nBody **strong** [[Target Note|Alias Text]] [Markdown Text](https://example.com).\n\n%% hidden obsidian comment %%\n<!-- hidden markdown comment -->\n",
-    )
-    .expect("write visible note");
-
-    let source = queries
-        .get_note_stats("visible.md", WordCountMode::Source)
-        .expect("source stats");
-    let visible = queries
-        .get_note_stats("visible.md", WordCountMode::Visible)
-        .expect("visible stats");
-
-    assert_eq!(visible.word_count_mode, WordCountMode::Visible);
-    assert_eq!(visible.word_count, 8);
-    assert!(source.word_count > visible.word_count);
 }
 
 #[test]
@@ -302,9 +303,7 @@ fn get_note_stats_treats_hyphenated_ascii_sequences_as_one_word() {
     let (dir, queries) = fixture();
     std::fs::write(dir.path().join("hyphen.md"), "foo-bar baz\n").expect("write hyphen note");
 
-    let result = queries
-        .get_note_stats("hyphen.md", WordCountMode::Source)
-        .expect("note stats");
+    let result = queries.get_note_stats("hyphen.md").expect("note stats");
     assert_eq!(result.word_count, 2);
 }
 
@@ -318,7 +317,7 @@ fn note_lookup_ignores_numeric_sort_prefix_when_no_exact_note_exists() {
         .read_note("排序标题", None, None)
         .expect("read note");
 
-    assert_eq!(result.path, "001-排序标题.md");
+    assert_eq!(result.source, "001-排序标题.md#L1-L3");
 }
 
 #[test]
@@ -1156,11 +1155,30 @@ fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
 
     assert_eq!(result.content, "# 发动机\n");
     assert!(result.truncated);
-    assert_eq!(
-        result.next_step.as_deref(),
-        Some(
-            "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value."
-        )
+    let value = serde_json::to_value(result).expect("read json");
+    assert_eq!(value["source"], "发动机.md#L1-L5");
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
+}
+
+#[test]
+fn read_note_omits_truncated_field_when_full_content_is_returned() {
+    let (_dir, queries) = fixture();
+
+    let result = queries
+        .read_note("发动机.md", Some(usize::MAX), None)
+        .expect("read full note");
+    let value = serde_json::to_value(result).expect("read json");
+
+    assert_eq!(value["source"], "发动机.md#L1-L5");
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
+    assert!(value.get("truncated").is_none());
+    assert!(
+        value["content"]
+            .as_str()
+            .expect("content")
+            .contains("## 原理")
     );
 }
 
@@ -1205,31 +1223,29 @@ fn read_note_by_heading_returns_heading_scope() {
             }),
         )
         .expect("read section");
-    assert_eq!(result.source.section.unwrap().heading_path, vec!["原理"]);
+    assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.content.contains("链接到 [[林动]]"));
 }
 
 #[test]
 fn note_outline_returns_heading_tree() {
     let (_dir, queries) = fixture();
-    let result = queries
-        .get_note_outline("发动机.md", None)
-        .expect("outline");
+    let result = queries.get_note_outline("发动机.md", 1).expect("outline");
     assert_eq!(result.note, "发动机.md");
-    assert_eq!(result.outline.len(), 1);
-    assert_eq!(result.outline[0].heading, "原理");
-    assert_eq!(result.outline[0].heading_path, vec!["原理".to_string()]);
     let value = serde_json::to_value(&result).expect("outline json");
-    assert!(value["outline"][0].get("heading_anchor").is_none());
-    assert!(
-        value["outline"][0]["source"]["section"]
-            .get("heading_anchor")
-            .is_none()
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "level": 2, "line": 3}])
     );
+    assert_eq!(
+        value["pagination"],
+        serde_json::json!({"page": 1, "total_pages": 1, "total_headings": 1})
+    );
+    assert!(value.get("outline").is_none());
 }
 
 #[test]
-fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
+fn note_outline_flattens_non_h1_headings_in_document_order_with_slash_paths() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("多根.md"),
@@ -1237,19 +1253,18 @@ fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
     )
     .expect("write multi-root note");
 
-    let result = queries.get_note_outline("多根.md", None).expect("outline");
+    let result = queries.get_note_outline("多根.md", 1).expect("outline");
+    let value = serde_json::to_value(result).expect("outline json");
 
-    assert_eq!(result.outline.len(), 2);
-    assert_eq!(result.outline[0].heading, "A");
-    assert_eq!(result.outline[0].heading_path, vec!["A"]);
-    assert_eq!(result.outline[0].children[0].heading, "A1");
-    assert_eq!(result.outline[0].children[0].heading_path, vec!["A", "A1"]);
-    assert_eq!(result.outline[1].heading, "B");
-    assert_eq!(result.outline[1].heading_path, vec!["B"]);
-    assert_eq!(result.outline[1].children[0].heading, "B1");
     assert_eq!(
-        result.outline[1].children[0].children[0].heading_path,
-        vec!["B", "B1", "B2"]
+        value["headings"],
+        serde_json::json!([
+            {"heading": "A", "level": 2, "line": 3},
+            {"heading": "A/A1", "level": 3, "line": 5},
+            {"heading": "B", "level": 2, "line": 9},
+            {"heading": "B/B1", "level": 3, "line": 11},
+            {"heading": "B/B1/B2", "level": 4, "line": 13}
+        ])
     );
 }
 
@@ -1258,32 +1273,54 @@ fn note_outline_is_empty_when_note_only_has_h1_titles() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("只有标题.md"), "# 标题一\n\n# 标题二\n").expect("write h1 note");
 
-    let result = queries
-        .get_note_outline("只有标题.md", None)
-        .expect("outline");
+    let result = queries.get_note_outline("只有标题.md", 1).expect("outline");
 
-    assert!(result.outline.is_empty());
+    let value = serde_json::to_value(result).expect("outline json");
+    assert_eq!(value["headings"], serde_json::json!([]));
 }
 
 #[test]
-fn note_outline_can_return_the_ancestor_chain_for_a_heading_path() {
+fn note_outline_paginates_flat_headings_with_fixed_100_item_pages() {
     let (dir, queries) = fixture();
-    fs::write(
-        dir.path().join("大纲链路.md"),
-        "# Note title\n\n## Parent\n\n### Sibling\n\n#### Target\n\nBody\n\n### Other\n",
+    let mut content = String::from("# Title\n");
+    for index in 1..=101 {
+        content.push_str(&format!("\n## Heading {index:03}\n"));
+    }
+    fs::write(dir.path().join("分页.md"), content).expect("write paged outline note");
+
+    let page_1 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 1)
+            .expect("outline page 1"),
     )
-    .expect("write outline chain note");
+    .expect("page 1 json");
+    assert_eq!(page_1["headings"].as_array().expect("headings").len(), 100);
+    assert_eq!(page_1["headings"][0]["heading"], "Heading 001");
+    assert_eq!(page_1["headings"][99]["heading"], "Heading 100");
+    assert_eq!(
+        page_1["pagination"],
+        serde_json::json!({"page": 1, "total_pages": 2, "total_headings": 101})
+    );
 
-    let result = queries
-        .get_note_outline("大纲链路.md", Some("Parent/Sibling/Target"))
-        .expect("outline chain");
+    let page_2 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 2)
+            .expect("outline page 2"),
+    )
+    .expect("page 2 json");
+    assert_eq!(
+        page_2["headings"],
+        serde_json::json!([{"heading": "Heading 101", "level": 2, "line": 203}])
+    );
+    assert_eq!(
+        page_2["pagination"],
+        serde_json::json!({"page": 2, "total_pages": 2, "total_headings": 101})
+    );
 
-    assert_eq!(result.outline.len(), 1);
-    assert_eq!(result.outline[0].heading, "Parent");
-    assert_eq!(result.outline[0].children.len(), 1);
-    assert_eq!(result.outline[0].children[0].heading, "Sibling");
-    assert_eq!(result.outline[0].children[0].children.len(), 1);
-    assert_eq!(result.outline[0].children[0].children[0].heading, "Target");
+    let error = queries
+        .get_note_outline("分页.md", 3)
+        .expect_err("out of range page");
+    assert!(error.to_string().contains("page 3 out of range"));
 }
 
 #[test]

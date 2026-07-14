@@ -16,12 +16,12 @@ fn read_note_accepts_heading_block_and_line_ref_scopes() {
         .read_note("发动机#原理", None, None)
         .expect("read heading ref");
     assert_eq!(heading.content, "## 原理\n\n链接到 [[林动]] ^state\n");
-    assert_eq!(heading.source.line_start, 3);
+    assert_eq!(heading.source, "发动机.md#L3-L5");
 
     let block = queries
         .read_note("发动机#^state", None, None)
         .expect("read block ref");
-    assert_eq!(block.source.line_start, 5);
+    assert_eq!(block.source, "发动机.md#L5");
 
     let single_line = queries
         .read_note("发动机#L3", None, None)
@@ -31,12 +31,12 @@ fn read_note_accepts_heading_block_and_line_ref_scopes() {
     let bounded = queries
         .read_note("发动机#L3-L5", None, None)
         .expect("read bounded line ref");
-    assert_eq!(bounded.source.line_end, 5);
+    assert_eq!(bounded.source, "发动机.md#L3-L5");
 
     let to_end = queries
         .read_note("发动机#L1-", None, None)
         .expect("read open-ended line ref");
-    assert_eq!(to_end.source.line_end, 5);
+    assert_eq!(to_end.source, "发动机.md#L1-L5");
 
     let error = queries
         .read_note(
@@ -65,8 +65,7 @@ fn read_note_truncates_selected_scope_by_unicode_characters() {
 
     assert_eq!(result.content, "##");
     assert!(result.truncated);
-    assert_eq!(result.source.line_start, 3);
-    assert_eq!(result.source.line_end, 5);
+    assert_eq!(result.source, "字符范围.md#L3-L5");
 }
 
 #[test]
@@ -273,9 +272,7 @@ fn read_note_supports_explicit_selectors_and_selected_truncation() {
         )
         .expect("read block");
 
-    assert_eq!(result.source.path, "块.md");
-    assert_eq!(result.source.line_start, 3);
-    assert_eq!(result.source.line_end, 4);
+    assert_eq!(result.source, "块.md#L3-L4");
     assert_eq!(result.content, "段落\n^state\n");
     assert!(!result.truncated);
 
@@ -307,9 +304,7 @@ fn read_note_clamps_line_ranges_to_existing_lines() {
         )
         .expect("read lines");
 
-    assert_eq!(result.source.path, "发动机.md");
-    assert_eq!(result.source.line_start, 1);
-    assert_eq!(result.source.line_end, 5);
+    assert_eq!(result.source, "发动机.md#L1-L5");
     assert!(result.content.contains("## 原理"));
 }
 
@@ -348,9 +343,7 @@ fn read_note_accepts_markdown_heading_syntax() {
         )
         .expect("read heading with markdown marker");
 
-    assert_eq!(result.source.path, "发动机.md");
-    assert_eq!(result.source.line_start, 3);
-    assert_eq!(result.source.line_end, 5);
+    assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.content.contains("链接到 [[林动]]"));
 }
 
@@ -373,7 +366,7 @@ fn read_note_markdown_heading_syntax_requires_matching_level() {
         )
         .expect("read level-constrained heading");
 
-    assert_eq!(result.source.line_start, 7);
+    assert_eq!(result.source, "同名标题.md#L7-L9");
     assert!(result.content.contains("Right level"));
     assert!(!result.content.contains("Wrong level"));
 }

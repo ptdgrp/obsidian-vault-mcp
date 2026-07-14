@@ -7,7 +7,7 @@ use crate::{
         NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
         NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult, SearchRegexResult,
         SearchTextResult, SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions,
-        VaultFilesResult, VaultGraphResult, VaultQueries, WordCountMode,
+        VaultFilesResult, VaultGraphResult, VaultQueries,
     },
     vault::Vault,
 };
@@ -128,17 +128,15 @@ pub struct NoteStructureRequest {
 pub struct NoteOutlineRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Optional heading or slash-separated heading path. When set, returns only its ancestor chain.
-    pub heading: Option<String>,
+    /// One-based page number. Each page contains up to 100 headings.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoteStatsRequest {
     /// Vault-relative path, note stem, alias, or bare heading/block reference.
     pub note: String,
-    /// Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts.
-    #[serde(default)]
-    pub word_count_mode: WordCountMode,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -521,25 +519,20 @@ impl ObsidianVaultMcp {
     )]
     fn get_note_stats(
         &self,
-        Parameters(NoteStatsRequest {
-            note,
-            word_count_mode,
-        }): Parameters<NoteStatsRequest>,
+        Parameters(NoteStatsRequest { note }): Parameters<NoteStatsRequest>,
     ) -> Result<Json<NoteStatsResult>, String> {
-        run_tool("get_note_stats", || {
-            self.queries().get_note_stats(&note, word_count_mode)
-        })
+        run_tool("get_note_stats", || self.queries().get_note_stats(&note))
     }
 
     #[tool(
-        description = "Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note."
+        description = "Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note."
     )]
     fn get_note_outline(
         &self,
-        Parameters(NoteOutlineRequest { note, heading }): Parameters<NoteOutlineRequest>,
+        Parameters(NoteOutlineRequest { note, page }): Parameters<NoteOutlineRequest>,
     ) -> Result<Json<NoteOutlineResult>, String> {
         run_tool("get_note_outline", || {
-            self.queries().get_note_outline(&note, heading.as_deref())
+            self.queries().get_note_outline(&note, page)
         })
     }
 
