@@ -216,10 +216,10 @@ fn get_note_outline_command_returns_flat_paged_heading_list() {
     assert_eq!(
         value["headings"],
         serde_json::json!([
-            {"heading": "Parent", "level": 2, "line": 3},
-            {"heading": "Parent/Child", "level": 3, "line": 5},
-            {"heading": "Parent/Child/Target", "level": 4, "line": 7},
-            {"heading": "Parent/Other", "level": 3, "line": 9}
+            {"heading": "Parent", "line": 3},
+            {"heading": "Parent/Child", "line": 5},
+            {"heading": "Parent/Child/Target", "line": 7},
+            {"heading": "Parent/Other", "line": 9}
         ])
     );
     assert_eq!(

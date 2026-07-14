@@ -307,7 +307,7 @@ fn note_outline_schema_uses_page_not_heading_selector() {
     let value = serde_json::to_value(result).expect("outline json");
     assert_eq!(
         value["headings"],
-        serde_json::json!([{"heading": "原理", "level": 2, "line": 3}])
+        serde_json::json!([{"heading": "原理", "line": 3}])
     );
 }
 
