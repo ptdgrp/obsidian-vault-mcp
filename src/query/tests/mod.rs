@@ -966,6 +966,43 @@ fn resolve_ref_outputs_compact_unresolved_json_with_unique_suggestion() {
 }
 
 #[test]
+fn resolve_ref_only_suggests_a_unique_same_directory_stem_prefix() {
+    let (dir, queries) = fixture();
+    let chapter_dir = dir.path().join("正文/vol01-卷一/章节");
+    fs::create_dir_all(&chapter_dir).expect("create chapter directory");
+    fs::write(chapter_dir.join("ch005-归途与北声点火.md"), "# ch005\n").expect("write chapter");
+
+    let unique = queries
+        .resolve_ref("正文/vol01-卷一/章节/ch005.md")
+        .expect("resolve unique suggestion");
+    assert_eq!(
+        serde_json::to_value(unique).expect("unique suggestion json"),
+        serde_json::json!({
+            "unresolved_target": "正文/vol01-卷一/章节/ch005.md",
+            "suggested_target": "正文/vol01-卷一/章节/ch005-归途与北声点火.md"
+        })
+    );
+
+    let (dir, queries) = fixture();
+    let chapter_dir = dir.path().join("正文/vol01-卷一/章节");
+    fs::create_dir_all(&chapter_dir).expect("create second chapter directory");
+    fs::write(chapter_dir.join("ch005-归途与北声点火.md"), "# ch005\n")
+        .expect("write first ambiguous chapter");
+    fs::write(chapter_dir.join("ch005-重逢与南火.md"), "# ch005\n")
+        .expect("write second ambiguous chapter");
+
+    let ambiguous = queries
+        .resolve_ref("正文/vol01-卷一/章节/ch005.md")
+        .expect("resolve ambiguous suggestion");
+    assert_eq!(
+        serde_json::to_value(ambiguous).expect("ambiguous suggestion json"),
+        serde_json::json!({
+            "unresolved_target": "正文/vol01-卷一/章节/ch005.md"
+        })
+    );
+}
+
+#[test]
 fn resolve_ref_outputs_compact_unresolved_json_without_suggestion() {
     let (_dir, queries) = fixture();
 

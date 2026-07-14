@@ -594,11 +594,23 @@ pub(crate) fn find_indexed_note<'a>(
             candidates
         )),
         ResolveResult::Unresolved { reference } => {
-            if let Some(closest) = suggested_note_reference(&reference, notes) {
+            let suggestions = suggested_note_references(&reference, notes);
+            if let [closest] = suggestions.as_slice() {
                 return Err(anyhow::anyhow!(
                     "unresolved note reference: {:?} (did you mean {:?})",
                     reference.raw,
                     closest
+                ));
+            }
+            if !suggestions.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "unresolved note reference: {:?} (did you mean one of: {})",
+                    reference.raw,
+                    suggestions
+                        .iter()
+                        .map(|suggestion| format!("{suggestion:?}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             Err(anyhow::anyhow!(
@@ -610,30 +622,80 @@ pub(crate) fn find_indexed_note<'a>(
 }
 
 fn suggested_note_reference(reference: &ObsidianRef, notes: &[IndexedNote]) -> Option<String> {
-    let path = suggested_note_path(&reference.target, notes)?;
-    let note = notes.iter().find(|note| note.file.relative_path == path)?;
-    RefResolver::reference_exists(note, &reference.reference)
-        .then(|| format!("{path}{}", reference_suffix(&reference.reference)))
+    let suggestions = suggested_note_references(reference, notes);
+    match suggestions.as_slice() {
+        [suggestion] => Some(suggestion.clone()),
+        _ => None,
+    }
 }
 
-fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
-    let target = target.trim_end_matches(".md");
-    let target_stem = target.rsplit('/').next().unwrap_or(target);
-    let exact_stems = notes
-        .iter()
-        .filter(|note| {
-            note.file
-                .relative_path
-                .trim_end_matches(".md")
-                .rsplit('/')
-                .next()
-                == Some(target_stem)
+fn suggested_note_references(reference: &ObsidianRef, notes: &[IndexedNote]) -> Vec<String> {
+    suggested_note_paths(&reference.target, notes)
+        .into_iter()
+        .filter_map(|path| {
+            notes
+                .iter()
+                .find(|note| note.file.relative_path == path)
+                .filter(|note| RefResolver::reference_exists(note, &reference.reference))
+                .map(|_| format!("{path}{}", reference_suffix(&reference.reference)))
         })
+        .collect()
+}
+
+fn suggested_note_paths(target: &str, notes: &[IndexedNote]) -> Vec<String> {
+    let requested = Utf8Path::new(target);
+    let requested_parent = requested.parent();
+    let requested_extension = requested.extension();
+    let requested_stem = requested.file_stem().unwrap_or(target);
+
+    let exact_paths = notes
+        .iter()
+        .filter(|note| note.file.relative_path == target)
+        .map(|note| note.file.relative_path.clone())
         .collect::<Vec<_>>();
-    if let [note] = exact_stems.as_slice() {
-        return Some(note.file.relative_path.clone());
+    if !exact_paths.is_empty() {
+        return sorted_paths(exact_paths);
     }
 
+    let same_directory_extension = |note: &&IndexedNote| {
+        let candidate = Utf8Path::new(&note.file.relative_path);
+        candidate.parent() == requested_parent && candidate.extension() == requested_extension
+    };
+    let same_directory_exact_stems = notes
+        .iter()
+        .filter(same_directory_extension)
+        .filter(|note| Utf8Path::new(&note.file.relative_path).file_stem() == Some(requested_stem))
+        .map(|note| note.file.relative_path.clone())
+        .collect::<Vec<_>>();
+    if !same_directory_exact_stems.is_empty() {
+        return sorted_paths(same_directory_exact_stems);
+    }
+
+    let stem_prefix = format!("{requested_stem}-");
+    let same_directory_prefix_stems = notes
+        .iter()
+        .filter(same_directory_extension)
+        .filter(|note| {
+            Utf8Path::new(&note.file.relative_path)
+                .file_stem()
+                .is_some_and(|stem| stem.starts_with(&stem_prefix))
+        })
+        .map(|note| note.file.relative_path.clone())
+        .collect::<Vec<_>>();
+    if !same_directory_prefix_stems.is_empty() {
+        return sorted_paths(same_directory_prefix_stems);
+    }
+
+    let exact_stems = notes
+        .iter()
+        .filter(|note| Utf8Path::new(&note.file.relative_path).file_stem() == Some(requested_stem))
+        .map(|note| note.file.relative_path.clone())
+        .collect::<Vec<_>>();
+    if !exact_stems.is_empty() {
+        return sorted_paths(exact_stems);
+    }
+
+    let target = target.trim_end_matches(".md");
     notes
         .iter()
         .map(|note| {
@@ -645,7 +707,14 @@ fn suggested_note_path(target: &str, notes: &[IndexedNote]) -> Option<String> {
         })
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, path)| *distance <= 3 && !path.is_empty())
-        .map(|(_, path)| path.to_string())
+        .map(|(_, path)| vec![path.to_string()])
+        .unwrap_or_default()
+}
+
+fn sorted_paths(mut paths: Vec<String>) -> Vec<String> {
+    paths.sort_by(|left, right| natord::compare(left, right));
+    paths.dedup();
+    paths
 }
 
 pub(crate) fn compact_resolve_result(

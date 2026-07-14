@@ -124,6 +124,64 @@ fn missing_reference_suggestion_preserves_heading_suffix_and_stops_at_distance_t
 }
 
 #[test]
+fn missing_path_prefers_same_directory_stem_prefix_suggestions_without_resolving() {
+    let (dir, queries) = fixture();
+    let chapter_dir = dir.path().join("正文/vol01-卷一/章节");
+    fs::create_dir_all(&chapter_dir).expect("create chapter directory");
+    fs::write(chapter_dir.join("ch005-归途与北声点火.md"), "# ch005\n")
+        .expect("write prefixed chapter");
+    fs::write(chapter_dir.join("ch006.md"), "# ch006\n").expect("write near chapter");
+
+    let error = queries
+        .read_note("正文/vol01-卷一/章节/ch005.md", None, None)
+        .expect_err("prefix candidate must not resolve the request");
+
+    assert!(
+        error
+            .to_string()
+            .contains("正文/vol01-卷一/章节/ch005-归途与北声点火.md")
+    );
+    assert!(!error.to_string().contains("ch006.md"));
+}
+
+#[test]
+fn missing_path_lists_same_directory_stem_prefix_suggestions_only() {
+    let (dir, queries) = fixture();
+    let chapter_dir = dir.path().join("正文/vol01-卷一/章节");
+    fs::create_dir_all(&chapter_dir).expect("create chapter directory");
+    for path in [
+        "正文/vol01-卷一/章节/ch005-b.md",
+        "正文/vol01-卷一/章节/ch005-a.md",
+        "正文/vol01-卷一/章节/ch005c.md",
+        "正文/vol01-卷一/章节/ch005-note.txt",
+        "正文/vol01-卷一/other/ch005-c.md",
+    ] {
+        let path = dir.path().join(path);
+        fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
+        fs::write(path, "# candidate\n").expect("write candidate");
+    }
+
+    let message = queries
+        .read_note("正文/vol01-卷一/章节/ch005.md", None, None)
+        .expect_err("prefix candidates must not resolve the request")
+        .to_string();
+
+    let first = message
+        .find("正文/vol01-卷一/章节/ch005-a.md")
+        .expect("first prefix candidate");
+    let second = message
+        .find("正文/vol01-卷一/章节/ch005-b.md")
+        .expect("second prefix candidate");
+    assert!(
+        first < second,
+        "prefix candidates should be naturally sorted"
+    );
+    assert!(!message.contains("ch005c.md"));
+    assert!(!message.contains("正文/vol01-卷一/other/ch005-c.md"));
+    assert!(!message.contains("ch005-note.txt"));
+}
+
+#[test]
 fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
     let (dir, queries) = fixture();
     fs::write(
