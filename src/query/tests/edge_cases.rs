@@ -6,8 +6,7 @@ use tempfile::tempdir;
 use super::fixture;
 use crate::parser::SectionInfo;
 use crate::query::path_filter::PathFilter;
-use crate::query::{ResolveSummary, SearchSource, SectionSelector, VaultQueries};
-use crate::resolver::{ResolveCandidate, ResolveResult};
+use crate::query::{SearchSource, SectionSelector, VaultQueries};
 use crate::vault::{Vault, VaultConfig};
 
 #[test]
@@ -50,23 +49,14 @@ fn resolve_ref_reports_ambiguous_candidates_for_duplicate_notes() {
     let (_dir, queries) = fixture();
 
     let result = queries.resolve_ref("[[发动机]]").expect("resolve ref");
+    let value = serde_json::to_value(result).expect("resolve json");
 
-    match result {
-        ResolveResult::Ambiguous { candidates, .. } => {
-            assert_eq!(candidates.len(), 2);
-            assert!(
-                candidates
-                    .iter()
-                    .any(|candidate| candidate.path == "发动机.md")
-            );
-            assert!(
-                candidates
-                    .iter()
-                    .any(|candidate| candidate.path == "资料/发动机.md")
-            );
-        }
-        other => panic!("expected ambiguous, got {other:?}"),
-    }
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "ambiguous_targets": ["发动机.md", "资料/发动机.md"]
+        })
+    );
 }
 
 #[test]
@@ -113,27 +103,141 @@ fn note_lookups_suggest_unique_filename_when_obsidian_ref_has_wrong_directory() 
 }
 
 #[test]
-fn graph_health_queries_truncate_when_result_budget_is_small() {
-    let (dir, mut queries) = fixture();
+fn missing_reference_suggestion_preserves_heading_suffix_and_stops_at_distance_three() {
+    let (dir, queries) = fixture();
+    fs::create_dir(dir.path().join("人物")).expect("create note directory");
     fs::write(
-        dir.path().join("额外1.md"),
-        "# 额外1\n\n[[缺失]]\n[[发动机]]\n",
+        dir.path().join("人物/林动.md"),
+        "# 林动\n\n## 身体\n\n内容\n",
     )
-    .expect("write extra1");
+    .expect("write note");
+
+    let error = queries
+        .read_note("人物/林冻#身体", None, None)
+        .expect_err("misspelled note should suggest the real reference");
+    assert!(error.to_string().contains("人物/林动.md#身体"));
+
+    let far_error = queries
+        .read_note("完全不同的目标", None, None)
+        .expect_err("far target should remain unresolved");
+    assert!(!far_error.to_string().contains("人物/林动.md"));
+}
+
+#[test]
+fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
+    let (dir, queries) = fixture();
     fs::write(
-        dir.path().join("额外2.md"),
-        "# 额外2\n\n[[缺失]]\n[[发动机]]\n",
+        dir.path().join("审计.md"),
+        "# 审计\n\n[[缺失目标]]\n\n[[发动机]]\n",
     )
-    .expect("write extra2");
-    queries.vault.config.max_results = 1;
+    .expect("write audit note");
 
-    let unresolved = queries.find_unresolved_links().expect("find unresolved");
-    assert_eq!(unresolved.links.len(), 1);
-    assert!(unresolved.truncated);
+    let result = queries.audit_links(1).expect("audit links");
+    assert_eq!(result.unresolved.len(), 2);
+    assert_eq!(result.ambiguous.len(), 2);
+    assert!(
+        result
+            .unresolved
+            .iter()
+            .any(|link| link.target == "缺失目标" && link.source.starts_with("审计.md#L"))
+    );
+    assert!(
+        result
+            .ambiguous
+            .iter()
+            .any(|link| link.source.starts_with("审计.md#L")
+                && link.candidates == vec!["发动机.md", "资料/发动机.md"])
+    );
+    assert_eq!(result.totals.unresolved, 2);
+    assert_eq!(result.totals.ambiguous, 2);
+    assert_eq!(result.pagination.page, 1);
+    assert_eq!(result.pagination.total_pages, 1);
+}
 
-    let ambiguous = queries.find_ambiguous_links().expect("find ambiguous");
-    assert_eq!(ambiguous.links.len(), 1);
-    assert!(ambiguous.truncated);
+#[test]
+fn audit_links_treats_missing_heading_and_block_selectors_as_unresolved() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target note");
+    fs::write(
+        dir.path().join("selector-audit.md"),
+        "# Selector Audit\n\n[[Target#Missing Heading]]\n\n[[Target#^missing-block]]\n\n[[Target#Present]]\n\n[[Target#^present]]\n",
+    )
+    .expect("write selector audit note");
+
+    let result = queries.audit_links(1).expect("audit links");
+    let source_targets = result
+        .unresolved
+        .iter()
+        .filter(|link| link.source.starts_with("selector-audit.md#L"))
+        .map(|link| link.target.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        source_targets,
+        vec!["Target#Missing Heading", "Target#^missing-block"]
+    );
+}
+
+#[test]
+fn note_neighborhood_traverses_only_resolved_links_and_omits_center() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("邻居.md"),
+        "# 邻居\n\n[[林动]]\n\n[[缺失目标]]\n",
+    )
+    .expect("write neighbor");
+
+    let result = queries
+        .get_note_neighborhood("林动", 1, crate::query::NeighborhoodDirection::Both)
+        .expect("neighborhood");
+
+    assert_eq!(result.center.path, "林动.md");
+    assert!(!result.notes.iter().any(|note| note.path == "林动.md"));
+    assert!(
+        result
+            .notes
+            .iter()
+            .any(|note| note.path == "邻居.md" && note.distance == 1)
+    );
+    assert!(
+        result
+            .links
+            .iter()
+            .any(|link| link.from == "邻居.md" && link.to == "林动.md")
+    );
+    assert!(!result.links.iter().any(|link| link.to == "缺失目标"));
+}
+
+#[test]
+fn note_neighborhood_excludes_edges_with_unresolved_selectors() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("Target.md"), "# Target\n\n## Present\n").expect("write target");
+    fs::write(
+        dir.path().join("Selector Source.md"),
+        "# Selector Source\n\n[[Target#Missing Heading]]\n",
+    )
+    .expect("write selector source");
+
+    let result = queries
+        .get_note_neighborhood("Target", 1, crate::query::NeighborhoodDirection::In)
+        .expect("neighborhood");
+
+    assert!(
+        !result
+            .notes
+            .iter()
+            .any(|note| note.path == "Selector Source.md")
+    );
+    assert!(
+        !result
+            .links
+            .iter()
+            .any(|link| { link.from == "Selector Source.md" && link.to == "Target.md" })
+    );
 }
 
 #[test]
@@ -143,11 +247,14 @@ fn empty_vault_queries_return_empty_results() {
     let vault = Vault::open(root, VaultConfig::default()).expect("vault");
     let queries = VaultQueries::new(vault);
 
-    let notes = queries.list_notes().expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     assert!(notes.notes.is_empty());
 
-    let categories = queries.list_categories(&[], &[]).expect("list categories");
+    let categories = queries
+        .list_categories(&[], &[], 1)
+        .expect("list categories");
     assert!(categories.categories.is_empty());
+    assert_eq!(categories.pagination.total_categories, 0);
 }
 
 #[test]
@@ -166,48 +273,4 @@ fn search_source_serializes_as_a_public_contract() {
     let source_json = serde_json::to_value(source).expect("source json");
     assert_eq!(source_json["path"], "note.md#L3-L5");
     assert!(source_json.get("line_start").is_none());
-}
-
-#[test]
-fn resolve_summary_preserves_resolved_ambiguous_and_unresolved_shapes() {
-    let resolved: ResolveSummary = ResolveResult::Resolved {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[林动]]".to_string(),
-            target: "林动".to_string(),
-            reference: None,
-        },
-        path: "林动.md".to_string(),
-        heading: Some("身体".to_string()),
-        block_id: None,
-    }
-    .into();
-    assert!(matches!(
-        resolved,
-        ResolveSummary::Resolved { path, heading, .. }
-            if path == "林动.md" && heading.as_deref() == Some("身体")
-    ));
-
-    let ambiguous: ResolveSummary = ResolveResult::Ambiguous {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[发动机]]".to_string(),
-            target: "发动机".to_string(),
-            reference: None,
-        },
-        candidates: vec![ResolveCandidate {
-            path: "发动机.md".to_string(),
-            match_kind: "stem".to_string(),
-        }],
-    }
-    .into();
-    assert!(matches!(ambiguous, ResolveSummary::Ambiguous { candidates } if candidates.len() == 1));
-
-    let unresolved: ResolveSummary = ResolveResult::Unresolved {
-        reference: crate::resolver::ObsidianRef {
-            raw: "[[缺失]]".to_string(),
-            target: "缺失".to_string(),
-            reference: None,
-        },
-    }
-    .into();
-    assert!(matches!(unresolved, ResolveSummary::Unresolved));
 }

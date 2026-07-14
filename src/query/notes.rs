@@ -3,32 +3,51 @@ use std::fs;
 use rayon::prelude::*;
 
 use crate::parser::{ParsedNote, slice_text, source_for_line};
-use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
+use crate::resolver::{IndexedNote, ObsidianRef, RefResolver};
 
-use super::files::human_size;
+use super::path_filter::PathFilter;
+use super::public::{Locator, PageSlice, ResolvedReference};
 use super::section::{section_source, selector_from_reference};
 use super::{
-    ListNotesResult, NoteStatsResult, NoteStructureResult, NoteSummary, ReadNoteResult,
-    SectionSelector, VaultQueries, WordCountMode, find_indexed_note, read_and_parse,
-    truncate_chars,
+    CompactStructureHeading, ListNotesPagination, ListNotesResult, NoteStatsResult,
+    NoteStructureResult, NoteSummary, ReadNoteResult, ResolveRefResult, SectionSelector,
+    VaultQueries, compact_resolve_result, find_indexed_note, read_and_parse, truncate_chars,
 };
 
-const READ_NOTE_NEXT_STEP: &str = "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value.";
-
 impl VaultQueries {
-    pub fn list_notes(&self) -> anyhow::Result<ListNotesResult> {
+    pub fn list_notes(
+        &self,
+        include: &[String],
+        exclude: &[String],
+        page: usize,
+    ) -> anyhow::Result<ListNotesResult> {
+        let filter = PathFilter::new(include, exclude)?;
         let mut notes = Vec::new();
-        for file in self.vault.list_notes()? {
+        for file in self
+            .vault
+            .list_notes()?
+            .into_iter()
+            .filter(|file| filter.is_match(&file.relative_path))
+        {
             let title = read_and_parse(self, &file)
                 .ok()
-                .map(|note| note_title(&note.parsed, &file.relative_path));
+                .map(|note| truncate_display_title(note_title(&note.parsed, &file.relative_path)));
             notes.push(NoteSummary {
                 path: file.relative_path,
                 title,
-                size: human_size(file.size_bytes),
             });
         }
-        Ok(ListNotesResult { notes })
+        let page = PageSlice::new(notes, page, 100)?;
+        let total_notes = page.total_items();
+        let pagination = page.pagination();
+        Ok(ListNotesResult {
+            notes: page.into_items(),
+            pagination: ListNotesPagination {
+                page: pagination.page,
+                total_pages: pagination.total_pages,
+                total_notes,
+            },
+        })
     }
 
     pub fn read_note(
@@ -60,19 +79,13 @@ impl VaultQueries {
             selected
         };
         Ok(ReadNoteResult {
-            path: relative_path,
-            source,
+            source: Locator::lines(&relative_path, source.line_start, source.line_end),
             content,
             truncated,
-            next_step: truncated.then_some(READ_NOTE_NEXT_STEP.to_string()),
         })
     }
 
-    pub fn get_note_stats(
-        &self,
-        note: &str,
-        word_count_mode: WordCountMode,
-    ) -> anyhow::Result<NoteStatsResult> {
+    pub fn get_note_stats(&self, note: &str) -> anyhow::Result<NoteStatsResult> {
         let reference = RefResolver::parse_ref(note);
         let selector = selector_from_reference(&reference.reference)?;
         if matches!(selector, Some(SectionSelector::Lines { .. })) {
@@ -90,24 +103,34 @@ impl VaultQueries {
             .as_ref()
             .map(|source| slice_text(&content, source.byte_start, source.byte_end))
             .unwrap_or(content);
-        let word_count = match word_count_mode {
-            WordCountMode::Source => count_words(&selected),
-            WordCountMode::Visible => count_words(&visible_markdown_text(&selected)),
-        };
+        let word_count = count_words(&selected);
         let backlink_count = match (&selector, &source) {
             (Some(selector), Some(source)) => {
                 self.backlink_count_for_scope(&note, &parsed, selector, source)?
             }
             _ => self.backlink_count_for_path(&note)?,
         };
+        let scope = match (&selector, &source) {
+            (Some(SectionSelector::Heading { .. }), Some(source)) => ResolvedReference::heading(
+                note.clone(),
+                source
+                    .section
+                    .as_ref()
+                    .map(|section| section.heading_path.clone())
+                    .unwrap_or_default(),
+            )
+            .format(),
+            (Some(SectionSelector::Block { block_id }), Some(_)) => {
+                ResolvedReference::block(note.clone(), block_id.clone()).format()
+            }
+            _ => note.clone(),
+        };
         Ok(NoteStatsResult {
-            note: note.clone(),
-            word_count_mode,
+            scope,
             word_count,
             character_count: selected.chars().count(),
             line_count: selected.lines().count(),
             backlink_count,
-            source,
         })
     }
 
@@ -120,20 +143,23 @@ impl VaultQueries {
     }
 
     pub fn get_note_structure(&self, note: &str) -> anyhow::Result<NoteStructureResult> {
-        Ok(self.parse_note(note)?.into())
+        Ok(compact_note_structure(self.parse_note(note)?))
     }
 
-    pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveResult> {
+    pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
         let notes = self.index_notes()?;
-        Ok(RefResolver::resolve(reference, &notes))
+        Ok(compact_resolve_result(
+            RefResolver::resolve(reference, &notes),
+            &notes,
+        ))
     }
     pub fn index_notes(&self) -> anyhow::Result<Vec<IndexedNote>> {
         let mut notes: Vec<IndexedNote> = self
             .vault
             .list_notes()?
             .into_par_iter()
-            .filter_map(|file| read_and_parse(self, &file).ok())
-            .collect();
+            .map(|file| read_and_parse(self, &file))
+            .collect::<anyhow::Result<_>>()?;
         notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
         Ok(notes)
     }
@@ -160,6 +186,126 @@ impl VaultQueries {
     }
 }
 
+fn compact_note_structure(note: ParsedNote) -> NoteStructureResult {
+    const LIMIT: usize = 50;
+    let frontmatter_fields = note.frontmatter.as_ref().and_then(frontmatter_fields);
+    let mut headings = note
+        .headings
+        .iter()
+        .filter(|heading| heading.level != 1)
+        .map(|heading| CompactStructureHeading {
+            heading: heading.path.join("/"),
+            line: heading.source.line_start,
+        })
+        .collect::<Vec<_>>();
+    headings.sort_by(|left, right| {
+        natord::compare(&left.heading, &right.heading).then_with(|| left.line.cmp(&right.line))
+    });
+    let embeds = sorted_unique(
+        note.embeds
+            .iter()
+            .map(|embed| reference_string(&embed.target, &embed.reference)),
+    );
+    let tags = sorted_unique(
+        note.tags
+            .iter()
+            .map(|tag| normalize_tag(&tag.tag))
+            .chain(frontmatter_tag_values(note.frontmatter.as_ref())),
+    );
+    let blocks = sorted_unique(note.blocks.iter().map(|block| block.id.clone()));
+
+    let mut omitted = std::collections::BTreeMap::new();
+    let headings = limit_group("headings", headings, &mut omitted, LIMIT);
+    let embeds = limit_group("embeds", embeds, &mut omitted, LIMIT);
+    let tags = limit_group("tags", tags, &mut omitted, LIMIT);
+    let blocks = limit_group("blocks", blocks, &mut omitted, LIMIT);
+
+    NoteStructureResult {
+        note: note.path,
+        link_count: note.links.len(),
+        frontmatter_fields,
+        headings,
+        embeds,
+        tags,
+        blocks,
+        omitted: (!omitted.is_empty()).then_some(omitted),
+    }
+}
+
+fn frontmatter_fields(frontmatter: &serde_json::Value) -> Option<Vec<String>> {
+    let fields = frontmatter.as_object()?;
+    let mut fields = fields.keys().cloned().collect::<Vec<_>>();
+    fields.sort_by(|left, right| natord::compare(left, right));
+    (!fields.is_empty()).then_some(fields)
+}
+
+fn frontmatter_tag_values(frontmatter: Option<&serde_json::Value>) -> impl Iterator<Item = String> {
+    let values = frontmatter
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|object| {
+            ["tags", "tag"]
+                .into_iter()
+                .filter_map(|field| object.get(field))
+        })
+        .flat_map(tag_values)
+        .map(|tag| normalize_tag(&tag))
+        .collect::<Vec<_>>();
+    values.into_iter()
+}
+
+fn tag_values(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(value) => value
+            .split(|ch: char| ch.is_whitespace() || ch == ',')
+            .filter(|part| !part.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn normalize_tag(tag: &str) -> String {
+    tag.trim().trim_start_matches('#').to_string()
+}
+
+fn reference_string(target: &str, reference: &Option<crate::parser::ReferenceInfo>) -> String {
+    match reference {
+        None => target.to_string(),
+        Some(crate::parser::ReferenceInfo::Heading { value }) => format!("{target}#{value}"),
+        Some(crate::parser::ReferenceInfo::MultiHeading { value }) => {
+            format!("{target}#{}", value.join("#"))
+        }
+        Some(crate::parser::ReferenceInfo::BlockId { value }) => format!("{target}#^{value}"),
+    }
+}
+
+fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
+    let mut values = values
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<String>>();
+    values.sort_by(|left, right| natord::compare(left, right));
+    values.dedup();
+    values
+}
+
+fn limit_group<T>(
+    name: &str,
+    mut values: Vec<T>,
+    omitted: &mut std::collections::BTreeMap<String, usize>,
+    limit: usize,
+) -> Option<Vec<T>> {
+    if values.len() > limit {
+        omitted.insert(name.to_string(), values.len() - limit);
+        values.truncate(limit);
+    }
+    (!values.is_empty()).then_some(values)
+}
+
 pub(super) fn note_title(note: &ParsedNote, relative_path: &str) -> String {
     note.headings
         .iter()
@@ -169,6 +315,16 @@ pub(super) fn note_title(note: &ParsedNote, relative_path: &str) -> String {
         .map(ToOwned::to_owned)
         .or_else(|| frontmatter_title(note))
         .unwrap_or_else(|| pathname_title(relative_path))
+}
+
+fn truncate_display_title(title: String) -> String {
+    const MAX_TITLE_CHARS: usize = 200;
+    if title.chars().count() <= MAX_TITLE_CHARS {
+        return title;
+    }
+    let mut truncated = title.chars().take(MAX_TITLE_CHARS - 1).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn frontmatter_title(note: &ParsedNote) -> Option<String> {
@@ -216,99 +372,6 @@ fn count_words(content: &str) -> usize {
     }
 
     count
-}
-
-fn visible_markdown_text(content: &str) -> String {
-    let content = strip_frontmatter(content);
-    let without_comments = strip_markdown_comments(content);
-    visible_link_text(&without_comments)
-}
-
-fn strip_frontmatter(content: &str) -> &str {
-    let Some(rest) = content.strip_prefix("---\n") else {
-        return content;
-    };
-    let Some(end) = rest.find("\n---") else {
-        return content;
-    };
-    let after_marker = &rest[end + "\n---".len()..];
-    after_marker.strip_prefix('\n').unwrap_or(after_marker)
-}
-
-fn strip_markdown_comments(content: &str) -> String {
-    let mut out = String::with_capacity(content.len());
-    let mut index = 0usize;
-    while index < content.len() {
-        let rest = &content[index..];
-        if rest.starts_with("%%") {
-            if let Some(end) = rest[2..].find("%%") {
-                index += 2 + end + 2;
-            } else {
-                break;
-            }
-        } else if rest.starts_with("<!--") {
-            if let Some(end) = rest[4..].find("-->") {
-                index += 4 + end + 3;
-            } else {
-                break;
-            }
-        } else if let Some(ch) = rest.chars().next() {
-            out.push(ch);
-            index += ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    out
-}
-
-fn visible_link_text(content: &str) -> String {
-    let mut out = String::with_capacity(content.len());
-    let mut index = 0usize;
-    while index < content.len() {
-        let rest = &content[index..];
-        if rest.starts_with("![[") || rest.starts_with("[[") {
-            let offset = if rest.starts_with("![[") { 3 } else { 2 };
-            if let Some(end) = rest[offset..].find("]]") {
-                let body = &rest[offset..offset + end];
-                out.push_str(obsidian_link_label(body));
-                out.push(' ');
-                index += offset + end + 2;
-                continue;
-            }
-        }
-        if rest.starts_with("![") || rest.starts_with('[') {
-            let offset = if rest.starts_with("![") { 2 } else { 1 };
-            if let Some(label_end) = rest[offset..].find(']') {
-                let after_label = offset + label_end + 1;
-                if rest[after_label..].starts_with('(') {
-                    if let Some(url_end) = rest[after_label + 1..].find(')') {
-                        out.push_str(&rest[offset..offset + label_end]);
-                        out.push(' ');
-                        index += after_label + 1 + url_end + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-        if let Some(ch) = rest.chars().next() {
-            out.push(ch);
-            index += ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    out
-}
-
-fn obsidian_link_label(body: &str) -> &str {
-    body.rsplit_once('|')
-        .map(|(_, alias)| alias)
-        .unwrap_or_else(|| {
-            body.split_once('#')
-                .map(|(target, _)| target)
-                .unwrap_or(body)
-        })
 }
 
 fn is_cjk_character(ch: char) -> bool {

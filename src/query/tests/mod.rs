@@ -4,11 +4,10 @@ use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
 use super::*;
-use crate::resolver::ResolveResult;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
 
+mod contract_primitives;
 mod edge_cases;
-mod files_and_context;
 mod search_and_section;
 
 fn fixture() -> (tempfile::TempDir, VaultQueries) {
@@ -76,7 +75,7 @@ fn vault_path_cannot_escape_root() {
 #[test]
 fn list_notes_ignores_hidden_paths() {
     let (_dir, queries) = fixture();
-    let notes = queries.list_notes().expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     assert_eq!(notes.notes.len(), 6);
     assert!(
         !notes
@@ -92,17 +91,9 @@ fn list_notes_ignores_hidden_paths() {
             .iter()
             .any(|note| note.path == "资料/ignored-here.md")
     );
-    assert_eq!(
-        notes
-            .notes
-            .iter()
-            .find(|note| note.path == "发动机.md")
-            .expect("发动机 note")
-            .size,
-        format!("{} B", "# 发动机\n\n## 原理\n\n链接到 [[林动]]\n".len())
-    );
     let value = serde_json::to_value(notes).expect("list notes json");
     assert!(value["notes"][0].get("preview").is_none());
+    assert!(value["notes"][0].get("size").is_none());
 }
 
 #[test]
@@ -120,7 +111,7 @@ fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
     .expect("write frontmatter title note");
     fs::write(dir.path().join("只有路径.md"), "## Section\n").expect("write pathname note");
 
-    let notes = queries.list_notes().expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     let title_for = |path: &str| {
         notes
             .notes
@@ -132,6 +123,46 @@ fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
     assert_eq!(title_for("标题优先.md"), Some("H1 Title"));
     assert_eq!(title_for("仅元数据.md"), Some("Metadata Title"));
     assert_eq!(title_for("只有路径.md"), Some("只有路径"));
+}
+
+#[test]
+fn list_notes_filters_before_fixed_page_and_omits_non_navigation_fields() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物/草稿")).expect("draft dir");
+    fs::write(dir.path().join("人物/林动.md"), "# 林动\n").expect("write character");
+    fs::write(dir.path().join("人物/草稿/林动.md"), "# 草稿\n").expect("write draft");
+
+    let result = queries
+        .list_notes(
+            &["人物/**/*.md".to_string(), "正文/**/*.md".to_string()],
+            &["**/草稿/**".to_string()],
+            1,
+        )
+        .expect("filtered notes");
+
+    assert_eq!(
+        result
+            .notes
+            .iter()
+            .map(|note| &note.path)
+            .collect::<Vec<_>>(),
+        vec![
+            &"人物/林动.md".to_string(),
+            &"正文/001.md".to_string(),
+            &"正文/README.md".to_string()
+        ]
+    );
+    assert_eq!(result.pagination.page, 1);
+    assert_eq!(result.pagination.total_pages, 1);
+    assert_eq!(result.pagination.total_notes, 3);
+    let value = serde_json::to_value(result).expect("json");
+    assert!(
+        value["notes"]
+            .as_array()
+            .expect("notes")
+            .iter()
+            .all(|note| note.get("size").is_none())
+    );
 }
 
 #[test]
@@ -156,25 +187,54 @@ fn parse_note_extracts_obsidian_structures_and_sections() {
 }
 
 #[test]
-fn get_note_structure_uses_compact_shared_output() {
-    let (_dir, queries) = fixture();
-    let result = queries.get_note_structure("林动").expect("parse result");
-    assert_eq!(result.path, "林动.md");
-    assert_eq!(result.headings[0].text, "林动");
-    assert_eq!(result.headings[0].line, 10);
-    let link = result
-        .links
-        .iter()
-        .find(|link| link.target == "发动机")
-        .expect("发动机 link");
-    assert_eq!(link.alias.as_deref(), Some("发动机"));
-    assert_eq!(link.section.as_deref(), Some("林动"));
+fn note_structure_returns_bounded_compact_inspection_groups() {
+    let (dir, queries) = fixture();
+    let mut content = String::from(
+        "---\naliases: [Alias]\nnested: {key: value}\ntags: [front/b, front/a]\n---\n# Title\n\n[[Target]]\n![[Image.png]]\n![[Image.png]]\n^dup\n^dup\n",
+    );
+    for index in 0..51 {
+        content.push_str(&format!(
+            "\n## Section {index:02}\n\n#tag{index:02} #tag00\n"
+        ));
+    }
+    fs::write(dir.path().join("Structure.md"), content).expect("write structure note");
 
-    let value = serde_json::to_value(result).expect("json");
-    assert!(value["links"][0].get("source").is_none());
-    assert!(value["links"][0].get("raw").is_none());
-    assert!(value["headings"][0].get("source").is_none());
-    assert!(value["headings"][0].get("anchor").is_none());
+    let result = queries
+        .get_note_structure("Structure.md")
+        .expect("structure");
+    let value = serde_json::to_value(result).expect("structure json");
+
+    assert_eq!(value["note"], "Structure.md");
+    assert_eq!(value["link_count"], 1);
+    assert_eq!(
+        value["frontmatter_fields"],
+        serde_json::json!(["aliases", "nested", "tags"])
+    );
+    assert!(value.get("frontmatter").is_none());
+    assert!(value.get("links").is_none());
+    assert_eq!(value["embeds"], serde_json::json!(["Image.png"]));
+    assert_eq!(value["blocks"], serde_json::json!(["dup"]));
+
+    let headings = value["headings"].as_array().expect("headings");
+    assert_eq!(headings.len(), 50);
+    assert_eq!(
+        headings[0],
+        serde_json::json!({"heading": "Section 00", "line": 14})
+    );
+    assert_eq!(
+        headings[49],
+        serde_json::json!({"heading": "Section 49", "line": 210})
+    );
+    assert!(headings.iter().all(|heading| heading["heading"] != "Title"));
+
+    let tags = value["tags"].as_array().expect("tags");
+    assert_eq!(tags.len(), 50);
+    assert_eq!(tags[0], "front/a");
+    assert_eq!(tags[49], "tag47");
+    assert_eq!(
+        value["omitted"],
+        serde_json::json!({"headings": 1, "tags": 3})
+    );
 }
 
 #[test]
@@ -182,19 +242,19 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
     let (_dir, queries) = fixture();
     let content = "---\naliases:\n  - 动林\ntags:\n  - 主角\n  - 状态/身体\nphase: active\narc: 引擎线\n---\n# 林动\n\n身体 #状态/身体\n\n[[发动机#原理|发动机]]\n\n[[缺失设定]]\n";
 
-    let result = queries
-        .get_note_stats("林动", WordCountMode::Source)
-        .expect("note stats");
-    assert_eq!(result.note, "林动.md");
-    assert_eq!(result.word_count_mode, WordCountMode::Source);
+    let result = queries.get_note_stats("林动").expect("note stats");
+    assert_eq!(result.scope, "林动.md");
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
     assert_eq!(result.line_count, content.lines().count());
     assert_eq!(result.backlink_count, 1);
+    let value = serde_json::to_value(result).expect("stats json");
+    assert!(value.get("word_count_mode").is_none());
+    assert!(value.get("source").is_none());
 }
 
 #[test]
-fn get_note_stats_scopes_text_and_backlinks_to_ref() {
+fn note_stats_scopes_text_and_backlinks_to_normalized_ref() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("Target.md"),
@@ -207,29 +267,27 @@ fn get_note_stats_scopes_text_and_backlinks_to_ref() {
     fs::write(dir.path().join("note-link.md"), "[[Target]]\n").expect("write note link");
 
     let heading = queries
-        .get_note_stats("Target#Section", WordCountMode::Source)
+        .get_note_stats("Target#Section")
         .expect("heading stats");
+    assert_eq!(heading.scope, "Target.md#Section");
     assert_eq!(heading.word_count, 4);
     assert_eq!(heading.line_count, 5);
     assert_eq!(heading.backlink_count, 1);
-    assert_eq!(
-        heading.source.as_ref().expect("heading source").line_start,
-        3
-    );
 
     let block = queries
-        .get_note_stats("Target#^state", WordCountMode::Source)
+        .get_note_stats("Target#^state")
         .expect("block stats");
+    assert_eq!(block.scope, "Target.md#^state");
     assert_eq!(block.word_count, 1);
     assert_eq!(block.line_count, 1);
     assert_eq!(block.backlink_count, 1);
-    assert_eq!(block.source.as_ref().expect("block source").line_start, 7);
 
-    let whole = queries
-        .get_note_stats("Target", WordCountMode::Source)
-        .expect("whole-note stats");
+    let whole = queries.get_note_stats("Target").expect("whole-note stats");
+    assert_eq!(whole.scope, "Target.md");
     assert_eq!(whole.backlink_count, 3);
-    assert!(whole.source.is_none());
+    let value = serde_json::to_value(heading).expect("heading stats json");
+    assert!(value.get("source").is_none());
+    assert!(value.get("mode").is_none());
 }
 
 #[test]
@@ -237,32 +295,9 @@ fn get_note_stats_counts_blank_lines_without_extra_trailing_line() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("line-count.md"), "first\n\nthird\n").expect("write line count note");
 
-    let result = queries
-        .get_note_stats("line-count.md", WordCountMode::Source)
-        .expect("note stats");
+    let result = queries.get_note_stats("line-count.md").expect("note stats");
 
     assert_eq!(result.line_count, 3);
-}
-
-#[test]
-fn get_note_stats_visible_mode_ignores_markdown_metadata_and_comments() {
-    let (dir, queries) = fixture();
-    std::fs::write(
-        dir.path().join("visible.md"),
-        "---\ntitle: Hidden Title\nalias: 隐藏\n---\n# Visible Title\n\nBody **strong** [[Target Note|Alias Text]] [Markdown Text](https://example.com).\n\n%% hidden obsidian comment %%\n<!-- hidden markdown comment -->\n",
-    )
-    .expect("write visible note");
-
-    let source = queries
-        .get_note_stats("visible.md", WordCountMode::Source)
-        .expect("source stats");
-    let visible = queries
-        .get_note_stats("visible.md", WordCountMode::Visible)
-        .expect("visible stats");
-
-    assert_eq!(visible.word_count_mode, WordCountMode::Visible);
-    assert_eq!(visible.word_count, 8);
-    assert!(source.word_count > visible.word_count);
 }
 
 #[test]
@@ -270,9 +305,7 @@ fn get_note_stats_treats_hyphenated_ascii_sequences_as_one_word() {
     let (dir, queries) = fixture();
     std::fs::write(dir.path().join("hyphen.md"), "foo-bar baz\n").expect("write hyphen note");
 
-    let result = queries
-        .get_note_stats("hyphen.md", WordCountMode::Source)
-        .expect("note stats");
+    let result = queries.get_note_stats("hyphen.md").expect("note stats");
     assert_eq!(result.word_count, 2);
 }
 
@@ -286,7 +319,7 @@ fn note_lookup_ignores_numeric_sort_prefix_when_no_exact_note_exists() {
         .read_note("排序标题", None, None)
         .expect("read note");
 
-    assert_eq!(result.path, "001-排序标题.md");
+    assert_eq!(result.source, "001-排序标题.md#L1-L3");
 }
 
 #[test]
@@ -309,184 +342,138 @@ fn parse_note_extracts_safe_relative_markdown_links() {
 }
 
 #[test]
-fn list_tags_returns_unique_tag_names() {
-    let (_dir, queries) = fixture();
-    let result = queries.list_tags(TagScope::Note, &[], &[]).expect("tags");
-    assert!(result.tags.contains(&"主角".to_string()));
-    assert!(result.tags.contains(&"状态/身体".to_string()));
-    assert!(result.tags.contains(&"河流".to_string()));
-    assert!(result.tags.contains(&"设定".to_string()));
-}
-
-#[test]
-fn get_tags_returns_locations_and_verbose_sources() {
-    let (_dir, queries) = fixture();
-    let compact = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Note, false, &[], &[])
-        .expect("compact tags");
-    assert_eq!(compact.tags.len(), 1);
-    assert!(
-        compact.tags[0]
-            .notes
-            .iter()
-            .any(|note| note.note == "林动.md"
-                && note.source_kind == TagSourceKind::Frontmatter
-                && note.section.is_none())
-    );
-    assert!(compact.tags[0].occurrences.is_empty());
-
-    let verbose = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Note, true, &[], &[])
-        .expect("verbose tags");
-    assert!(verbose.tags[0].occurrences.iter().any(|occurrence| {
-        occurrence.location == "林动.md#L12"
-            && occurrence.section.as_ref().is_some_and(|section| {
-                section.heading == "林动"
-                    && section.heading_level == 1
-                    && section.heading_path.is_none()
-            })
-    }));
-    let verbose_value = serde_json::to_value(&verbose).expect("verbose json");
-    assert!(
-        verbose_value["tags"][0]["occurrences"][0]["section"]
-            .get("heading_anchor")
-            .is_none()
-    );
-    assert!(
-        verbose.tags[0]
-            .occurrences
-            .iter()
-            .all(|occurrence| !occurrence.location.is_empty())
-    );
-}
-
-#[test]
-fn tags_scope_filters_frontmatter_and_body_sources() {
-    let (_dir, queries) = fixture();
-
-    let frontmatter = queries
-        .get_tags(
-            &["状态/身体".to_string()],
-            TagScope::Frontmatter,
-            true,
-            &[],
-            &[],
-        )
-        .expect("frontmatter tags");
-    assert_eq!(frontmatter.tags.len(), 1);
-    assert!(
-        frontmatter.tags[0]
-            .occurrences
-            .iter()
-            .all(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
-    );
-
-    let body = queries
-        .get_tags(&["状态/身体".to_string()], TagScope::Body, true, &[], &[])
-        .expect("body tags");
-    assert_eq!(body.tags.len(), 1);
-    assert!(
-        body.tags[0]
-            .occurrences
-            .iter()
-            .all(|occurrence| occurrence.source_kind == TagSourceKind::Frontmatter)
-    );
-
-    let section = queries
-        .get_tags(&["河流".to_string()], TagScope::Section, true, &[], &[])
-        .expect("section tags");
-    assert_eq!(section.tags.len(), 1);
-    assert!(section.tags[0].occurrences.iter().any(|occurrence| {
-        occurrence.source_kind == TagSourceKind::Note && occurrence.location == "河流.md#L3"
-    }));
-
-    let line = queries
-        .get_tags(&["设定".to_string()], TagScope::Line, true, &[], &[])
-        .expect("line tags");
-    assert_eq!(line.tags.len(), 1);
-    assert!(line.tags[0].occurrences.iter().any(|occurrence| {
-        occurrence.source_kind == TagSourceKind::Line && occurrence.location == "河流.md#L4"
-    }));
-}
-
-#[test]
-fn get_tags_classifies_tags_under_h1_as_note_and_h2_as_section() {
+fn list_tags_paginates_unique_tag_names() {
     let (dir, queries) = fixture();
-    fs::write(
-        dir.path().join("层级标签.md"),
-        "# Note title\n\nH1 content #h1-tag\n\n## Section title\n\nH2 content #h2-tag\n",
-    )
-    .expect("write hierarchy tag note");
+    fs::create_dir(dir.path().join("标签分页")).expect("tag page dir");
+    for index in 1..=101 {
+        fs::write(
+            dir.path().join(format!("标签分页/{index:03}.md")),
+            format!("# Tag {index}\n\n#tag-{index:03}\n"),
+        )
+        .expect("write tag page note");
+    }
+    let include = vec!["标签分页/**/*.md".to_string()];
 
-    let h1 = queries
-        .get_tags(&["h1-tag".to_string()], TagScope::Note, false, &[], &[])
-        .expect("h1 tag");
-    assert_eq!(
-        serde_json::to_value(&h1).expect("serialize h1 tag")["tags"][0]["notes"][0]["source_kind"],
-        "note"
-    );
+    let page_1 = queries
+        .list_tags(TagScope::Note, &include, &[], 1)
+        .expect("list tags page 1");
+    let page_2 = queries
+        .list_tags(TagScope::Note, &include, &[], 2)
+        .expect("list tags page 2");
+    let out_of_range = queries
+        .list_tags(TagScope::Note, &include, &[], 3)
+        .expect("list tags page 3");
+    let empty = queries
+        .list_tags(TagScope::Note, &["missing/**/*.md".to_string()], &[], 1)
+        .expect("empty list tags");
 
-    let h2 = queries
-        .get_tags(&["h2-tag".to_string()], TagScope::Note, false, &[], &[])
-        .expect("h2 tag");
-    assert_eq!(
-        serde_json::to_value(&h2).expect("serialize h2 tag")["tags"][0]["notes"][0]["source_kind"],
-        "section"
-    );
+    assert_eq!(page_1.tags.len(), 100);
+    assert_eq!(page_1.tags[0], "tag-001");
+    assert_eq!(page_1.tags[99], "tag-100");
+    assert_eq!(page_1.pagination.total_tags, 101);
+    assert_eq!(page_1.pagination.total_pages, 2);
+    assert_eq!(page_2.tags, vec!["tag-101".to_string()]);
+    assert!(out_of_range.tags.is_empty());
+    assert_eq!(out_of_range.pagination.page, 3);
+    assert_eq!(empty.pagination.total_tags, 0);
+    assert!(queries.list_tags(TagScope::Note, &include, &[], 0).is_err());
 }
 
 #[test]
-fn get_tags_uses_the_shortest_heading_selector_that_distinguishes_duplicates() {
+fn get_tag_returns_scope_specific_locators_and_deduplicates() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("标签章节.md"),
-        "# Note title\n\nNote tag #scope\n\n## Unique\n\nUnique tag #scope\n\n## Parent A\n\n### Detail\n\nA tag #scope\n\n## Parent B\n\n### Detail\n\nB tag #scope\n",
+        "# Note title\n\nNote tag #scope\n\n## Unique\n\nUnique tag #scope\nRepeated section tag #scope\n\n## Parent A\n\n### Detail\n\nA tag #scope\n\n## Parent B\n\n### Detail\n\nB tag #scope\n",
     )
     .expect("write tagged sections");
 
-    let result = queries
-        .get_tags(&["scope".to_string()], TagScope::Note, false, &[], &[])
-        .expect("tags");
-    let matches = &result.tags[0].notes;
+    let note = queries
+        .get_tag("状态/身体", TagScope::Note, &[], &[], 1)
+        .expect("note tag");
+    assert_eq!(note.matches, vec!["林动.md".to_string()]);
 
-    assert!(
-        matches
-            .iter()
-            .any(|tag| tag.note == "标签章节.md#L3" && tag.section.is_none())
+    let frontmatter = queries
+        .get_tag("状态/身体", TagScope::Frontmatter, &[], &[], 1)
+        .expect("frontmatter tag");
+    assert_eq!(frontmatter.matches, vec!["林动.md".to_string()]);
+
+    let body = queries
+        .get_tag("状态/身体", TagScope::Body, &[], &[], 1)
+        .expect("body tag");
+    assert_eq!(body.matches, vec!["林动.md".to_string()]);
+
+    let sections = queries
+        .get_tag("scope", TagScope::Section, &[], &[], 1)
+        .expect("section tag");
+    assert_eq!(
+        sections.matches,
+        vec![
+            "标签章节.md".to_string(),
+            "标签章节.md#Parent A#Detail".to_string(),
+            "标签章节.md#Parent B#Detail".to_string(),
+            "标签章节.md#Unique".to_string(),
+        ]
     );
-    assert!(
-        matches
-            .iter()
-            .any(|tag| tag.note == "标签章节.md#L7" && tag.section.as_deref() == Some("Unique"))
+
+    let lines = queries
+        .get_tag("scope", TagScope::Line, &[], &[], 1)
+        .expect("line tag");
+    assert_eq!(
+        lines.matches,
+        vec![
+            "标签章节.md#L3".to_string(),
+            "标签章节.md#L7".to_string(),
+            "标签章节.md#L8".to_string(),
+            "标签章节.md#L14".to_string(),
+            "标签章节.md#L20".to_string(),
+        ]
     );
-    assert!(matches.iter().any(|tag| {
-        tag.note == "标签章节.md#L13" && tag.section.as_deref() == Some("Parent A/Detail")
-    }));
-    assert!(matches.iter().any(|tag| {
-        tag.note == "标签章节.md#L19" && tag.section.as_deref() == Some("Parent B/Detail")
-    }));
+
+    let value = serde_json::to_value(&sections).expect("tag json");
+    assert!(value.get("tag").is_none());
+    assert!(value.get("scope").is_none());
+    assert!(value.get("tags").is_none());
 }
 
 #[test]
-fn get_tags_omits_unneeded_ancestors_from_duplicate_heading_selectors() {
+fn get_tag_paginates_fixed_locators() {
     let (dir, queries) = fixture();
-    fs::write(
-        dir.path().join("最短路径.md"),
-        "# Note title\n\n## Root A\n\n### Branch A\n\n#### Detail\n\nA tag #scope\n\n## Root B\n\n### Branch B\n\n#### Detail\n\nB tag #scope\n",
-    )
-    .expect("write nested duplicate headings");
+    fs::create_dir(dir.path().join("标签定位分页")).expect("tag locator page dir");
+    for index in 1..=101 {
+        fs::write(
+            dir.path().join(format!("标签定位分页/{index:03}.md")),
+            "# Paged\n\n#paged\n",
+        )
+        .expect("write tag locator note");
+    }
+    let include = vec!["标签定位分页/**/*.md".to_string()];
 
-    let result = queries
-        .get_tags(&["scope".to_string()], TagScope::Note, false, &[], &[])
-        .expect("tags");
-    let matches = &result.tags[0].notes;
+    let page_1 = queries
+        .get_tag("paged", TagScope::Note, &include, &[], 1)
+        .expect("tag page 1");
+    let page_2 = queries
+        .get_tag("paged", TagScope::Note, &include, &[], 2)
+        .expect("tag page 2");
+    let out_of_range = queries
+        .get_tag("paged", TagScope::Note, &include, &[], 3)
+        .expect("tag page 3");
+    let empty = queries
+        .get_tag("missing", TagScope::Note, &include, &[], 1)
+        .expect("empty get tag");
 
-    assert!(matches.iter().any(|tag| {
-        tag.note == "最短路径.md#L9" && tag.section.as_deref() == Some("Branch A/Detail")
-    }));
-    assert!(matches.iter().any(|tag| {
-        tag.note == "最短路径.md#L17" && tag.section.as_deref() == Some("Branch B/Detail")
-    }));
+    assert_eq!(page_1.matches.len(), 100);
+    assert_eq!(page_1.matches[0], "标签定位分页/001.md");
+    assert_eq!(page_1.matches[99], "标签定位分页/100.md");
+    assert_eq!(page_1.pagination.total_matches, 101);
+    assert_eq!(page_2.matches, vec!["标签定位分页/101.md".to_string()]);
+    assert!(out_of_range.matches.is_empty());
+    assert_eq!(empty.pagination.total_matches, 0);
+    assert!(
+        queries
+            .get_tag("paged", TagScope::Note, &include, &[], 0)
+            .is_err()
+    );
 }
 
 #[test]
@@ -513,38 +500,94 @@ fn read_note_accepts_compact_slash_separated_heading_paths() {
 }
 
 #[test]
-fn list_categories_returns_unique_folder_names() {
-    let (_dir, queries) = fixture();
-    let result = queries.list_categories(&[], &[]).expect("categories");
-    assert!(result.categories.contains(&"正文".to_string()));
-    assert!(result.categories.contains(&"资料".to_string()));
-    assert!(!result.categories.contains(&".obsidian".to_string()));
-    assert!(!result.categories.contains(&"ignored-dir".to_string()));
+fn list_categories_paginates_unique_folder_names() {
+    let (dir, queries) = fixture();
+    for index in 1..=101 {
+        let parent = dir.path().join(format!("分类分页/category-{index:03}"));
+        fs::create_dir_all(&parent).expect("create category dir");
+        fs::write(parent.join("note.md"), "# Category\n").expect("write category note");
+    }
+    let include = vec!["分类分页/**/*.md".to_string()];
+
+    let page_1 = queries
+        .list_categories(&include, &[], 1)
+        .expect("list categories page 1");
+    let page_2 = queries
+        .list_categories(&include, &[], 2)
+        .expect("list categories page 2");
+    let out_of_range = queries
+        .list_categories(&include, &[], 3)
+        .expect("list categories page 3");
+    let empty = queries
+        .list_categories(&["missing/**/*.md".to_string()], &[], 1)
+        .expect("empty categories");
+
+    assert_eq!(page_1.categories.len(), 100);
+    assert_eq!(page_1.categories[0], "category-001");
+    assert_eq!(page_1.categories[99], "category-100");
+    assert_eq!(page_1.pagination.total_categories, 102);
+    assert_eq!(page_1.pagination.total_pages, 2);
+    assert_eq!(
+        page_2.categories,
+        vec!["category-101".to_string(), "分类分页".to_string()]
+    );
+    assert!(out_of_range.categories.is_empty());
+    assert_eq!(empty.pagination.total_categories, 0);
+    assert!(queries.list_categories(&include, &[], 0).is_err());
 }
 
 #[test]
-fn get_categories_returns_matching_note_files() {
-    let (_dir, queries) = fixture();
-    let result = queries
-        .get_categories(&["正文".to_string()], &[], &[])
-        .expect("category files");
-    assert_eq!(result.categories.len(), 1);
-    assert_eq!(result.categories[0].category, "正文");
-    assert!(
-        result.categories[0]
-            .files
-            .contains(&"正文/README.md".to_string())
+fn get_category_matches_normalized_segment_and_paginates_notes() {
+    let (dir, queries) = fixture();
+    for index in 1..=101 {
+        let parent = dir.path().join(format!("分类定位分页/{index:03}/目标"));
+        fs::create_dir_all(&parent).expect("create category locator dir");
+        fs::write(parent.join("note.md"), "# Category locator\n").expect("write category locator");
+    }
+    fs::create_dir_all(dir.path().join("分类定位分页/not-target")).expect("other dir");
+    fs::write(
+        dir.path().join("分类定位分页/not-target/note.md"),
+        "# Other\n",
+    )
+    .expect("other note");
+    let include = vec!["分类定位分页/**/*.md".to_string()];
+
+    let page_1 = queries
+        .get_category(" /目标/ ", &include, &[], 1)
+        .expect("category page 1");
+    let page_2 = queries
+        .get_category("目标", &include, &[], 2)
+        .expect("category page 2");
+    let out_of_range = queries
+        .get_category("目标", &include, &[], 3)
+        .expect("category page 3");
+    let empty = queries
+        .get_category("missing", &include, &[], 1)
+        .expect("empty category");
+
+    assert_eq!(page_1.notes.len(), 100);
+    assert_eq!(page_1.notes[0], "分类定位分页/001/目标/note.md");
+    assert_eq!(page_1.notes[99], "分类定位分页/100/目标/note.md");
+    assert_eq!(page_1.pagination.total_notes, 101);
+    assert_eq!(
+        page_2.notes,
+        vec!["分类定位分页/101/目标/note.md".to_string()]
     );
+    assert!(out_of_range.notes.is_empty());
+    assert_eq!(empty.pagination.total_notes, 0);
+    assert!(queries.get_category("目标", &include, &[], 0).is_err());
     assert!(
-        result.categories[0]
-            .files
-            .contains(&"正文/001.md".to_string())
+        queries
+            .get_category("目标/子类", &include, &[], 1)
+            .expect_err("internal slash should fail")
+            .to_string()
+            .contains("category must be a single folder name")
     );
-    assert!(
-        !result.categories[0]
-            .files
-            .contains(&"ignored-dir/ignored.md".to_string())
-    );
+
+    let value = serde_json::to_value(&page_1).expect("category json");
+    assert!(value.get("category").is_none());
+    assert!(value.get("categories").is_none());
+    assert!(value.get("files").is_none());
 }
 
 #[test]
@@ -564,29 +607,23 @@ fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
     let exclude = vec!["**/草稿/**".to_string()];
 
     let tags = queries
-        .list_tags(TagScope::Note, &include, &exclude)
+        .list_tags(TagScope::Note, &include, &exclude, 1)
         .expect("list filtered tags");
     assert_eq!(tags.tags, vec!["筛选标签".to_string()]);
 
     let selected_tags = queries
-        .get_tags(
-            &["筛选标签".to_string()],
-            TagScope::Note,
-            false,
-            &include,
-            &exclude,
-        )
+        .get_tag("筛选标签", TagScope::Note, &include, &exclude, 1)
         .expect("get filtered tags");
-    assert_eq!(selected_tags.tags[0].notes.len(), 2);
+    assert_eq!(selected_tags.matches.len(), 2);
     assert!(
-        selected_tags.tags[0]
-            .notes
+        selected_tags
+            .matches
             .iter()
-            .all(|tag| tag.note != "正文/草稿/drop.md")
+            .all(|path| path != "正文/草稿/drop.md")
     );
 
     let categories = queries
-        .list_categories(&include, &exclude)
+        .list_categories(&include, &exclude, 1)
         .expect("list filtered categories");
     assert_eq!(
         categories.categories,
@@ -594,38 +631,38 @@ fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
     );
 
     let selected_categories = queries
-        .get_categories(&["正文".to_string()], &include, &exclude)
+        .get_category("正文", &include, &exclude, 1)
         .expect("get filtered categories");
     assert!(
-        selected_categories.categories[0]
-            .files
+        selected_categories
+            .notes
             .contains(&"正文/keep.md".to_string())
     );
     assert!(
-        !selected_categories.categories[0]
-            .files
+        !selected_categories
+            .notes
             .contains(&"正文/草稿/drop.md".to_string())
     );
 
     let text = queries
-        .search_text("shared filtered content", false, 0, &include, &exclude)
+        .search_text("shared filtered content", false, &include, &exclude, 1)
         .expect("filtered text search");
     assert_eq!(text.matches.len(), 2);
     assert!(
         text.matches
             .iter()
-            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+            .all(|matched| !matched.source.starts_with("正文/草稿/drop.md"))
     );
 
     let regex = queries
-        .search_regex("shared filtered content", false, 0, &include, &exclude)
+        .search_regex("shared filtered content", false, &include, &exclude, 1)
         .expect("filtered regex search");
     assert_eq!(regex.matches.len(), 2);
     assert!(
         regex
             .matches
             .iter()
-            .all(|matched| matched.source.path != "正文/草稿/drop.md")
+            .all(|matched| !matched.source.starts_with("正文/草稿/drop.md"))
     );
 
     queries
@@ -637,43 +674,155 @@ fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
         .search_text(
             "shared filtered content",
             false,
-            0,
             &["资料/**/*.md".to_string()],
             &[],
+            1,
         )
         .expect("request filter cannot restore globally excluded note");
     assert!(globally_hidden.matches.is_empty());
 }
 
 #[test]
-fn frontmatter_query_supports_exists_equals_and_regex_modes() {
-    let (_dir, queries) = fixture();
+fn query_frontmatter_returns_paged_paths_and_validates_mode_values() {
+    let (dir, queries) = fixture();
+    fs::create_dir(dir.path().join("元数据分页")).expect("frontmatter page dir");
+    for index in 1..=101 {
+        fs::write(
+            dir.path().join(format!("元数据分页/{index:03}.md")),
+            format!(
+                "---\nphase: active\narc: 引擎线 {index}\nmeta:\n  nested: true\n---\n# Metadata\n"
+            ),
+        )
+        .expect("write frontmatter page note");
+    }
+    let include = vec!["元数据分页/**/*.md".to_string()];
+
     let exists = queries
         .query_frontmatter(FrontmatterQueryOptions {
             field: "phase".to_string(),
             mode: FrontmatterMatchMode::Exists,
             value: None,
+            include: include.clone(),
+            exclude: vec![],
+            page: 1,
         })
         .expect("exists query");
-    assert_eq!(exists.matches[0].note, "林动.md");
+    assert_eq!(exists.notes.len(), 100);
+    assert_eq!(exists.notes[0], "元数据分页/001.md");
+    assert_eq!(exists.pagination.total_notes, 101);
+    assert_eq!(exists.pagination.total_pages, 2);
 
     let equals = queries
         .query_frontmatter(FrontmatterQueryOptions {
             field: "phase".to_string(),
             mode: FrontmatterMatchMode::Equals,
             value: Some("active".to_string()),
+            include: include.clone(),
+            exclude: vec![],
+            page: 2,
         })
         .expect("equals query");
-    assert_eq!(equals.matches.len(), 1);
+    assert_eq!(equals.notes, vec!["元数据分页/101.md".to_string()]);
 
     let regex = queries
         .query_frontmatter(FrontmatterQueryOptions {
             field: "arc".to_string(),
             mode: FrontmatterMatchMode::Regex,
-            value: Some("引擎.*".to_string()),
+            value: Some("引擎线 0.*".to_string()),
+            include: include.clone(),
+            exclude: vec!["**/010.md".to_string()],
+            page: 1,
         })
         .expect("regex query");
-    assert_eq!(regex.matches[0].note, "林动.md");
+    assert!(!regex.notes.contains(&"元数据分页/010.md".to_string()));
+    assert!(
+        regex
+            .notes
+            .iter()
+            .all(|path| path.starts_with("元数据分页/"))
+    );
+
+    let out_of_range = queries
+        .query_frontmatter(FrontmatterQueryOptions {
+            field: "phase".to_string(),
+            mode: FrontmatterMatchMode::Exists,
+            value: None,
+            include: include.clone(),
+            exclude: vec![],
+            page: 3,
+        })
+        .expect("frontmatter out of range");
+    assert!(out_of_range.notes.is_empty());
+    assert_eq!(out_of_range.pagination.total_pages, 2);
+
+    let empty = queries
+        .query_frontmatter(FrontmatterQueryOptions {
+            field: "missing".to_string(),
+            mode: FrontmatterMatchMode::Exists,
+            value: None,
+            include,
+            exclude: vec![],
+            page: 1,
+        })
+        .expect("empty frontmatter");
+    assert_eq!(empty.pagination.total_notes, 0);
+
+    assert!(
+        queries
+            .query_frontmatter(FrontmatterQueryOptions {
+                field: "phase".to_string(),
+                mode: FrontmatterMatchMode::Exists,
+                value: Some("active".to_string()),
+                include: vec![],
+                exclude: vec![],
+                page: 1,
+            })
+            .expect_err("exists with value should fail")
+            .to_string()
+            .contains("exists query does not accept a value")
+    );
+    assert!(
+        queries
+            .query_frontmatter(FrontmatterQueryOptions {
+                field: "phase".to_string(),
+                mode: FrontmatterMatchMode::Equals,
+                value: None,
+                include: vec![],
+                exclude: vec![],
+                page: 1,
+            })
+            .is_err()
+    );
+    assert!(
+        queries
+            .query_frontmatter(FrontmatterQueryOptions {
+                field: "phase".to_string(),
+                mode: FrontmatterMatchMode::Regex,
+                value: None,
+                include: vec![],
+                exclude: vec![],
+                page: 1,
+            })
+            .is_err()
+    );
+    assert!(
+        queries
+            .query_frontmatter(FrontmatterQueryOptions {
+                field: "phase".to_string(),
+                mode: FrontmatterMatchMode::Exists,
+                value: None,
+                include: vec![],
+                exclude: vec![],
+                page: 0,
+            })
+            .is_err()
+    );
+
+    let value = serde_json::to_value(&exists).expect("frontmatter json");
+    assert!(value.get("matches").is_none());
+    assert!(value.get("field").is_none());
+    assert!(value.get("mode").is_none());
+    assert!(value.get("value").is_none());
 }
 
 #[test]
@@ -719,116 +868,369 @@ fn parse_cache_prunes_by_ttl_and_entry_limit() {
 }
 
 #[test]
-fn resolve_ref_supports_alias_and_heading() {
+fn resolve_ref_outputs_compact_resolved_multi_heading_json() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物")).expect("create characters dir");
+    fs::write(
+        dir.path().join("人物/林动.md"),
+        "# 林动\n\n## 身体\n\n### 伤势\n\n内容\n",
+    )
+    .expect("write character");
+
+    let resolved = queries
+        .resolve_ref("[[人物/林动#身体#伤势]]")
+        .expect("resolve");
+    let value = serde_json::to_value(resolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({"target": "人物/林动.md#身体#伤势"})
+    );
+}
+
+#[test]
+fn resolve_ref_and_backlinks_use_canonical_heading_path_for_equivalent_selector() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Parent\n\n### Child\n\nContent\n",
+    )
+    .expect("write target");
+    fs::write(dir.path().join("Source.md"), "[[Target#Parent/Child]]\n").expect("write source");
+
+    let resolved = queries
+        .resolve_ref("[[Target#Parent/Child]]")
+        .expect("resolve equivalent selector");
+    assert_eq!(
+        serde_json::to_value(resolved).expect("resolve json"),
+        serde_json::json!({"target": "Target.md#Parent#Child"})
+    );
+
+    let backlinks = queries
+        .get_backlinks("Target#Parent", &[], &[], 1)
+        .expect("parent backlinks");
+    assert_eq!(
+        serde_json::to_value(backlinks).expect("backlinks json"),
+        serde_json::json!({
+            "scope": "Target.md#Parent",
+            "references": [{
+                "target": "Target.md#Parent#Child",
+                "sources": ["Source.md#L1"]
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_ambiguous_json_with_selector() {
     let (_dir, queries) = fixture();
-    let resolved = queries.resolve_ref("[[动林#身体]]").expect("resolve");
-    match resolved {
-        ResolveResult::Resolved { path, heading, .. } => {
-            assert_eq!(path, "林动.md");
-            assert_eq!(heading.as_deref(), Some("身体"));
-        }
-        other => panic!("expected resolved, got {other:?}"),
+
+    let ambiguous = queries.resolve_ref("[[发动机#原理]]").expect("resolve");
+    let value = serde_json::to_value(ambiguous).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "ambiguous_targets": ["发动机.md#原理", "资料/发动机.md#原理"]
+        })
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_unresolved_json_with_unique_suggestion() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("人物")).expect("create characters dir");
+    fs::write(
+        dir.path().join("人物/唯一笔记.md"),
+        "# 唯一笔记\n\n## 身体\n",
+    )
+    .expect("write character");
+
+    let unresolved = queries
+        .resolve_ref("[[错误目录/唯一笔记#身体]]")
+        .expect("resolve");
+    let value = serde_json::to_value(unresolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "unresolved_target": "错误目录/唯一笔记#身体",
+            "suggested_target": "人物/唯一笔记.md#身体"
+        })
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_compact_unresolved_json_without_suggestion() {
+    let (_dir, queries) = fixture();
+
+    let unresolved = queries.resolve_ref("[[不存在的人物]]").expect("resolve");
+    let value = serde_json::to_value(unresolved).expect("resolve json");
+
+    assert_eq!(
+        value,
+        serde_json::json!({"unresolved_target": "不存在的人物"})
+    );
+}
+
+#[test]
+fn resolve_ref_outputs_unresolved_for_missing_selectors_on_existing_note() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target");
+
+    let missing_heading = queries
+        .resolve_ref("[[Target#Missing]]")
+        .expect("resolve missing heading");
+    let missing_block = queries
+        .resolve_ref("[[Target#^missing]]")
+        .expect("resolve missing block");
+
+    assert_eq!(
+        serde_json::to_value(missing_heading).expect("heading json"),
+        serde_json::json!({"unresolved_target": "Target#Missing"})
+    );
+    assert_eq!(
+        serde_json::to_value(missing_block).expect("block json"),
+        serde_json::json!({"unresolved_target": "Target#^missing"})
+    );
+}
+
+#[test]
+fn outlinks_page_then_group_targets_and_keep_ambiguous_selectors() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("A")).expect("create A dir");
+    fs::create_dir_all(dir.path().join("B")).expect("create B dir");
+    fs::write(dir.path().join("Target.md"), "# Target\n").expect("write target");
+    fs::write(dir.path().join("A/Dup.md"), "# Dup\n").expect("write dup A");
+    fs::write(dir.path().join("B/Dup.md"), "# Dup\n").expect("write dup B");
+    let mut content = String::from("# Links\n\n[[Missing]]\n[[Dup#Detail]]\n");
+    for index in 1..=49 {
+        content.push_str(&format!("[[Target|target {index}]]\n"));
     }
+    fs::write(dir.path().join("Links.md"), content).expect("write links");
+
+    let first = queries.get_outlinks("Links", 1).expect("outlinks page 1");
+    let first_value = serde_json::to_value(first).expect("outlinks json");
+    let first_page_targets = (0..48)
+        .map(|offset| {
+            serde_json::json!({
+                "source": format!("Links.md#L{}", 5 + offset),
+                "target": "Target.md"
+            })
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        first_value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": first_page_targets,
+            "ambiguous_targets": [{
+                "source": "Links.md#L4",
+                "reference": "Dup#Detail",
+                "candidates": ["A/Dup.md#Detail", "B/Dup.md#Detail"]
+            }],
+            "unresolved_targets": [{
+                "source": "Links.md#L3",
+                "reference": "Missing"
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 2,
+                "total_links": 51
+            }
+        })
+    );
+
+    let second = queries.get_outlinks("Links", 2).expect("outlinks page 2");
+    let second_value = serde_json::to_value(second).expect("outlinks json");
+    assert_eq!(
+        second_value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": [{
+                "source": "Links.md#L53",
+                "target": "Target.md"
+            }],
+            "pagination": {
+                "page": 2,
+                "total_pages": 2,
+                "total_links": 51
+            }
+        })
+    );
 }
 
 #[test]
-fn backlinks_include_source_section() {
-    let (_dir, queries) = fixture();
-    let result = queries.get_backlinks("林动", &[], &[]).expect("backlinks");
-    assert_eq!(result.backlinks.len(), 1);
-    assert_eq!(result.backlinks[0].source.path, "发动机.md");
+fn outlinks_reports_missing_selectors_on_existing_note_as_unresolved() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Present\n\n^present\n",
+    )
+    .expect("write target");
+    fs::write(
+        dir.path().join("Links.md"),
+        "# Links\n\n[[Target#Missing]]\n[[Target#^missing]]\n",
+    )
+    .expect("write links");
+
+    let outlinks = queries.get_outlinks("Links", 1).expect("outlinks");
+    let value = serde_json::to_value(outlinks).expect("outlinks json");
+
     assert_eq!(
-        result.backlinks[0]
-            .source
-            .section
-            .as_ref()
-            .map(|section| section.heading_path.clone()),
-        Some(vec!["原理".to_string()])
+        value,
+        serde_json::json!({
+            "note": "Links.md",
+            "targets": [],
+            "unresolved_targets": [
+                {"source": "Links.md#L3", "reference": "Target#Missing"},
+                {"source": "Links.md#L4", "reference": "Target#^missing"}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_links": 2
+            }
+        })
     );
 }
 
 #[test]
-fn link_outputs_default_to_compact_and_support_verbose() {
-    let (_dir, queries) = fixture();
+fn backlinks_page_after_filters_then_group_by_resolved_target_scope() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("keep")).expect("create keep dir");
+    fs::create_dir_all(dir.path().join("drop")).expect("create drop dir");
+    fs::write(
+        dir.path().join("Target.md"),
+        "# Target\n\n## Parent\n\n### Child\n\n## Sibling\n\n^exact\n",
+    )
+    .expect("write target");
+    fs::write(dir.path().join("keep/whole.md"), "[[Target]]\n").expect("write whole");
+    fs::write(dir.path().join("keep/parent.md"), "[[Target#Parent]]\n").expect("write parent");
+    fs::write(
+        dir.path().join("keep/child.md"),
+        "[[Target#Parent#Child]] and [[Target#Parent#Child]]\n",
+    )
+    .expect("write child");
+    fs::write(dir.path().join("keep/sibling.md"), "[[Target#Sibling]]\n").expect("write sibling");
+    fs::write(dir.path().join("keep/block.md"), "[[Target#^exact]]\n").expect("write block");
+    fs::write(
+        dir.path().join("keep/missing-selectors.md"),
+        "[[Target#Missing]]\n[[Target#^missing]]\n",
+    )
+    .expect("write missing selectors");
+    fs::write(
+        dir.path().join("drop/excluded.md"),
+        "[[Target#Parent#Child]]\n",
+    )
+    .expect("write excluded");
 
-    let compact = queries
-        .get_backlinks_output("林动", false, &[], &[])
-        .expect("compact backlinks");
-    let compact_value = serde_json::to_value(compact).expect("compact json");
-    assert_eq!(compact_value["backlinks"][0]["location"], "发动机.md#L5");
-    assert_eq!(compact_value["backlinks"][0]["section"], "原理");
-    assert!(compact_value["backlinks"][0].get("source").is_none());
-    assert!(compact_value["backlinks"][0].get("snippet").is_none());
-
-    let verbose = queries
-        .get_backlinks_output("林动", true, &[], &[])
-        .expect("verbose backlinks");
-    let verbose_value = serde_json::to_value(verbose).expect("verbose json");
+    let whole = queries
+        .get_backlinks(
+            "Target",
+            &["keep/**/*.md".to_string()],
+            &["keep/sibling.md".to_string()],
+            1,
+        )
+        .expect("whole-note backlinks");
+    let whole_value = serde_json::to_value(whole).expect("backlinks json");
     assert_eq!(
-        verbose_value["backlinks"][0]["source"]["path"],
-        "发动机.md#L5"
+        whole_value,
+        serde_json::json!({
+            "scope": "Target.md",
+            "references": [
+                {"target": "Target.md#^exact", "sources": ["keep/block.md#L1"]},
+                {"target": "Target.md#Parent#Child", "sources": ["keep/child.md#L1"]},
+                {"target": "Target.md#Parent", "sources": ["keep/parent.md#L1"]},
+                {"target": "Target.md", "sources": ["keep/whole.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 4
+            }
+        })
     );
-    assert!(
-        verbose_value["backlinks"][0]["source"]
-            .get("lines")
-            .is_none()
-    );
-    assert!(
-        verbose_value["backlinks"][0]["source"]
-            .get("line_start")
-            .is_none()
-    );
-    assert!(verbose_value["backlinks"][0].get("snippet").is_some());
 
-    let outlinks = queries
-        .get_outlinks_output("林动", false)
-        .expect("compact outlinks");
-    let outlinks_value = serde_json::to_value(outlinks).expect("outlinks json");
-    assert_eq!(outlinks_value["links"][0]["location"], "林动.md#L14");
-    assert!(outlinks_value["links"][0].get("source").is_none());
+    let heading = queries
+        .get_backlinks("Target#Parent", &["keep/**/*.md".to_string()], &[], 1)
+        .expect("heading backlinks");
+    let heading_value = serde_json::to_value(heading).expect("backlinks json");
+    assert_eq!(
+        heading_value,
+        serde_json::json!({
+            "scope": "Target.md#Parent",
+            "references": [
+                {"target": "Target.md#Parent#Child", "sources": ["keep/child.md#L1"]},
+                {"target": "Target.md#Parent", "sources": ["keep/parent.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 2
+            }
+        })
+    );
+
+    let block = queries
+        .get_backlinks("Target#^exact", &["keep/**/*.md".to_string()], &[], 1)
+        .expect("block backlinks");
+    let block_value = serde_json::to_value(block).expect("backlinks json");
+    assert_eq!(
+        block_value,
+        serde_json::json!({
+            "scope": "Target.md#^exact",
+            "references": [
+                {"target": "Target.md#^exact", "sources": ["keep/block.md#L1"]}
+            ],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
+
+    let missing_heading = queries.get_backlinks("Target#Missing", &[], &[], 1);
+    assert!(
+        missing_heading
+            .unwrap_err()
+            .to_string()
+            .contains("target must resolve to exactly one note reference")
+    );
+    let missing_block = queries.get_backlinks("Target#^missing", &[], &[], 1);
+    assert!(
+        missing_block
+            .unwrap_err()
+            .to_string()
+            .contains("target must resolve to exactly one note reference")
+    );
 }
 
 #[test]
 fn mcp_output_schemas_have_object_roots() {
     for schema in [
-        serde_json::to_value(schemars::schema_for!(OutlinksOutput)).expect("outlinks schema"),
-        serde_json::to_value(schemars::schema_for!(BacklinksOutput)).expect("backlinks schema"),
+        serde_json::to_value(schemars::schema_for!(OutlinksResult)).expect("outlinks schema"),
+        serde_json::to_value(schemars::schema_for!(BacklinksResult)).expect("backlinks schema"),
         serde_json::to_value(schemars::schema_for!(ListTagsResult)).expect("list tags schema"),
-        serde_json::to_value(schemars::schema_for!(GetTagsResult)).expect("get tags schema"),
+        serde_json::to_value(schemars::schema_for!(GetTagResult)).expect("get tag schema"),
         serde_json::to_value(schemars::schema_for!(ListCategoriesResult))
             .expect("list categories schema"),
-        serde_json::to_value(schemars::schema_for!(GetCategoriesResult))
-            .expect("get categories schema"),
+        serde_json::to_value(schemars::schema_for!(GetCategoryResult))
+            .expect("get category schema"),
     ] {
         assert_eq!(schema["type"], "object");
     }
-}
-
-#[test]
-fn collect_note_context_returns_navigation_items_without_content() {
-    let (_dir, queries) = fixture();
-
-    let result = queries.collect_note_context("林动.md").expect("context");
-
-    let current = &result.groups[0].items[0];
-    assert_eq!(current.path, "林动.md");
-    assert_eq!(current.title.as_deref(), Some("林动"));
-    let value = serde_json::to_value(&result).expect("context json");
-    assert!(value["groups"][0]["items"][0].get("content").is_none());
-    assert!(value["groups"][0]["items"][0].get("source").is_none());
-}
-
-#[test]
-fn collect_reference_context_returns_navigation_items_without_content() {
-    let (_dir, queries) = fixture();
-
-    let result = queries
-        .collect_reference_context("[[林动]]")
-        .expect("reference context");
-
-    assert_eq!(result.groups[0].items[0].path, "林动.md");
-    let value = serde_json::to_value(&result).expect("context json");
-    assert!(value["groups"][0]["items"][0].get("content").is_none());
 }
 
 #[test]
@@ -844,11 +1246,30 @@ fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
 
     assert_eq!(result.content, "# 发动机\n");
     assert!(result.truncated);
-    assert_eq!(
-        result.next_step.as_deref(),
-        Some(
-            "Retry read_note with a bare heading, block, or line reference for targeted access. If you still need more content, retry read_note with a larger max_chars value."
-        )
+    let value = serde_json::to_value(result).expect("read json");
+    assert_eq!(value["source"], "发动机.md#L1-L5");
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
+}
+
+#[test]
+fn read_note_omits_truncated_field_when_full_content_is_returned() {
+    let (_dir, queries) = fixture();
+
+    let result = queries
+        .read_note("发动机.md", Some(usize::MAX), None)
+        .expect("read full note");
+    let value = serde_json::to_value(result).expect("read json");
+
+    assert_eq!(value["source"], "发动机.md#L1-L5");
+    assert!(value.get("path").is_none());
+    assert!(value.get("next_step").is_none());
+    assert!(value.get("truncated").is_none());
+    assert!(
+        value["content"]
+            .as_str()
+            .expect("content")
+            .contains("## 原理")
     );
 }
 
@@ -893,31 +1314,29 @@ fn read_note_by_heading_returns_heading_scope() {
             }),
         )
         .expect("read section");
-    assert_eq!(result.source.section.unwrap().heading_path, vec!["原理"]);
+    assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.content.contains("链接到 [[林动]]"));
 }
 
 #[test]
 fn note_outline_returns_heading_tree() {
     let (_dir, queries) = fixture();
-    let result = queries
-        .get_note_outline("发动机.md", None)
-        .expect("outline");
+    let result = queries.get_note_outline("发动机.md", 1).expect("outline");
     assert_eq!(result.note, "发动机.md");
-    assert_eq!(result.outline.len(), 1);
-    assert_eq!(result.outline[0].heading, "原理");
-    assert_eq!(result.outline[0].heading_path, vec!["原理".to_string()]);
     let value = serde_json::to_value(&result).expect("outline json");
-    assert!(value["outline"][0].get("heading_anchor").is_none());
-    assert!(
-        value["outline"][0]["source"]["section"]
-            .get("heading_anchor")
-            .is_none()
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "line": 3}])
     );
+    assert_eq!(
+        value["pagination"],
+        serde_json::json!({"page": 1, "total_pages": 1, "total_headings": 1})
+    );
+    assert!(value.get("outline").is_none());
 }
 
 #[test]
-fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
+fn note_outline_flattens_non_h1_headings_in_document_order_with_slash_paths() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("多根.md"),
@@ -925,19 +1344,18 @@ fn note_outline_skips_h1_and_resets_tree_after_each_h1() {
     )
     .expect("write multi-root note");
 
-    let result = queries.get_note_outline("多根.md", None).expect("outline");
+    let result = queries.get_note_outline("多根.md", 1).expect("outline");
+    let value = serde_json::to_value(result).expect("outline json");
 
-    assert_eq!(result.outline.len(), 2);
-    assert_eq!(result.outline[0].heading, "A");
-    assert_eq!(result.outline[0].heading_path, vec!["A"]);
-    assert_eq!(result.outline[0].children[0].heading, "A1");
-    assert_eq!(result.outline[0].children[0].heading_path, vec!["A", "A1"]);
-    assert_eq!(result.outline[1].heading, "B");
-    assert_eq!(result.outline[1].heading_path, vec!["B"]);
-    assert_eq!(result.outline[1].children[0].heading, "B1");
     assert_eq!(
-        result.outline[1].children[0].children[0].heading_path,
-        vec!["B", "B1", "B2"]
+        value["headings"],
+        serde_json::json!([
+            {"heading": "A", "line": 3},
+            {"heading": "A/A1", "line": 5},
+            {"heading": "B", "line": 9},
+            {"heading": "B/B1", "line": 11},
+            {"heading": "B/B1/B2", "line": 13}
+        ])
     );
 }
 
@@ -946,32 +1364,61 @@ fn note_outline_is_empty_when_note_only_has_h1_titles() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("只有标题.md"), "# 标题一\n\n# 标题二\n").expect("write h1 note");
 
-    let result = queries
-        .get_note_outline("只有标题.md", None)
-        .expect("outline");
+    let result = queries.get_note_outline("只有标题.md", 1).expect("outline");
 
-    assert!(result.outline.is_empty());
+    let value = serde_json::to_value(result).expect("outline json");
+    assert_eq!(value["headings"], serde_json::json!([]));
 }
 
 #[test]
-fn note_outline_can_return_the_ancestor_chain_for_a_heading_path() {
+fn note_outline_paginates_flat_headings_with_fixed_100_item_pages() {
     let (dir, queries) = fixture();
-    fs::write(
-        dir.path().join("大纲链路.md"),
-        "# Note title\n\n## Parent\n\n### Sibling\n\n#### Target\n\nBody\n\n### Other\n",
+    let mut content = String::from("# Title\n");
+    for index in 1..=101 {
+        content.push_str(&format!("\n## Heading {index:03}\n"));
+    }
+    fs::write(dir.path().join("分页.md"), content).expect("write paged outline note");
+
+    let page_1 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 1)
+            .expect("outline page 1"),
     )
-    .expect("write outline chain note");
+    .expect("page 1 json");
+    assert_eq!(page_1["headings"].as_array().expect("headings").len(), 100);
+    assert_eq!(page_1["headings"][0]["heading"], "Heading 001");
+    assert_eq!(page_1["headings"][99]["heading"], "Heading 100");
+    assert_eq!(
+        page_1["pagination"],
+        serde_json::json!({"page": 1, "total_pages": 2, "total_headings": 101})
+    );
 
-    let result = queries
-        .get_note_outline("大纲链路.md", Some("Parent/Sibling/Target"))
-        .expect("outline chain");
+    let page_2 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 2)
+            .expect("outline page 2"),
+    )
+    .expect("page 2 json");
+    assert_eq!(
+        page_2["headings"],
+        serde_json::json!([{"heading": "Heading 101", "line": 203}])
+    );
+    assert_eq!(
+        page_2["pagination"],
+        serde_json::json!({"page": 2, "total_pages": 2, "total_headings": 101})
+    );
 
-    assert_eq!(result.outline.len(), 1);
-    assert_eq!(result.outline[0].heading, "Parent");
-    assert_eq!(result.outline[0].children.len(), 1);
-    assert_eq!(result.outline[0].children[0].heading, "Sibling");
-    assert_eq!(result.outline[0].children[0].children.len(), 1);
-    assert_eq!(result.outline[0].children[0].children[0].heading, "Target");
+    let page_3 = serde_json::to_value(
+        queries
+            .get_note_outline("分页.md", 3)
+            .expect("outline page 3"),
+    )
+    .expect("page 3 json");
+    assert_eq!(page_3["headings"], serde_json::json!([]));
+    assert_eq!(
+        page_3["pagination"],
+        serde_json::json!({"page": 3, "total_pages": 2, "total_headings": 101})
+    );
 }
 
 #[test]
@@ -981,195 +1428,14 @@ fn regex_search_supports_include_filters_and_sections() {
         .search_regex(
             "林动.{0,20}代偿",
             false,
-            1,
             &["正文/**/*.md".to_string()],
             &[],
+            1,
         )
         .expect("regex search");
     assert_eq!(result.matches.len(), 1);
-    assert_eq!(result.matches[0].source.path, "正文/001.md");
+    assert_eq!(result.matches[0].source, "正文/001.md#L5");
     let value = serde_json::to_value(&result).expect("regex search json");
-    assert_eq!(value["matches"][0]["source"]["path"], "正文/001.md#L4-L6");
-    assert_eq!(
-        result.matches[0]
-            .source
-            .section
-            .as_ref()
-            .map(|section| section.heading_path.clone()),
-        Some(vec!["代偿".to_string()])
-    );
-}
-
-#[test]
-fn unresolved_links_are_reported() {
-    let (_dir, queries) = fixture();
-    let result = queries.find_unresolved_links().expect("unresolved");
-    assert_eq!(result.links.len(), 1);
-    assert_eq!(result.links[0].target, "缺失设定");
-}
-
-#[test]
-fn ambiguous_links_are_reported() {
-    let (_dir, queries) = fixture();
-    let result = queries.find_ambiguous_links().expect("ambiguous");
-    assert_eq!(result.links.len(), 1);
-    assert_eq!(result.links[0].target, "发动机");
-}
-
-#[test]
-fn vault_graph_contains_nodes_and_edges() {
-    let (_dir, queries) = fixture();
-    let result = queries.get_vault_graph().expect("graph");
-    assert!(result.nodes.iter().any(|node| node.path == "林动.md"));
-    assert!(result.nodes.iter().any(|node| node.path == "发动机.md"));
-    assert!(
-        result
-            .nodes
-            .iter()
-            .any(|node| node.path == "资料/发动机.md")
-    );
-    assert!(result.edges.iter().any(|edge| edge.from == "林动.md"));
-    assert!(
-        result
-            .edges
-            .iter()
-            .any(|edge| edge.status == "ambiguous" && edge.target == "发动机")
-    );
-}
-
-#[test]
-fn graph_neighborhood_returns_resolved_neighbors_by_direction() {
-    let (_dir, queries) = fixture();
-    let result = queries
-        .get_graph_neighborhood(GraphNeighborhoodOptions {
-            target: "林动".to_string(),
-            depth: 1,
-            direction: GraphNeighborhoodDirection::Both,
-            include_unresolved: false,
-        })
-        .expect("graph neighborhood");
-
-    assert!(result.nodes.iter().any(|node| node.path == "林动.md"));
-    assert!(result.nodes.iter().any(|node| node.path == "发动机.md"));
-    assert!(result.edges.iter().any(|edge| {
-        edge.from == "发动机.md" && edge.to == "林动.md" && edge.status == "resolved"
-    }));
-    assert!(
-        !result
-            .edges
-            .iter()
-            .any(|edge| edge.status == "unresolved" || edge.status == "ambiguous")
-    );
-}
-
-#[test]
-fn graph_neighborhood_can_include_dangling_edges_without_expanding_them() {
-    let (_dir, queries) = fixture();
-    let result = queries
-        .get_graph_neighborhood(GraphNeighborhoodOptions {
-            target: "林动".to_string(),
-            depth: 1,
-            direction: GraphNeighborhoodDirection::Out,
-            include_unresolved: true,
-        })
-        .expect("graph neighborhood");
-
-    assert_eq!(result.nodes.len(), 1);
-    assert_eq!(result.nodes[0].path, "林动.md");
-    assert!(
-        result
-            .edges
-            .iter()
-            .any(|edge| edge.status == "ambiguous" && edge.target == "发动机")
-    );
-    assert!(
-        result
-            .edges
-            .iter()
-            .any(|edge| edge.status == "unresolved" && edge.target == "缺失设定")
-    );
-}
-
-#[test]
-fn graph_neighborhood_traverses_safe_relative_markdown_links() {
-    let (_dir, queries) = fixture();
-    let result = queries
-        .get_graph_neighborhood(GraphNeighborhoodOptions {
-            target: "正文/001.md".to_string(),
-            depth: 1,
-            direction: GraphNeighborhoodDirection::Out,
-            include_unresolved: false,
-        })
-        .expect("graph neighborhood");
-
-    assert!(result.nodes.iter().any(|node| node.path == "正文/001.md"));
-    assert!(result.nodes.iter().any(|node| node.path == "发动机.md"));
-    assert!(result.edges.iter().any(|edge| {
-        edge.from == "正文/001.md" && edge.to == "发动机.md" && edge.status == "resolved"
-    }));
-    assert!(
-        !result
-            .edges
-            .iter()
-            .any(|edge| edge.target == "../../outside.md")
-    );
-}
-
-#[test]
-fn list_vault_files_returns_flat_gitignore_aware_file_list() {
-    let (_dir, queries) = fixture();
-    let result = queries
-        .list_vault_files(VaultFilesOptions::default())
-        .expect("list vault files");
-    assert_eq!(result.summary.notes, 6);
-    assert_eq!(result.summary.attachments, 1);
-    assert!(
-        !result
-            .files
-            .iter()
-            .any(|file| file.path.contains(".agents"))
-    );
-    assert!(result.files.iter().any(|file| {
-        file.path == "正文/README.md" && file.title.as_deref() == Some("正文索引")
-    }));
-    assert!(result.files.iter().all(|file| file.path != "正文/场景"));
-    assert!(
-        !result
-            .files
-            .iter()
-            .any(|file| file.path == "ignored-by-git.md")
-    );
-    assert!(
-        !result
-            .files
-            .iter()
-            .any(|file| file.path == "ignored-dir/ignored.md")
-    );
-    assert!(
-        !result
-            .files
-            .iter()
-            .any(|file| file.path == "资料/ignored-here.md")
-    );
-    assert_eq!(result.summary.attachments, 1);
-    assert!(!result.files.iter().any(|file| file.path == "地图.png"));
-    let value = serde_json::to_value(&result).expect("json");
-    assert!(value.get("root").is_none());
-    assert!(value.get("ignored").is_none());
-    assert!(value["files"][0].get("size").is_some());
-    assert!(value["files"][0].get("size_bytes").is_none());
-    assert!(value["files"][0].get("modified_unix_ms").is_none());
-
-    let with_attachments = queries
-        .list_vault_files(VaultFilesOptions {
-            include_attachments: true,
-            ..VaultFilesOptions::default()
-        })
-        .expect("list vault files with attachments");
-    assert!(
-        with_attachments
-            .files
-            .iter()
-            .any(|file| file.path == "地图.png")
-    );
+    assert_eq!(value["matches"][0]["source"], "正文/001.md#L5");
+    assert!(value["matches"][0].get("section").is_none());
 }

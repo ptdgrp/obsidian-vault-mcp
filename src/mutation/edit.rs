@@ -2,7 +2,7 @@ use std::fs;
 
 use super::{EditSectionResult, VaultMutations};
 
-use crate::query::{SectionSelector, section::section_source};
+use crate::query::{SectionSelector, public::Locator, section::section_source};
 
 impl VaultMutations {
     pub fn append_section(
@@ -88,10 +88,11 @@ impl VaultMutations {
     ) -> anyhow::Result<EditSectionResult> {
         self.queries.vault.write_note_atomic(path, content)?;
         self.queries.parse_cache.invalidate(relative_path);
+        let max_line = content.lines().count().max(1) as u64;
+        let line_start = line_start.clamp(1, max_line);
+        let line_end = line_end.clamp(line_start, max_line);
         Ok(EditSectionResult {
-            note: relative_path.to_string(),
-            line_start,
-            line_end: line_end.max(line_start),
+            changed: Locator::lines(relative_path, line_start, line_end),
         })
     }
 }

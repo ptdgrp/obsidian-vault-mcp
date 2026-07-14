@@ -73,6 +73,104 @@ fn section_edits_target_structural_boundaries_without_text_matching() {
 }
 
 #[test]
+fn section_edit_results_serialize_only_changed_locator() {
+    let (_dir, mutations) = fixture();
+    let appended = mutations
+        .append_section(
+            "发动机.md",
+            SectionSelector::Heading {
+                heading: "原理".to_string(),
+            },
+            "补充说明。\n",
+        )
+        .expect("append");
+    assert_eq!(
+        serde_json::to_value(appended).expect("append json"),
+        serde_json::json!({"changed": "发动机.md#L6"})
+    );
+
+    let (_dir, mutations) = fixture();
+    let replaced = mutations
+        .replace_section(
+            "发动机.md",
+            SectionSelector::Heading {
+                heading: "原理".to_string(),
+            },
+            "## 原理\n\n已整体替换。\n",
+        )
+        .expect("replace");
+    assert_eq!(
+        serde_json::to_value(replaced).expect("replace json"),
+        serde_json::json!({"changed": "发动机.md#L3-L5"})
+    );
+}
+
+#[test]
+fn delete_section_result_points_to_post_edit_valid_line() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "lines.md", "one\ntwo\nthree\n");
+
+    let first = mutations
+        .delete_section(
+            "lines.md",
+            SectionSelector::Lines {
+                line_start: 1,
+                line_end: 1,
+            },
+        )
+        .expect("delete first line");
+    assert_eq!(
+        serde_json::to_value(first).expect("first json"),
+        serde_json::json!({"changed": "lines.md#L1"})
+    );
+
+    write_note(&dir, "lines.md", "one\ntwo\nthree\n");
+    let middle = mutations
+        .delete_section(
+            "lines.md",
+            SectionSelector::Lines {
+                line_start: 2,
+                line_end: 2,
+            },
+        )
+        .expect("delete middle line");
+    assert_eq!(
+        serde_json::to_value(middle).expect("middle json"),
+        serde_json::json!({"changed": "lines.md#L2"})
+    );
+
+    write_note(&dir, "lines.md", "one\ntwo\nthree\n");
+    let last = mutations
+        .delete_section(
+            "lines.md",
+            SectionSelector::Lines {
+                line_start: 3,
+                line_end: 3,
+            },
+        )
+        .expect("delete last line");
+    assert_eq!(
+        serde_json::to_value(last).expect("last json"),
+        serde_json::json!({"changed": "lines.md#L2"})
+    );
+
+    write_note(&dir, "empty.md", "");
+    let empty = mutations
+        .delete_section(
+            "empty.md",
+            SectionSelector::Lines {
+                line_start: 1,
+                line_end: 1,
+            },
+        )
+        .expect("delete empty document line");
+    assert_eq!(
+        serde_json::to_value(empty).expect("empty json"),
+        serde_json::json!({"changed": "empty.md#L1"})
+    );
+}
+
+#[test]
 fn section_edits_accept_markdown_heading_syntax() {
     let (dir, mutations) = fixture();
 
@@ -170,6 +268,44 @@ fn rename_note_updates_only_resolved_wikilinks_and_keeps_them_navigable() {
             RefResolver::resolve(target, &notes),
             ResolveResult::Resolved { path, .. } if path == "archive/推进器-新版.md"
         ));
+    }
+}
+
+#[test]
+fn rename_note_requires_exact_markdown_paths_without_writing() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "notes/推进器.md", "# 推进器\n");
+    write_note(&dir, "引用.md", "# 引用\n\n[[notes/推进器.md]]\n");
+    let before_source = read_note(&dir, "notes/推进器.md");
+    let before_reference = read_note(&dir, "引用.md");
+
+    for (path, new_path, expected) in [
+        (
+            "推进器",
+            "archive/推进器.md",
+            "exact note path must end with .md",
+        ),
+        (
+            "/tmp/推进器.md",
+            "archive/推进器.md",
+            "absolute paths are not allowed",
+        ),
+        ("notes/推进器.md", "../推进器.md", "path escapes vault root"),
+        (
+            "notes/推进器.md",
+            "archive/推进器",
+            "exact note path must end with .md",
+        ),
+    ] {
+        let error = mutations
+            .rename_note(path, new_path, false)
+            .expect_err("invalid exact path should fail");
+        assert!(
+            error.to_string().contains(expected),
+            "{path:?} -> {new_path:?}: {error}"
+        );
+        assert_eq!(read_note(&dir, "notes/推进器.md"), before_source);
+        assert_eq!(read_note(&dir, "引用.md"), before_reference);
     }
 }
 

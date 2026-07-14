@@ -61,16 +61,6 @@ pub enum TagScope {
     Line,
 }
 
-impl TagScope {
-    pub fn includes_frontmatter_tags(self) -> bool {
-        matches!(self, Self::Note | Self::Frontmatter | Self::Body)
-    }
-
-    pub fn includes_body_tag(self, tag_scope: Self) -> bool {
-        matches!(self, Self::Note) || self == tag_scope
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmbedInfo {
     pub raw: String,

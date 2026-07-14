@@ -5,12 +5,11 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use tempfile::tempdir;
 
 use super::{
-    BacklinksRequest, CategoriesRequest, ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest,
-    RenameHeadingRequest, RenameNoteRequest, TagsRequest,
+    BacklinksRequest, GetCategoryRequest, GetTagRequest, NoteOutlineRequest, NoteStructureRequest,
+    ObsidianVaultMcp, OutlinksRequest, ReadNoteRequest, RenameHeadingRequest, RenameNoteRequest,
 };
 use crate::{
     query::TagScope,
-    resolver::ResolveResult,
     server::{NoteStatsRequest, ResolveRefRequest},
     vault::{Vault, VaultConfig},
 };
@@ -24,7 +23,7 @@ pub(super) fn fixture() -> (tempfile::TempDir, ObsidianVaultMcp) {
     let dir = tempdir().expect("tempdir");
     fs::write(
         dir.path().join("林动.md"),
-        "---\naliases:\n  - 动林\n---\n# 林动\n\n身体\n",
+        "---\naliases:\n  - 动林\n---\n# 林动\n\n## 身体\n",
     )
     .expect("write note");
     fs::write(
@@ -70,16 +69,9 @@ fn resolve_ref_tool_returns_resolved_heading_result() {
             reference: "[[动林#身体]]".to_string(),
         }))
         .expect("resolve ref");
+    let value = serde_json::to_value(result).expect("resolve ref json");
 
-    assert!(matches!(
-        result.result,
-        ResolveResult::Resolved {
-            path,
-            heading,
-            block_id: None,
-            ..
-        } if path == "林动.md" && heading.as_deref() == Some("身体")
-    ));
+    assert_eq!(value, serde_json::json!({"target": "林动.md#身体"}));
 }
 
 #[test]
@@ -142,8 +134,29 @@ fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
             line: None,
         }))
         .expect("read heading through MCP");
-    assert_eq!(result.source.line_start, 3);
+    assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.truncated);
+}
+
+#[test]
+fn note_structure_tool_returns_compact_contract_without_parser_links() {
+    let (_dir, server) = fixture();
+
+    let Json(result) = server
+        .get_note_structure(Parameters(NoteStructureRequest {
+            note: "发动机.md".to_string(),
+        }))
+        .expect("get note structure");
+    let value = serde_json::to_value(result).expect("structure json");
+
+    assert_eq!(value["note"], "发动机.md");
+    assert_eq!(value["link_count"], 1);
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "line": 3}])
+    );
+    assert!(value.get("links").is_none());
+    assert!(value.get("path").is_none());
 }
 
 #[test]
@@ -171,31 +184,57 @@ fn outlinks_tool_returns_compact_links_for_existing_note() {
     let Json(result) = server
         .get_outlinks(Parameters(OutlinksRequest {
             note: "发动机.md".to_string(),
-            verbose: false,
+            page: 1,
         }))
         .expect("get outlinks");
+    let value = serde_json::to_value(result).expect("outlinks json");
 
-    assert_eq!(result.note, "发动机.md");
-    assert_eq!(result.links.len(), 1);
-    assert_eq!(result.links[0].target, "林动");
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "note": "发动机.md",
+            "targets": [{
+                "source": "发动机.md#L5",
+                "target": "林动.md#身体"
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_links": 1
+            }
+        })
+    );
 }
 
 #[test]
-fn backlinks_tool_returns_verbose_results_for_reference() {
+fn backlinks_tool_returns_compact_results_for_reference() {
     let (_dir, server) = fixture();
 
     let Json(result) = server
         .get_backlinks(Parameters(BacklinksRequest {
             target: "[[林动#身体]]".to_string(),
-            verbose: true,
             include: vec![],
             exclude: vec![],
+            page: 1,
         }))
         .expect("get backlinks");
+    let value = serde_json::to_value(result).expect("backlinks json");
 
-    assert_eq!(result.target, "[[林动#身体]]");
-    assert_eq!(result.backlinks.len(), 1);
-    assert!(result.backlinks[0].snippet.is_some());
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "scope": "林动.md#身体",
+            "references": [{
+                "target": "林动.md#身体",
+                "sources": ["发动机.md#L5"]
+            }],
+            "pagination": {
+                "page": 1,
+                "total_pages": 1,
+                "total_backlinks": 1
+            }
+        })
+    );
 }
 
 #[test]
@@ -205,11 +244,10 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
     let Json(result) = server
         .get_note_stats(Parameters(NoteStatsRequest {
             note: "林动.md".to_string(),
-            word_count_mode: Default::default(),
         }))
         .expect("get note stats");
 
-    assert_eq!(result.note, "林动.md");
+    assert_eq!(result.scope, "林动.md");
     assert_eq!(result.word_count, 7);
     assert_eq!(result.line_count, 7);
     assert_eq!(result.backlink_count, 1);
@@ -217,44 +255,88 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
 }
 
 #[test]
-fn note_stats_tool_returns_source_for_a_scoped_reference() {
+fn note_stats_tool_returns_normalized_scope_for_a_scoped_reference() {
     let (_dir, server) = fixture();
 
     let Json(result) = server
         .get_note_stats(Parameters(NoteStatsRequest {
             note: "发动机#原理".to_string(),
-            word_count_mode: Default::default(),
         }))
         .expect("scoped note stats");
 
-    assert_eq!(result.source.expect("source").line_start, 3);
+    let value = serde_json::to_value(result).expect("stats json");
+    assert_eq!(value["scope"], "发动机.md#原理");
+    assert!(value.get("source").is_none());
+    assert!(value.get("word_count_mode").is_none());
 }
 
 #[test]
-fn get_tags_and_get_categories_reject_empty_inputs() {
+fn note_stats_schema_does_not_expose_word_count_mode() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "get_note_stats")
+        .expect("get_note_stats tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("note stats input properties");
+
+    assert!(properties.contains_key("note"));
+    assert!(!properties.contains_key("word_count_mode"));
+}
+
+#[test]
+fn note_outline_schema_uses_page_not_heading_selector() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "get_note_outline")
+        .expect("get_note_outline tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("note outline input properties");
+
+    assert!(properties.contains_key("page"));
+    assert!(!properties.contains_key("heading"));
+
+    let (_dir, server) = fixture();
+    let Json(result) = server
+        .get_note_outline(Parameters(NoteOutlineRequest {
+            note: "发动机.md".to_string(),
+            page: 1,
+        }))
+        .expect("get note outline");
+    let value = serde_json::to_value(result).expect("outline json");
+    assert_eq!(
+        value["headings"],
+        serde_json::json!([{"heading": "原理", "line": 3}])
+    );
+}
+
+#[test]
+fn get_tag_and_get_category_reject_empty_inputs() {
     let (_dir, server) = fixture();
 
-    let tags_error = match server.get_tags(Parameters(TagsRequest {
-        tags: Vec::new(),
+    let tags_error = match server.get_tag(Parameters(GetTagRequest {
+        tag: String::new(),
         scope: TagScope::Note,
-        verbose: false,
         include: vec![],
         exclude: vec![],
+        page: 1,
     })) {
-        Ok(_) => panic!("empty tags should fail"),
+        Ok(_) => panic!("empty tag should fail"),
         Err(error) => error,
     };
-    assert!(tags_error.contains("provide at least one tag"));
+    assert!(tags_error.contains("provide a non-empty tag"));
 
-    let categories_error = match server.get_categories(Parameters(CategoriesRequest {
-        categories: Vec::new(),
+    let categories_error = match server.get_category(Parameters(GetCategoryRequest {
+        category: String::new(),
         include: vec![],
         exclude: vec![],
+        page: 1,
     })) {
-        Ok(_) => panic!("empty categories should fail"),
+        Ok(_) => panic!("empty category should fail"),
         Err(error) => error,
     };
-    assert!(categories_error.contains("provide at least one category"));
+    assert!(categories_error.contains("provide a non-empty category"));
 }
 
 #[test]
@@ -263,7 +345,7 @@ fn rename_note_defaults_to_dry_run_and_reports_changed_notes() {
 
     let Json(result) = server
         .rename_note(Parameters(RenameNoteRequest {
-            note: "引用.md".to_string(),
+            path: "引用.md".to_string(),
             new_path: "archive/引用.md".to_string(),
             dry_run: true,
         }))

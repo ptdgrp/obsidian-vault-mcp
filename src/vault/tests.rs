@@ -18,14 +18,14 @@ fn open_rejects_missing_or_file_roots() {
     let missing = Utf8PathBuf::from_path_buf(dir.path().join("missing")).expect("utf8 path");
     let error =
         Vault::open(missing.clone(), VaultConfig::default()).expect_err("missing root should fail");
-    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing.to_string()));
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing));
 
     let file = dir.path().join("vault.md");
     fs::write(&file, "# not a directory\n").expect("write file root");
     let file = Utf8PathBuf::from_path_buf(file).expect("utf8 path");
     let error =
         Vault::open(file.clone(), VaultConfig::default()).expect_err("file root should fail");
-    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file.to_string()));
+    assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file));
 }
 
 #[test]
@@ -116,6 +116,17 @@ fn resolve_path_rejects_absolute_paths_and_relative_path_uses_vault_relative_for
     fs::write(&nested, "# 第一章\n").expect("write nested note");
     let nested = Utf8PathBuf::from_path_buf(nested).expect("utf8 path");
     assert_eq!(vault.relative_path(&nested), "正文/001.md");
+}
+
+#[test]
+fn resolve_exact_note_path_requires_safe_markdown_paths() {
+    let (dir, vault) = fixture(VaultConfig::default());
+    fs::write(dir.path().join("人物.md"), "# 人物\n").expect("write note");
+
+    assert!(vault.resolve_exact_note_path("人物.md").is_ok());
+    assert!(vault.resolve_exact_note_path("人物").is_err());
+    assert!(vault.resolve_exact_note_path("/tmp/人物.md").is_err());
+    assert!(vault.resolve_exact_note_path("../人物.md").is_err());
 }
 
 #[test]

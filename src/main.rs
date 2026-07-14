@@ -102,8 +102,34 @@ enum Command {
     /// Check vault config and list readable notes
     Doctor,
 
-    /// List markdown notes in vault
-    ListNotes,
+    #[command(about = "Page through visible Markdown notes for lightweight navigation.")]
+    ListNotes {
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+    },
+
+    #[command(about = "Audit unresolved and ambiguous local links across the visible vault.")]
+    AuditLinks {
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+    },
+
+    #[command(about = "Return a bounded resolved-link neighborhood around one note reference.")]
+    GetNoteNeighborhood {
+        target: String,
+        #[arg(long, default_value_t = 1)]
+        depth: usize,
+        #[arg(long, default_value = "both")]
+        direction: String,
+    },
 
     /// Read one Markdown note, heading section, block, or line range
     ReadNote {
@@ -129,32 +155,12 @@ enum Command {
     GetNoteOutline {
         note: String,
 
-        /// Heading text, heading anchor, or slash-separated heading path.
-        #[arg(long)]
-        heading: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Return one note's word count, character count, and total backlink count
-    GetNoteStats {
-        note: String,
-        #[arg(long, value_enum, default_value_t = crate::query::WordCountMode::Source)]
-        word_count_mode: crate::query::WordCountMode,
-    },
-
-    /// Print a gitignore-aware flat list of visible vault files
-    ListVaultFiles {
-        #[arg(long, default_value_t = true)]
-        include_files: bool,
-
-        #[arg(long, default_value_t = false)]
-        include_attachments: bool,
-
-        #[arg(long, default_value_t = false)]
-        include_readme_outline: bool,
-
-        #[arg(long, default_value_t = 100)]
-        max_files: usize,
-    },
+    GetNoteStats { note: String },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
     ResolveRef { reference: String },
@@ -163,16 +169,13 @@ enum Command {
     GetOutlinks {
         note: String,
 
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Find backlinks to a note or reference
     GetBacklinks {
         target: String,
-
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
 
         /// Vault-relative glob patterns that backlink source notes must match when non-empty.
         #[arg(long)]
@@ -181,6 +184,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching backlink source notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// List unique body and frontmatter tag names
@@ -195,17 +201,17 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
-    /// Locate selected body or frontmatter tags
-    GetTags {
-        tags: Vec<String>,
+    /// Locate one body or frontmatter tag
+    GetTag {
+        tag: String,
 
         #[arg(long, default_value = "note")]
         scope: String,
-
-        #[arg(long, default_value_t = false)]
-        verbose: bool,
 
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -214,6 +220,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// List unique folder-derived category names
@@ -225,11 +234,14 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
-    /// Locate selected folder-derived categories
-    GetCategories {
-        categories: Vec<String>,
+    /// Locate one folder-derived category
+    GetCategory {
+        category: String,
 
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -238,6 +250,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Query notes by a top-level frontmatter field
@@ -249,6 +264,17 @@ enum Command {
 
         #[arg(long)]
         value: Option<String>,
+
+        /// Vault-relative glob patterns that notes must match when non-empty.
+        #[arg(long)]
+        include: Vec<String>,
+
+        /// Vault-relative glob patterns that exclude matching notes.
+        #[arg(long)]
+        exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Literal search
@@ -258,9 +284,6 @@ enum Command {
         #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
-        context_lines: usize,
-
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
         include: Vec<String>,
@@ -268,6 +291,9 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
+
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
 
     /// Regex search
@@ -277,9 +303,6 @@ enum Command {
         #[arg(long)]
         case_sensitive: bool,
 
-        #[arg(long, default_value_t = 0)]
-        context_lines: usize,
-
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
         include: Vec<String>,
@@ -287,36 +310,11 @@ enum Command {
         /// Vault-relative glob patterns that exclude matching notes.
         #[arg(long)]
         exclude: Vec<String>,
-    },
-
-    /// Collect bounded context around one note
-    CollectNoteContext { note: String },
-
-    /// Resolve a reference, then collect bounded context
-    CollectReferenceContext { reference: String },
-
-    /// Find local links that do not resolve to any note
-    FindUnresolvedLinks,
-
-    /// Find local links that resolve to multiple candidate notes
-    FindAmbiguousLinks,
-
-    /// Build the full local-link vault graph for audit or visualization
-    GetVaultGraph,
-
-    /// Build a bounded local-link graph neighborhood for normal context use
-    GetGraphNeighborhood {
-        target: String,
 
         #[arg(long, default_value_t = 1)]
-        depth: usize,
-
-        #[arg(long, default_value = "both")]
-        direction: String,
-
-        #[arg(long, default_value_t = false)]
-        include_unresolved: bool,
+        page: usize,
     },
+
     /// Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
     AppendSection {
         /// Vault-relative path, note stem, or alias.
@@ -390,8 +388,8 @@ enum Command {
     },
     /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
     RenameNote {
-        /// Existing vault-relative path, note stem, or alias.
-        note: String,
+        /// Existing safe vault-relative Markdown path.
+        path: String,
         /// New vault-relative Markdown path. Parent directories are created when applying.
         new_path: String,
         /// Preview changed notes and references without writing. Defaults to true.
@@ -447,8 +445,29 @@ async fn main() -> anyhow::Result<()> {
         match command {
             Command::Serve => run_mcp_server(vault).await?,
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
-            Command::Doctor | Command::ListNotes => {
-                print_value(&queries.list_notes()?)?;
+            Command::Doctor => {
+                print_value(&queries.list_notes(&[], &[], 1)?)?;
+            }
+            Command::ListNotes {
+                include,
+                exclude,
+                page,
+            } => {
+                print_value(&queries.list_notes(&include, &exclude, page)?)?;
+            }
+            Command::AuditLinks { page } => {
+                print_value(&queries.audit_links(page)?)?;
+            }
+            Command::GetNoteNeighborhood {
+                target,
+                depth,
+                direction,
+            } => {
+                print_value(&queries.get_note_neighborhood(
+                    &target,
+                    depth,
+                    parse_neighborhood_direction(&direction)?,
+                )?)?;
             }
             Command::ReadNote {
                 note,
@@ -466,152 +485,126 @@ async fn main() -> anyhow::Result<()> {
             Command::GetNoteStructure { note } => {
                 print_value(&queries.get_note_structure(&note)?)?;
             }
-            Command::GetNoteOutline { note, heading } => {
-                print_value(&queries.get_note_outline(&note, heading.as_deref())?)?;
+            Command::GetNoteOutline { note, page } => {
+                print_value(&queries.get_note_outline(&note, page)?)?;
             }
-            Command::GetNoteStats {
-                note,
-                word_count_mode,
-            } => {
-                print_value(&queries.get_note_stats(&note, word_count_mode)?)?;
-            }
-            Command::ListVaultFiles {
-                include_files,
-                include_attachments,
-                include_readme_outline,
-                max_files,
-            } => {
-                let result = queries.list_vault_files(crate::query::VaultFilesOptions {
-                    include_files,
-                    include_attachments,
-                    include_readme_outline,
-                    max_files,
-                })?;
-                print_value(&result)?;
+            Command::GetNoteStats { note } => {
+                print_value(&queries.get_note_stats(&note)?)?;
             }
             Command::ResolveRef { reference } => {
                 print_value(&queries.resolve_ref(&reference)?)?;
             }
-            Command::GetOutlinks { note, verbose } => {
-                print_value(&queries.get_outlinks_output(&note, verbose)?)?;
+            Command::GetOutlinks { note, page } => {
+                print_value(&queries.get_outlinks(&note, page)?)?;
             }
             Command::GetBacklinks {
                 target,
-                verbose,
                 include,
                 exclude,
+                page,
             } => {
-                print_value(&queries.get_backlinks_output(&target, verbose, &include, &exclude)?)?;
+                print_value(&queries.get_backlinks(&target, &include, &exclude, page)?)?;
             }
             Command::ListTags {
                 scope,
                 include,
                 exclude,
+                page,
             } => {
-                print_value(&queries.list_tags(parse_tag_scope(&scope)?, &include, &exclude)?)?;
-            }
-            Command::GetTags {
-                tags,
-                scope,
-                verbose,
-                include,
-                exclude,
-            } => {
-                if tags.is_empty() {
-                    return Err(anyhow::anyhow!(
-                        "provide at least one tag; use list_tags to discover tag names"
-                    ));
-                }
-                print_value(&queries.get_tags(
-                    &tags,
+                print_value(&queries.list_tags(
                     parse_tag_scope(&scope)?,
-                    verbose,
                     &include,
                     &exclude,
+                    page,
                 )?)?;
             }
-            Command::ListCategories { include, exclude } => {
-                print_value(&queries.list_categories(&include, &exclude)?)?;
-            }
-            Command::GetCategories {
-                categories,
+            Command::GetTag {
+                tag,
+                scope,
                 include,
                 exclude,
+                page,
             } => {
-                if categories.is_empty() {
+                if tag.trim().trim_start_matches('#').is_empty() {
                     return Err(anyhow::anyhow!(
-                        "provide at least one category; use list_categories to discover category names"
+                        "provide a non-empty tag; use list_tags to discover tag names"
                     ));
                 }
-                print_value(&queries.get_categories(&categories, &include, &exclude)?)?;
+                print_value(&queries.get_tag(
+                    &tag,
+                    parse_tag_scope(&scope)?,
+                    &include,
+                    &exclude,
+                    page,
+                )?)?;
             }
-            Command::QueryFrontmatter { field, mode, value } => {
+            Command::ListCategories {
+                include,
+                exclude,
+                page,
+            } => {
+                print_value(&queries.list_categories(&include, &exclude, page)?)?;
+            }
+            Command::GetCategory {
+                category,
+                include,
+                exclude,
+                page,
+            } => {
+                if category.trim().trim_matches('/').is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide a non-empty category; use list_categories to discover category names"
+                    ));
+                }
+                print_value(&queries.get_category(&category, &include, &exclude, page)?)?;
+            }
+            Command::QueryFrontmatter {
+                field,
+                mode,
+                value,
+                include,
+                exclude,
+                page,
+            } => {
                 print_value(&queries.query_frontmatter(
                     crate::query::FrontmatterQueryOptions {
                         field,
                         mode: parse_frontmatter_match_mode(&mode)?,
                         value,
+                        include,
+                        exclude,
+                        page,
                     },
                 )?)?;
             }
             Command::SearchText {
                 query,
                 case_sensitive,
-                context_lines,
                 include,
                 exclude,
+                page,
             } => {
                 print_value(&queries.search_text(
                     &query,
                     case_sensitive,
-                    context_lines,
                     &include,
                     &exclude,
+                    page,
                 )?)?;
             }
             Command::SearchRegex {
                 pattern,
                 case_sensitive,
-                context_lines,
                 include,
                 exclude,
+                page,
             } => {
                 print_value(&queries.search_regex(
                     &pattern,
                     case_sensitive,
-                    context_lines,
                     &include,
                     &exclude,
-                )?)?;
-            }
-            Command::CollectNoteContext { note } => {
-                print_value(&queries.collect_note_context(&note)?)?;
-            }
-            Command::CollectReferenceContext { reference } => {
-                print_value(&queries.collect_reference_context(&reference)?)?;
-            }
-            Command::FindUnresolvedLinks => {
-                print_value(&queries.find_unresolved_links()?)?;
-            }
-            Command::FindAmbiguousLinks => {
-                print_value(&queries.find_ambiguous_links()?)?;
-            }
-            Command::GetVaultGraph => {
-                print_value(&queries.get_vault_graph()?)?;
-            }
-            Command::GetGraphNeighborhood {
-                target,
-                depth,
-                direction,
-                include_unresolved,
-            } => {
-                print_value(&queries.get_graph_neighborhood(
-                    crate::query::GraphNeighborhoodOptions {
-                        target,
-                        depth,
-                        direction: parse_graph_neighborhood_direction(&direction)?,
-                        include_unresolved,
-                    },
+                    page,
                 )?)?;
             }
             Command::AppendSection { note, heading, block_id, line, content } => {
@@ -629,8 +622,8 @@ async fn main() -> anyhow::Result<()> {
             Command::RenameHeading { note, old_heading, new_heading, dry_run } => {
                 print_value(&mutations.rename_heading(&note, &old_heading, &new_heading, dry_run)?)?
             }
-            Command::RenameNote { note, new_path, dry_run } => {
-                print_value(&mutations.rename_note(&note, &new_path, dry_run)?)?
+            Command::RenameNote { path, new_path, dry_run } => {
+                print_value(&mutations.rename_note(&path, &new_path, dry_run)?)?
             }
             Command::RenameBlockId { note, old_block_id, new_block_id, dry_run } => {
                 print_value(&mutations.rename_block_id(&note, &old_block_id, &new_block_id, dry_run)?)?
@@ -643,15 +636,15 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
-fn parse_graph_neighborhood_direction(
+fn parse_neighborhood_direction(
     input: &str,
-) -> anyhow::Result<crate::query::GraphNeighborhoodDirection> {
+) -> anyhow::Result<crate::query::NeighborhoodDirection> {
     match input {
-        "out" => Ok(crate::query::GraphNeighborhoodDirection::Out),
-        "in" => Ok(crate::query::GraphNeighborhoodDirection::In),
-        "both" => Ok(crate::query::GraphNeighborhoodDirection::Both),
+        "out" => Ok(crate::query::NeighborhoodDirection::Out),
+        "in" => Ok(crate::query::NeighborhoodDirection::In),
+        "both" => Ok(crate::query::NeighborhoodDirection::Both),
         _ => Err(anyhow::anyhow!(
-            "invalid graph neighborhood direction: {input}; expected one of: both, out, in"
+            "invalid neighborhood direction: {input}; expected one of: both, out, in"
         )),
     }
 }

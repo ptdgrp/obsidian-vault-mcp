@@ -1,14 +1,12 @@
 use crate::{
     mutation::{EditSectionResult, RenameResult, VaultMutations},
     query::{
-        AmbiguousLinksResult, BacklinksOutput, ContextResult, FrontmatterQueryOptions,
-        FrontmatterQueryResult, GetCategoriesResult, GetTagsResult, GraphNeighborhoodOptions,
-        ListCategoriesResult, ListNotesResult, ListTagsResult, NoteOutlineResult, NoteStatsResult,
-        NoteStructureResult, OutlinksOutput, ReadNoteResult, SearchRegexResult, SearchTextResult,
-        SectionSelector, TagScope, UnresolvedLinksResult, VaultFilesOptions, VaultFilesResult,
-        VaultGraphResult, VaultQueries, WordCountMode,
+        AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
+        GetCategoryResult, GetTagResult, ListCategoriesResult, ListNotesResult, ListTagsResult,
+        NeighborhoodDirection, NeighborhoodResult, NoteOutlineResult, NoteStatsResult,
+        NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult, SearchRegexResult,
+        SearchTextResult, SectionSelector, TagScope, VaultQueries,
     },
-    resolver::ResolveResult,
     vault::Vault,
 };
 use rmcp::{
@@ -72,8 +70,30 @@ impl ObsidianVaultMcp {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Empty input for tools that operate on the whole vault.
-pub struct EmptyRequest {}
+/// Page through visible Markdown notes after optional vault-relative path filters.
+pub struct ListNotesRequest {
+    #[serde(default)]
+    pub include: Vec<String>,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    #[serde(default = "default_page")]
+    pub page: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AuditLinksRequest {
+    #[serde(default = "default_page")]
+    pub page: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NeighborhoodRequest {
+    pub target: String,
+    #[serde(default = "default_neighborhood_depth")]
+    pub depth: usize,
+    #[serde(default)]
+    pub direction: NeighborhoodDirection,
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one Markdown note.
@@ -102,17 +122,15 @@ pub struct NoteStructureRequest {
 pub struct NoteOutlineRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Optional heading or slash-separated heading path. When set, returns only its ancestor chain.
-    pub heading: Option<String>,
+    /// One-based page number. Each page contains up to 100 headings.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoteStatsRequest {
     /// Vault-relative path, note stem, alias, or bare heading/block reference.
     pub note: String,
-    /// Word counting strategy. Defaults to `source` for backward-compatible raw Markdown counts.
-    #[serde(default)]
-    pub word_count_mode: WordCountMode,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -127,15 +145,15 @@ pub struct ResolveRefRequest {
 pub struct BacklinksRequest {
     /// Note path, stem, alias, or Obsidian reference to find inbound links for.
     pub target: String,
-    /// Return detailed source spans and snippets when true. Defaults to compact output.
-    #[serde(default)]
-    pub verbose: bool,
     /// Vault-relative glob patterns. A backlink source note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching backlink source notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 50 backlink occurrences.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -143,9 +161,9 @@ pub struct BacklinksRequest {
 pub struct OutlinksRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Return detailed source spans and snippets when true. Defaults to compact output.
-    #[serde(default)]
-    pub verbose: bool,
+    /// One-based page number. Each page contains up to 50 link occurrences.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -160,25 +178,28 @@ pub struct ListTagsRequest {
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 100 tags.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for locating tags.
-pub struct TagsRequest {
-    /// Exact tags to locate. Both "状态/身体" and "#状态/身体" are accepted.
-    pub tags: Vec<String>,
+/// Input for locating one tag.
+pub struct GetTagRequest {
+    /// Exact tag to locate. Both "状态/身体" and "#状态/身体" are accepted.
+    pub tag: String,
     /// Scope to search: note, frontmatter, body, section, or line. Defaults to note.
     #[serde(default)]
     pub scope: TagScope,
-    /// Return detailed section metadata when true. Defaults to compact LLM-friendly output.
-    #[serde(default)]
-    pub verbose: bool,
     /// Vault-relative glob patterns. A note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 100 locators.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -190,19 +211,25 @@ pub struct ListCategoriesRequest {
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 100 categories.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for locating folder-derived categories.
-pub struct CategoriesRequest {
-    /// Exact folder-derived category names to locate.
-    pub categories: Vec<String>,
+/// Input for locating one folder-derived category.
+pub struct GetCategoryRequest {
+    /// Exact folder-derived category name to locate.
+    pub category: String,
     /// Vault-relative glob patterns. A note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 100 notes.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -213,15 +240,15 @@ pub struct SearchTextRequest {
     /// Whether matching should be case-sensitive.
     #[serde(default)]
     pub case_sensitive: bool,
-    /// Number of surrounding lines to include in each snippet.
-    #[serde(default = "default_context_lines")]
-    pub context_lines: usize,
     /// Vault-relative glob patterns. A note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// One-based page number. Each page contains up to 50 matching lines.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -232,29 +259,15 @@ pub struct SearchRegexRequest {
     /// Whether matching should be case-sensitive.
     #[serde(default)]
     pub case_sensitive: bool,
-    /// Number of surrounding lines to include in each snippet.
-    #[serde(default = "default_context_lines")]
-    pub context_lines: usize,
     /// Vault-relative glob patterns. A note must match at least one when non-empty.
     #[serde(default)]
     pub include: Vec<String>,
     /// Vault-relative glob patterns. Matching notes are excluded.
     #[serde(default)]
     pub exclude: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-/// Input for collecting context around one note.
-pub struct ContextNoteRequest {
-    /// Vault-relative path, note stem, or alias.
-    pub note: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-/// Input for collecting context around a reference.
-pub struct ContextReferenceRequest {
-    /// Reference such as "Note", "[[Note]]", or "[[Note#Heading]]".
-    pub reference: String,
+    /// One-based page number. Each page contains up to 50 matching lines.
+    #[serde(default = "default_page")]
+    pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -317,8 +330,8 @@ pub struct RenameHeadingRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for moving a note and repairing its uniquely resolved wikilinks.
 pub struct RenameNoteRequest {
-    /// Existing vault-relative path, note stem, or alias.
-    pub note: String,
+    /// Existing safe vault-relative Markdown path.
+    pub path: String,
     /// New vault-relative Markdown path. Parent directories are created when applying.
     pub new_path: String,
     /// Preview changed notes and references without writing. Defaults to true.
@@ -400,30 +413,57 @@ fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
     Ok((line_start, line_end))
 }
 
-pub type VaultFilesRequest = VaultFilesOptions;
-pub type GraphNeighborhoodRequest = GraphNeighborhoodOptions;
 pub type FrontmatterQueryRequest = FrontmatterQueryOptions;
-
-#[derive(Debug, serde::Serialize, JsonSchema)]
-pub struct ResolveRefToolResult {
-    pub result: ResolveResult,
-}
-
-fn default_context_lines() -> usize {
-    0
-}
 
 fn default_dry_run() -> bool {
     true
 }
 
+fn default_page() -> usize {
+    1
+}
+
+fn default_neighborhood_depth() -> usize {
+    1
+}
+
 #[tool_router]
 impl ObsidianVaultMcp {
-    #[tool(
-        description = "List visible Markdown notes with path, display title, and human-readable size. Title priority: first level-one heading, frontmatter title, then pathname."
-    )]
-    fn list_notes(&self, _: Parameters<EmptyRequest>) -> Result<Json<ListNotesResult>, String> {
-        run_tool("list_notes", || self.queries().list_notes())
+    #[tool(description = "Page through visible Markdown notes for lightweight navigation.")]
+    fn list_notes(
+        &self,
+        Parameters(ListNotesRequest {
+            include,
+            exclude,
+            page,
+        }): Parameters<ListNotesRequest>,
+    ) -> Result<Json<ListNotesResult>, String> {
+        run_tool("list_notes", || {
+            self.queries().list_notes(&include, &exclude, page)
+        })
+    }
+
+    #[tool(description = "Audit unresolved and ambiguous local links across the visible vault.")]
+    fn audit_links(
+        &self,
+        Parameters(AuditLinksRequest { page }): Parameters<AuditLinksRequest>,
+    ) -> Result<Json<AuditLinksResult>, String> {
+        run_tool("audit_links", || self.queries().audit_links(page))
+    }
+
+    #[tool(description = "Return a bounded resolved-link neighborhood around one note reference.")]
+    fn get_note_neighborhood(
+        &self,
+        Parameters(NeighborhoodRequest {
+            target,
+            depth,
+            direction,
+        }): Parameters<NeighborhoodRequest>,
+    ) -> Result<Json<NeighborhoodResult>, String> {
+        run_tool("get_note_neighborhood", || {
+            self.queries()
+                .get_note_neighborhood(&target, depth, direction)
+        })
     }
 
     #[tool(
@@ -462,35 +502,20 @@ impl ObsidianVaultMcp {
     )]
     fn get_note_stats(
         &self,
-        Parameters(NoteStatsRequest {
-            note,
-            word_count_mode,
-        }): Parameters<NoteStatsRequest>,
+        Parameters(NoteStatsRequest { note }): Parameters<NoteStatsRequest>,
     ) -> Result<Json<NoteStatsResult>, String> {
-        run_tool("get_note_stats", || {
-            self.queries().get_note_stats(&note, word_count_mode)
-        })
+        run_tool("get_note_stats", || self.queries().get_note_stats(&note))
     }
 
     #[tool(
-        description = "Return one note's selectable non-H1 heading tree without body text. Optionally select a heading or slash-separated path to return only its ancestor chain; use before read_note."
+        description = "Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note."
     )]
     fn get_note_outline(
         &self,
-        Parameters(NoteOutlineRequest { note, heading }): Parameters<NoteOutlineRequest>,
+        Parameters(NoteOutlineRequest { note, page }): Parameters<NoteOutlineRequest>,
     ) -> Result<Json<NoteOutlineResult>, String> {
         run_tool("get_note_outline", || {
-            self.queries().get_note_outline(&note, heading.as_deref())
-        })
-    }
-
-    #[tool(description = "List gitignore-aware visible vault files as flat entries with paths")]
-    fn list_vault_files(
-        &self,
-        Parameters(request): Parameters<VaultFilesRequest>,
-    ) -> Result<Json<VaultFilesResult>, String> {
-        run_tool("list_vault_files", || {
-            self.queries().list_vault_files(request)
+            self.queries().get_note_outline(&note, page)
         })
     }
 
@@ -502,14 +527,14 @@ impl ObsidianVaultMcp {
         Parameters(SearchTextRequest {
             query,
             case_sensitive,
-            context_lines,
             include,
             exclude,
+            page,
         }): Parameters<SearchTextRequest>,
     ) -> Result<Json<SearchTextResult>, String> {
         run_tool("search_text", || {
             self.queries()
-                .search_text(&query, case_sensitive, context_lines, &include, &exclude)
+                .search_text(&query, case_sensitive, &include, &exclude, page)
         })
     }
 
@@ -521,14 +546,14 @@ impl ObsidianVaultMcp {
         Parameters(SearchRegexRequest {
             pattern,
             case_sensitive,
-            context_lines,
             include,
             exclude,
+            page,
         }): Parameters<SearchRegexRequest>,
     ) -> Result<Json<SearchRegexResult>, String> {
         run_tool("search_regex", || {
             self.queries()
-                .search_regex(&pattern, case_sensitive, context_lines, &include, &exclude)
+                .search_regex(&pattern, case_sensitive, &include, &exclude, page)
         })
     }
 
@@ -538,41 +563,35 @@ impl ObsidianVaultMcp {
     fn resolve_ref(
         &self,
         Parameters(ResolveRefRequest { reference }): Parameters<ResolveRefRequest>,
-    ) -> Result<Json<ResolveRefToolResult>, String> {
-        run_tool("resolve_ref", || {
-            self.queries()
-                .resolve_ref(&reference)
-                .map(|result| ResolveRefToolResult { result })
-        })
+    ) -> Result<Json<ResolveRefResult>, String> {
+        run_tool("resolve_ref", || self.queries().resolve_ref(&reference))
     }
 
     #[tool(
-        description = "Get outgoing local links from one note. Defaults to compact location output; set verbose=true for source spans and snippets"
+        description = "Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups"
     )]
     fn get_outlinks(
         &self,
-        Parameters(OutlinksRequest { note, verbose }): Parameters<OutlinksRequest>,
-    ) -> Result<Json<OutlinksOutput>, String> {
-        run_tool("get_outlinks", || {
-            self.queries().get_outlinks_output(&note, verbose)
-        })
+        Parameters(OutlinksRequest { note, page }): Parameters<OutlinksRequest>,
+    ) -> Result<Json<OutlinksResult>, String> {
+        run_tool("get_outlinks", || self.queries().get_outlinks(&note, page))
     }
 
     #[tool(
-        description = "Get backlinks to a note or Obsidian reference. Optional include and exclude filter source-note paths; excludes take precedence. Defaults to compact location output; set verbose=true for source spans and snippets"
+        description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence."
     )]
     fn get_backlinks(
         &self,
         Parameters(BacklinksRequest {
             target,
-            verbose,
             include,
             exclude,
+            page,
         }): Parameters<BacklinksRequest>,
-    ) -> Result<Json<BacklinksOutput>, String> {
+    ) -> Result<Json<BacklinksResult>, String> {
         run_tool("get_backlinks", || {
             self.queries()
-                .get_backlinks_output(&target, verbose, &include, &exclude)
+                .get_backlinks(&target, &include, &exclude, page)
         })
     }
 
@@ -585,34 +604,33 @@ impl ObsidianVaultMcp {
             scope,
             include,
             exclude,
+            page,
         }): Parameters<ListTagsRequest>,
     ) -> Result<Json<ListTagsResult>, String> {
         run_tool("list_tags", || {
-            self.queries().list_tags(scope, &include, &exclude)
+            self.queries().list_tags(scope, &include, &exclude, page)
         })
     }
 
     #[tool(
-        description = "Locate selected tags in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+        description = "Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
     )]
-    fn get_tags(
+    fn get_tag(
         &self,
-        Parameters(TagsRequest {
-            tags,
+        Parameters(GetTagRequest {
+            tag,
             scope,
-            verbose,
             include,
             exclude,
-        }): Parameters<TagsRequest>,
-    ) -> Result<Json<GetTagsResult>, String> {
-        if tags.is_empty() {
-            return Err(
-                "provide at least one tag; use list_tags to discover tag names".to_string(),
-            );
+            page,
+        }): Parameters<GetTagRequest>,
+    ) -> Result<Json<GetTagResult>, String> {
+        if tag.trim().trim_start_matches('#').is_empty() {
+            return Err("provide a non-empty tag; use list_tags to discover tag names".to_string());
         }
-        run_tool("get_tags", || {
+        run_tool("get_tag", || {
             self.queries()
-                .get_tags(&tags, scope, verbose, &include, &exclude)
+                .get_tag(&tag, scope, &include, &exclude, page)
         })
     }
 
@@ -621,33 +639,38 @@ impl ObsidianVaultMcp {
     )]
     fn list_categories(
         &self,
-        Parameters(ListCategoriesRequest { include, exclude }): Parameters<ListCategoriesRequest>,
+        Parameters(ListCategoriesRequest {
+            include,
+            exclude,
+            page,
+        }): Parameters<ListCategoriesRequest>,
     ) -> Result<Json<ListCategoriesResult>, String> {
         run_tool("list_categories", || {
-            self.queries().list_categories(&include, &exclude)
+            self.queries().list_categories(&include, &exclude, page)
         })
     }
 
     #[tool(
-        description = "Locate selected folder-derived categories in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+        description = "Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
     )]
-    fn get_categories(
+    fn get_category(
         &self,
-        Parameters(CategoriesRequest {
-            categories,
+        Parameters(GetCategoryRequest {
+            category,
             include,
             exclude,
-        }): Parameters<CategoriesRequest>,
-    ) -> Result<Json<GetCategoriesResult>, String> {
-        if categories.is_empty() {
+            page,
+        }): Parameters<GetCategoryRequest>,
+    ) -> Result<Json<GetCategoryResult>, String> {
+        if category.trim().trim_matches('/').is_empty() {
             return Err(
-                "provide at least one category; use list_categories to discover category names"
+                "provide a non-empty category; use list_categories to discover category names"
                     .to_string(),
             );
         }
-        run_tool("get_categories", || {
+        run_tool("get_category", || {
             self.queries()
-                .get_categories(&categories, &include, &exclude)
+                .get_category(&category, &include, &exclude, page)
         })
     }
 
@@ -660,30 +683,6 @@ impl ObsidianVaultMcp {
     ) -> Result<Json<FrontmatterQueryResult>, String> {
         run_tool("query_frontmatter", || {
             self.queries().query_frontmatter(request)
-        })
-    }
-
-    #[tool(
-        description = "Collect bounded navigation context grouped as current note, outlinks, and backlinks; use get_note_outline then read_note for note content"
-    )]
-    fn collect_note_context(
-        &self,
-        Parameters(ContextNoteRequest { note }): Parameters<ContextNoteRequest>,
-    ) -> Result<Json<ContextResult>, String> {
-        run_tool("collect_note_context", || {
-            self.queries().collect_note_context(&note)
-        })
-    }
-
-    #[tool(
-        description = "Resolve a reference, then collect bounded navigation context; use get_note_outline then read_note for note content"
-    )]
-    fn collect_reference_context(
-        &self,
-        Parameters(ContextReferenceRequest { reference }): Parameters<ContextReferenceRequest>,
-    ) -> Result<Json<ContextResult>, String> {
-        run_tool("collect_reference_context", || {
-            self.queries().collect_reference_context(&reference)
         })
     }
 
@@ -767,13 +766,13 @@ impl ObsidianVaultMcp {
     fn rename_note(
         &self,
         Parameters(RenameNoteRequest {
-            note,
+            path,
             new_path,
             dry_run,
         }): Parameters<RenameNoteRequest>,
     ) -> Result<Json<RenameResult>, String> {
         run_tool("rename_note", || {
-            self.mutations().rename_note(&note, &new_path, dry_run)
+            self.mutations().rename_note(&path, &new_path, dry_run)
         })
     }
 
@@ -792,52 +791,6 @@ impl ObsidianVaultMcp {
         run_tool("rename_block_id", || {
             self.mutations()
                 .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
-        })
-    }
-
-    #[tool(
-        description = "Find local links that do not resolve to any visible note; use as a vault health check"
-    )]
-    fn find_unresolved_links(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<UnresolvedLinksResult>, String> {
-        run_tool("find_unresolved_links", || {
-            self.queries().find_unresolved_links()
-        })
-    }
-
-    #[tool(
-        description = "Find local links that resolve to multiple visible notes; use before relying on link graph context"
-    )]
-    fn find_ambiguous_links(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<AmbiguousLinksResult>, String> {
-        run_tool("find_ambiguous_links", || {
-            self.queries().find_ambiguous_links()
-        })
-    }
-
-    #[tool(
-        description = "Build the full visible-note local-link graph for audit, visualization, or debugging; prefer get_graph_neighborhood for normal agent context"
-    )]
-    fn get_vault_graph(
-        &self,
-        _: Parameters<EmptyRequest>,
-    ) -> Result<Json<VaultGraphResult>, String> {
-        run_tool("get_vault_graph", || self.queries().get_vault_graph())
-    }
-
-    #[tool(
-        description = "Return a bounded local-link graph neighborhood around one note or reference; preferred graph tool for normal agent context"
-    )]
-    fn get_graph_neighborhood(
-        &self,
-        Parameters(request): Parameters<GraphNeighborhoodRequest>,
-    ) -> Result<Json<VaultGraphResult>, String> {
-        run_tool("get_graph_neighborhood", || {
-            self.queries().get_graph_neighborhood(request)
         })
     }
 }

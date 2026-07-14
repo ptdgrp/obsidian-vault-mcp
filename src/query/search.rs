@@ -1,27 +1,25 @@
 use std::fs;
 
 use rayon::prelude::*;
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 
-use crate::parser::{slice_text, source_for_line};
 use crate::vault::NoteFile;
 
 use super::path_filter::PathFilter;
-use super::{SearchRegexResult, SearchTextResult, TextMatch, VaultQueries};
+use super::public::{Locator, PageSlice};
+use super::{SearchPagination, SearchRegexResult, SearchTextResult, TextMatch, VaultQueries};
 
-const MAX_SEARCH_SNIPPET_CHARS: usize = 240;
+const SEARCH_PAGE_SIZE: usize = 50;
+const MAX_SEARCH_PREVIEW_CHARS: usize = 240;
+const ELLIPSIS: &str = "...";
 
 #[derive(Debug)]
 struct RawTextMatch {
     file: NoteFile,
     line_no: u64,
-    total_lines: u64,
-}
-
-#[derive(Debug)]
-struct RawFileMatches {
-    file: NoteFile,
-    lines: Vec<(u64, u64)>,
+    line: String,
+    match_start: usize,
+    match_end: usize,
 }
 
 impl VaultQueries {
@@ -29,32 +27,23 @@ impl VaultQueries {
         &self,
         query: &str,
         case_sensitive: bool,
-        context_lines: usize,
         include: &[String],
         exclude: &[String],
+        page: usize,
     ) -> anyhow::Result<SearchTextResult> {
         let path_filter = PathFilter::new(include, exclude)?;
-        let needle = if case_sensitive {
-            query.to_string()
+        let raw_matches = if query.is_empty() {
+            self.collect_text_matches(&path_filter, |_| Some(0..0))?
         } else {
-            query.to_lowercase()
+            let regex = RegexBuilder::new(&regex::escape(query))
+                .case_insensitive(!case_sensitive)
+                .build()?;
+            self.collect_text_matches(&path_filter, |line| regex.find(line).map(|m| m.range()))?
         };
-        let raw_matches = self.collect_text_matches(&path_filter, |line| {
-            if case_sensitive {
-                line.contains(&needle)
-            } else {
-                line.to_lowercase().contains(&needle)
-            }
-        })?;
-        let (matches, truncated) = self.materialize_search_matches(
-            raw_matches,
-            context_lines,
-            self.vault.config.max_results,
-        )?;
+        let (matches, pagination) = materialize_search_page(raw_matches, page)?;
         Ok(SearchTextResult {
-            query: query.to_string(),
             matches,
-            truncated,
+            pagination,
         })
     }
 
@@ -62,132 +51,88 @@ impl VaultQueries {
         &self,
         pattern: &str,
         case_sensitive: bool,
-        context_lines: usize,
         include: &[String],
         exclude: &[String],
+        page: usize,
     ) -> anyhow::Result<SearchRegexResult> {
         let path_filter = PathFilter::new(include, exclude)?;
         let regex = RegexBuilder::new(pattern)
             .case_insensitive(!case_sensitive)
             .build()?;
 
-        let raw_matches = self.collect_regex_matches(&regex, &path_filter)?;
-        let (matches, truncated) = self.materialize_search_matches(
-            raw_matches,
-            context_lines,
-            self.vault.config.max_results,
-        )?;
+        let raw_matches =
+            self.collect_text_matches(&path_filter, |line| regex.find(line).map(|m| m.range()))?;
+        let (matches, pagination) = materialize_search_page(raw_matches, page)?;
 
         Ok(SearchRegexResult {
-            pattern: pattern.to_string(),
             matches,
-            truncated,
+            pagination,
         })
     }
 
     fn collect_text_matches(
         &self,
         path_filter: &PathFilter,
-        matches_line: impl Fn(&str) -> bool + Sync,
+        first_match: impl Fn(&str) -> Option<std::ops::Range<usize>> + Sync,
     ) -> anyhow::Result<Vec<RawTextMatch>> {
         let mut matches: Vec<RawTextMatch> = self
             .vault
             .list_notes()?
             .into_par_iter()
             .filter(|file| path_filter.is_match(&file.relative_path))
-            .map(|file| collect_matches_in_file(file, &matches_line))
+            .map(|file| collect_matches_in_file(file, &first_match))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
             .collect();
         sort_raw_matches(&mut matches);
         Ok(matches)
-    }
-
-    fn collect_regex_matches(
-        &self,
-        regex: &Regex,
-        path_filter: &PathFilter,
-    ) -> anyhow::Result<Vec<RawTextMatch>> {
-        let mut matches: Vec<RawTextMatch> = self
-            .vault
-            .list_notes()?
-            .into_par_iter()
-            .filter(|file| path_filter.is_match(&file.relative_path))
-            .map(|file| collect_matches_in_file(file, |line| regex.is_match(line)))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        sort_raw_matches(&mut matches);
-        Ok(matches)
-    }
-
-    fn materialize_search_matches(
-        &self,
-        raw_matches: Vec<RawTextMatch>,
-        context_lines: usize,
-        max_results: usize,
-    ) -> anyhow::Result<(Vec<TextMatch>, bool)> {
-        let truncated = raw_matches.len() > max_results;
-        let selected: Vec<RawTextMatch> = raw_matches.into_iter().take(max_results).collect();
-        let mut matches: Vec<TextMatch> = group_matches_by_file(selected)
-            .into_par_iter()
-            .map(|raw| materialize_file_matches(self, raw, context_lines))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        matches.sort_by(|a, b| {
-            natord::compare(&a.source.path, &b.source.path)
-                .then(a.source.line_start.cmp(&b.source.line_start))
-                .then(a.source.line_end.cmp(&b.source.line_end))
-        });
-        Ok((matches, truncated))
     }
 }
 
 fn collect_matches_in_file(
     file: NoteFile,
-    matches_line: impl Fn(&str) -> bool,
+    first_match: impl Fn(&str) -> Option<std::ops::Range<usize>>,
 ) -> anyhow::Result<Vec<RawTextMatch>> {
     let content = fs::read_to_string(&file.path)?;
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len() as u64;
-    Ok(lines
-        .iter()
+    Ok(content
+        .lines()
         .enumerate()
         .filter_map(|(zero_idx, line)| {
-            matches_line(line).then_some(RawTextMatch {
+            first_match(line).map(|range| RawTextMatch {
                 file: file.clone(),
                 line_no: zero_idx as u64 + 1,
-                total_lines,
+                line: line.to_string(),
+                match_start: range.start,
+                match_end: range.end,
             })
         })
         .collect())
 }
 
-fn materialize_file_matches(
-    queries: &VaultQueries,
-    raw: RawFileMatches,
-    context_lines: usize,
-) -> anyhow::Result<Vec<TextMatch>> {
-    let content = fs::read_to_string(&raw.file.path)?;
-    let parsed = queries.parse_file_cached(&raw.file.path, raw.file.relative_path.clone())?;
-    Ok(raw
-        .lines
+fn materialize_search_page(
+    raw_matches: Vec<RawTextMatch>,
+    page: usize,
+) -> anyhow::Result<(Vec<TextMatch>, SearchPagination)> {
+    let slice = PageSlice::new(raw_matches, page, SEARCH_PAGE_SIZE)?;
+    let total_matches = slice.total_items();
+    let pagination = slice.pagination();
+    let matches = slice
+        .into_items()
         .into_iter()
-        .map(|(line_no, total_lines)| {
-            let start = line_no.saturating_sub(context_lines as u64).max(1);
-            let end = (line_no + context_lines as u64).min(total_lines);
-            let source = source_for_line(&raw.file.relative_path, &content, &parsed, start, end);
-            let snippet = slice_text(&content, source.byte_start, source.byte_end);
-            TextMatch {
-                source: source.into(),
-                snippet: truncate_search_snippet(&snippet),
-            }
+        .map(|raw| TextMatch {
+            source: Locator::lines(&raw.file.relative_path, raw.line_no, raw.line_no),
+            preview: centered_preview(&raw.line, raw.match_start, raw.match_end),
         })
-        .collect())
+        .collect();
+    Ok((
+        matches,
+        SearchPagination {
+            page: pagination.page,
+            total_pages: pagination.total_pages,
+            total_matches,
+        },
+    ))
 }
 
 fn sort_raw_matches(matches: &mut [RawTextMatch]) {
@@ -197,31 +142,44 @@ fn sort_raw_matches(matches: &mut [RawTextMatch]) {
     });
 }
 
-fn group_matches_by_file(matches: Vec<RawTextMatch>) -> Vec<RawFileMatches> {
-    let mut groups: Vec<RawFileMatches> = Vec::new();
-    for raw in matches {
-        if let Some(last) = groups
-            .last_mut()
-            .filter(|group| group.file.relative_path == raw.file.relative_path)
-        {
-            last.lines.push((raw.line_no, raw.total_lines));
-        } else {
-            groups.push(RawFileMatches {
-                file: raw.file,
-                lines: vec![(raw.line_no, raw.total_lines)],
-            });
-        }
+fn centered_preview(line: &str, match_start: usize, match_end: usize) -> String {
+    let chars = line.chars().collect::<Vec<_>>();
+    if chars.len() <= MAX_SEARCH_PREVIEW_CHARS {
+        return line.to_string();
     }
-    groups
-}
 
-fn truncate_search_snippet(input: &str) -> String {
-    let mut out = String::new();
-    for ch in input.chars().take(MAX_SEARCH_SNIPPET_CHARS) {
-        out.push(ch);
+    let match_start = line[..match_start.min(line.len())].chars().count();
+    let match_end = line[..match_end.min(line.len())].chars().count();
+    let match_center = (match_start + match_end) / 2;
+
+    let mut start = 0;
+    let mut end = chars.len();
+    for _ in 0..3 {
+        let prefix_len = if start > 0 {
+            ELLIPSIS.chars().count()
+        } else {
+            0
+        };
+        let suffix_len = if end < chars.len() {
+            ELLIPSIS.chars().count()
+        } else {
+            0
+        };
+        let budget = MAX_SEARCH_PREVIEW_CHARS - prefix_len - suffix_len;
+        start = match_center.saturating_sub(budget / 2);
+        if start + budget > chars.len() {
+            start = chars.len() - budget;
+        }
+        end = start + budget;
     }
-    if input.chars().count() > MAX_SEARCH_SNIPPET_CHARS {
-        out.push_str("...");
+
+    let mut preview = String::new();
+    if start > 0 {
+        preview.push_str(ELLIPSIS);
     }
-    out
+    preview.extend(chars[start..end].iter());
+    if end < chars.len() {
+        preview.push_str(ELLIPSIS);
+    }
+    preview
 }

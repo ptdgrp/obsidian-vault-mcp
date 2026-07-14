@@ -22,9 +22,7 @@ impl VaultMutations {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditSectionResult {
-    pub note: String,
-    pub line_start: u64,
-    pub line_end: u64,
+    pub changed: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
