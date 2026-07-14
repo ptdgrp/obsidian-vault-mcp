@@ -177,6 +177,13 @@ fn tool_output_schemas_have_object_roots_when_present() {
                 "{} output schema must have an object root",
                 tool.name
             );
+            assert!(
+                schema
+                    .get("required")
+                    .is_none_or(serde_json::Value::is_array),
+                "{} output schema required properties must be an array",
+                tool.name
+            );
         }
     }
 }

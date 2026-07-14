@@ -75,7 +75,9 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
     );
     for tool in tools {
         assert_eq!(
-            tool.input_schema.get("type").and_then(|value| value.as_str()),
+            tool.input_schema
+                .get("type")
+                .and_then(|value| value.as_str()),
             Some("object")
         );
         if let Some(output_schema) = &tool.output_schema {
@@ -303,6 +305,8 @@ fn outlinks_tool_returns_compact_links_for_existing_note() {
                 "source": "发动机.md#L5",
                 "target": "林动.md#身体"
             }],
+            "ambiguous_targets": [],
+            "unresolved_targets": [],
             "pagination": {
                 "page": 1,
                 "total_pages": 1,

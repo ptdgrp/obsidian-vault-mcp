@@ -4,6 +4,7 @@ use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
 use super::*;
+use crate::server::ObsidianVaultMcp;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
 
 mod contract_primitives;
@@ -1098,6 +1099,8 @@ fn outlinks_page_then_group_targets_and_keep_ambiguous_selectors() {
                 "source": "Links.md#L53",
                 "target": "Target.md"
             }],
+            "ambiguous_targets": [],
+            "unresolved_targets": [],
             "pagination": {
                 "page": 2,
                 "total_pages": 2,
@@ -1129,6 +1132,7 @@ fn outlinks_reports_missing_selectors_on_existing_note_as_unresolved() {
         serde_json::json!({
             "note": "Links.md",
             "targets": [],
+            "ambiguous_targets": [],
             "unresolved_targets": [
                 {"source": "Links.md#L3", "reference": "Target#Missing"},
                 {"source": "Links.md#L4", "reference": "Target#^missing"}
@@ -1140,6 +1144,34 @@ fn outlinks_reports_missing_selectors_on_existing_note_as_unresolved() {
             }
         })
     );
+}
+
+#[test]
+fn serialized_outlinks_include_all_schema_required_empty_groups() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("Links.md"), "# Links\n\n[[林动]]\n").expect("write links");
+
+    let value = serde_json::to_value(queries.get_outlinks("Links", 1).expect("outlinks"))
+        .expect("outlinks json");
+    let definition = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|definition| definition.name == "get_outlinks")
+        .expect("get_outlinks definition");
+    let required = definition
+        .output_schema
+        .as_ref()
+        .expect("outlinks output schema")["required"]
+        .as_array()
+        .expect("required output properties");
+    for field in required {
+        let field = field.as_str().expect("field name");
+        assert!(
+            value.get(field).is_some(),
+            "serialized outlinks result is missing required field {field}"
+        );
+    }
+    assert_eq!(value["ambiguous_targets"], serde_json::json!([]));
+    assert_eq!(value["unresolved_targets"], serde_json::json!([]));
 }
 
 #[test]

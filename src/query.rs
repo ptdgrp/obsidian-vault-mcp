@@ -274,9 +274,7 @@ pub struct BacklinksPagination {
 pub struct OutlinksResult {
     pub note: String,
     pub targets: Vec<OutlinkTarget>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ambiguous_targets: Vec<AmbiguousOutlinkTarget>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unresolved_targets: Vec<UnresolvedOutlinkTarget>,
     pub pagination: OutlinksPagination,
 }
