@@ -6,7 +6,7 @@ mod resolver;
 mod server;
 mod vault;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use camino::Utf8PathBuf;
 use clap::Parser;
@@ -402,16 +402,56 @@ enum Command {
     },
 }
 
+impl Command {
+    fn telemetry_name(&self) -> &'static str {
+        match self {
+            Self::Serve => "serve",
+            Self::GenerateDocs { .. } => "generate_docs",
+            Self::Doctor => "doctor",
+            Self::ListNotes { .. } => "list_notes",
+            Self::AuditLinks { .. } => "audit_links",
+            Self::GetNoteNeighborhood { .. } => "get_note_neighborhood",
+            Self::ReadNote { .. } => "read_note",
+            Self::GetNoteStructure { .. } => "get_note_structure",
+            Self::GetNoteOutline { .. } => "get_note_outline",
+            Self::GetNoteStats { .. } => "get_note_stats",
+            Self::ResolveRef { .. } => "resolve_ref",
+            Self::GetOutlinks { .. } => "get_outlinks",
+            Self::GetBacklinks { .. } => "get_backlinks",
+            Self::ListTags { .. } => "list_tags",
+            Self::GetTag { .. } => "get_tag",
+            Self::ListCategories { .. } => "list_categories",
+            Self::GetCategory { .. } => "get_category",
+            Self::QueryFrontmatter { .. } => "query_frontmatter",
+            Self::SearchText { .. } => "search_text",
+            Self::SearchRegex { .. } => "search_regex",
+            Self::AppendSection { .. } => "append_section",
+            Self::ReplaceSection { .. } => "replace_section",
+            Self::DeleteSection { .. } => "delete_section",
+            Self::RenameHeading { .. } => "rename_heading",
+            Self::RenameNote { .. } => "rename_note",
+            Self::RenameBlockId { .. } => "rename_block_id",
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let command_name = cli
+        .command
+        .as_ref()
+        .map_or("serve", Command::telemetry_name);
     let mut telemetry = init_tracing(
         &cli.log_level,
         cli.otel_endpoint.as_deref(),
         &cli.otel_service_name,
     )?;
+    tracing::debug!(otel.enabled = telemetry.is_enabled(), "telemetry.initialized");
     let config = vault_config(&cli);
     let command = cli.command.unwrap_or(Command::Serve);
+    let started = Instant::now();
+    tracing::debug!(command = command_name, "cli.command.start");
     let result = async {
         if let Command::GenerateDocs { check, output } = command {
             let content =
@@ -623,6 +663,16 @@ async fn main() -> anyhow::Result<()> {
         anyhow::Ok(())
     }
     .await;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        Ok(()) => tracing::debug!(command = command_name, duration_ms, "cli.command.ok"),
+        Err(error) => tracing::error!(
+            command = command_name,
+            duration_ms,
+            error = %error,
+            "cli.command.error"
+        ),
+    }
     telemetry.shutdown();
     result
 }
@@ -688,6 +738,10 @@ struct TelemetryGuard {
 }
 
 impl TelemetryGuard {
+    fn is_enabled(&self) -> bool {
+        self.tracer_provider.is_some() || self.logger_provider.is_some()
+    }
+
     fn shutdown(&mut self) {
         if let Some(provider) = self.tracer_provider.take() {
             if let Err(error) = provider.force_flush() {
@@ -734,6 +788,7 @@ fn init_tracing(
         });
     };
 
+    let endpoint = endpoint.trim_end_matches('/');
     let resource = Resource::builder()
         .with_service_name(otel_service_name.to_string())
         .build();
@@ -741,7 +796,7 @@ fn init_tracing(
     let span_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .with_endpoint(endpoint)
+        .with_endpoint(format!("{endpoint}/v1/traces"))
         .build()?;
     let tracer_provider = SdkTracerProvider::builder()
         .with_resource(resource.clone())
@@ -755,7 +810,7 @@ fn init_tracing(
     let log_exporter = opentelemetry_otlp::LogExporter::builder()
         .with_http()
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .with_endpoint(endpoint)
+        .with_endpoint(format!("{endpoint}/v1/logs"))
         .build()?;
     let logger_provider = SdkLoggerProvider::builder()
         .with_resource(resource)

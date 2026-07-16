@@ -1,11 +1,12 @@
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use std::net::TcpListener;
 
 use serde_json::Value;
 use tempfile::{tempdir, TempDir};
@@ -34,6 +35,134 @@ fn run_raw_cli(args: &[&str]) -> std::process::Output {
         .expect("run cli")
 }
 
+struct OtlpHttpCapture {
+    endpoint: String,
+    request: Receiver<(String, Vec<u8>)>,
+    server: Option<JoinHandle<()>>,
+}
+
+impl OtlpHttpCapture {
+    fn spawn() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind OTLP capture");
+        let endpoint = format!(
+            "http://{}",
+            listener.local_addr().expect("capture address")
+        );
+        let (sender, request) = mpsc::channel();
+        let server = thread::spawn(move || capture_otlp_request(listener, sender));
+        Self {
+            endpoint,
+            request,
+            server: Some(server),
+        }
+    }
+
+    fn recv(mut self) -> (String, Vec<u8>) {
+        let request = self
+            .request
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive OTLP request");
+        self.server
+            .take()
+            .expect("OTLP server thread")
+            .join()
+            .expect("join OTLP server");
+        request
+    }
+}
+
+fn capture_otlp_request(listener: TcpListener, sender: Sender<(String, Vec<u8>)>) {
+    let (mut stream, _) = listener.accept().expect("accept OTLP request");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("set OTLP read timeout");
+    let mut reader = BufReader::new(stream.try_clone().expect("clone OTLP stream"));
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .expect("read OTLP request line");
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .expect("OTLP request path")
+        .to_string();
+
+    let mut content_length = 0usize;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read OTLP header");
+        if line == "\r\n" {
+            break;
+        }
+        if let Some(value) = line
+            .strip_prefix("content-length:")
+            .or_else(|| line.strip_prefix("Content-Length:"))
+        {
+            content_length = value.trim().parse().expect("OTLP content length");
+        }
+    }
+
+    let mut body = vec![0; content_length];
+    reader.read_exact(&mut body).expect("read OTLP body");
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/x-protobuf\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .expect("write OTLP response");
+    sender.send((path, body)).expect("send captured request");
+}
+
+fn protobuf_contains(body: &[u8], value: &str) -> bool {
+    body.windows(value.len())
+        .any(|window| window == value.as_bytes())
+}
+
+#[test]
+fn successful_cli_flushes_lifecycle_logs_before_exit() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "note.md", "# Note\n");
+    let capture = OtlpHttpCapture::spawn();
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .args(["--vault", dir.path().to_str().expect("vault path")])
+        .args(["--otel-endpoint", &capture.endpoint])
+        .arg("doctor")
+        .output()
+        .expect("run instrumented CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let (path, body) = capture.recv();
+    assert_eq!(path, "/v1/logs");
+    for event in [
+        "telemetry.initialized",
+        "cli.command.start",
+        "cli.command.ok",
+    ] {
+        assert!(
+            protobuf_contains(&body, event),
+            "missing {event} in OTLP payload"
+        );
+    }
+}
+
+#[test]
+fn failing_cli_flushes_error_log_before_exit() {
+    let capture = OtlpHttpCapture::spawn();
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .args(["--otel-endpoint", &capture.endpoint])
+        .arg("doctor")
+        .output()
+        .expect("run failing instrumented CLI");
+    assert!(!output.status.success());
+
+    let (path, body) = capture.recv();
+    assert_eq!(path, "/v1/logs");
+    assert!(protobuf_contains(&body, "cli.command.error"));
+}
+
 const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct McpStdioClient {
@@ -48,6 +177,7 @@ impl McpStdioClient {
         let mut child = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
             .arg("--vault")
             .arg(dir.path())
+            .args(["--log-level", "warn"])
             .arg("serve")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
