@@ -24,7 +24,7 @@ Wrap the selected command in a single lifecycle and emit:
 - `cli.command.ok` at `debug`, with `command` and `duration_ms`.
 - `cli.command.error` at `error`, with `command`, `duration_ms`, and `error`.
 
-The `serve` command uses the same lifecycle. Its duration covers the server lifetime, while individual MCP calls continue to emit the existing `mcp.tool` span and `tool.call.*` events.
+Every invocation creates a `cli.command` root span. The `serve` command uses the same lifecycle and its root span covers the server lifetime, while individual MCP calls emit child `mcp.tool` spans and `tool.call.*` events. The root span must be closed before the trace provider is force-flushed.
 
 Command names are stable, low-cardinality identifiers derived from the enum variant. Start events include a single `arguments` field containing the complete CLI or MCP input, including vault paths, note content, search text, regular expressions, and OTLP endpoint values. Inputs are not truncated or redacted because the user controls the log destination and needs complete reproduction context. Error events retain the complete formatted error chain. Successful result/output bodies are never copied into lifecycle logs.
 

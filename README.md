@@ -228,6 +228,11 @@ endpoint values, so a failed call can be reproduced. Error events retain the
 complete error chain. Successful command and tool output bodies are not copied
 into logs.
 
+Tempo receives one root `cli.command` span for every CLI invocation. In server
+mode that root span covers the MCP stdio lifetime, and every tool call creates
+a child `mcp.tool` span. In Grafana Explore, select Tempo and search for
+`resource.service.name = "obsidian-vault-mcp"`.
+
 Normal CLI completion and normal MCP stdio/EOF shutdown force-flush pending
 OTEL logs and traces before the process exits. This guarantee does not cover
 SIGINT or SIGTERM. In Grafana Loki, query this service with:

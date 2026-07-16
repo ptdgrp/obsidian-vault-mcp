@@ -176,6 +176,8 @@ service name 默认是 `obsidian-vault-mcp`，可用 `--otel-service-name` 或 `
 
 生命周期事件可关联 CLI 和 MCP 的工作：`telemetry.initialized` 表示 telemetry 已初始化；每条 CLI command 都会发出 `cli.command.start`，随后发出 `cli.command.ok` 或 `cli.command.error`。每次 MCP tool 调用仍会创建 `mcp.tool` span 并保留 `tool.call.*` events。同一批 tracing event 也会作为 OTEL logs 导出。start 事件会在 `arguments` 字段完整记录 CLI 与 MCP 输入参数，包括 note 内容、搜索文本、regex pattern、路径和 endpoint 值，以便复现调用；error 事件会保留完整错误链。成功命令和工具的输出正文不会复制到日志中。
 
+Tempo 会为每次 CLI 调用接收一个 `cli.command` 根 span。server 模式下，该根 span 覆盖整个 MCP stdio 生命周期，每次工具调用会创建一个子 `mcp.tool` span。在 Grafana Explore 中选择 Tempo，然后按 `resource.service.name = "obsidian-vault-mcp"` 搜索。
+
 正常完成的 CLI 和正常 MCP stdio/EOF shutdown 都会在进程退出前 force flush 待发送的 OTEL logs 与 traces。此保证不涵盖 SIGINT 或 SIGTERM。在 Grafana Loki 中可使用以下查询筛选此服务：
 
 ```logql

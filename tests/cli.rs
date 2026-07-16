@@ -22,7 +22,9 @@ fn observability_docs_cover_lifecycle_and_loki_query() {
             "cli.command.start",
             "cli.command.ok",
             "cli.command.error",
+            "mcp.tool",
             "arguments",
+            "resource.service.name",
             "http://10.5.11.4:11418",
             r#"{service_name="obsidian-vault-mcp"}"#,
         ] {
@@ -57,8 +59,13 @@ fn run_raw_cli(args: &[&str]) -> std::process::Output {
 
 struct OtlpHttpCapture {
     endpoint: String,
-    request: Receiver<(String, Vec<u8>)>,
+    request: Receiver<CapturedOtlp>,
     server: Option<JoinHandle<()>>,
+}
+
+struct CapturedOtlp {
+    traces: Vec<Vec<u8>>,
+    logs: Vec<u8>,
 }
 
 impl OtlpHttpCapture {
@@ -74,7 +81,7 @@ impl OtlpHttpCapture {
         }
     }
 
-    fn recv(mut self) -> (String, Vec<u8>) {
+    fn recv(mut self) -> CapturedOtlp {
         let request = self
             .request
             .recv_timeout(Duration::from_secs(5))
@@ -88,15 +95,19 @@ impl OtlpHttpCapture {
     }
 }
 
-fn capture_otlp_request(listener: TcpListener, sender: Sender<(String, Vec<u8>)>) {
+fn capture_otlp_request(listener: TcpListener, sender: Sender<CapturedOtlp>) {
     listener
         .set_nonblocking(true)
         .expect("set OTLP listener nonblocking");
     let deadline = Instant::now() + Duration::from_secs(5);
+    let mut traces = Vec::new();
     loop {
         match listener.accept() {
             Ok((stream, _)) => {
-                if capture_otlp_connection(stream, &sender) {
+                if let Some(logs) = capture_otlp_connection(stream, &mut traces) {
+                    sender
+                        .send(CapturedOtlp { traces, logs })
+                        .expect("send captured OTLP requests");
                     return;
                 }
             }
@@ -115,8 +126,8 @@ fn capture_otlp_request(listener: TcpListener, sender: Sender<(String, Vec<u8>)>
 
 fn capture_otlp_connection(
     mut stream: std::net::TcpStream,
-    sender: &Sender<(String, Vec<u8>)>,
-) -> bool {
+    traces: &mut Vec<Vec<u8>>,
+) -> Option<Vec<u8>> {
     stream
         .set_nonblocking(false)
         .expect("set OTLP stream blocking");
@@ -157,11 +168,11 @@ fn capture_otlp_connection(
         )
         .expect("write OTLP response");
     if path == "/v1/logs" {
-        sender.send((path, body)).expect("send captured request");
-        return true;
+        return Some(body);
     }
     assert_eq!(path, "/v1/traces", "unexpected OTLP request path");
-    false
+    traces.push(body);
+    None
 }
 
 fn protobuf_contains(body: &[u8], value: &str) -> bool {
@@ -185,9 +196,12 @@ fn successful_cli_flushes_lifecycle_logs_before_exit() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    serde_json::from_slice::<Value>(&output.stdout)
+        .expect("CLI stdout must contain JSON without tracing logs");
+    assert!(!protobuf_contains(&output.stdout, "cli.command"));
 
-    let (path, body) = capture.recv();
-    assert_eq!(path, "/v1/logs");
+    let captured = capture.recv();
+    let body = captured.logs;
     for event in [
         "telemetry.initialized",
         "cli.command.start",
@@ -198,6 +212,13 @@ fn successful_cli_flushes_lifecycle_logs_before_exit() {
             "missing {event} in OTLP payload"
         );
     }
+    assert!(
+        captured
+            .traces
+            .iter()
+            .any(|trace| protobuf_contains(trace, "cli.command")),
+        "CLI command span missing from OTLP traces"
+    );
 }
 
 #[test]
@@ -221,8 +242,8 @@ fn successful_cli_otlp_logs_record_complete_input_but_not_output() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let (path, body) = capture.recv();
-    assert_eq!(path, "/v1/logs");
+    let captured = capture.recv();
+    let body = captured.logs;
     assert!(protobuf_contains(&body, "cli.command.start"));
     for input in [note, "73", &endpoint] {
         assert!(protobuf_contains(&body, input), "missing CLI input {input}");
@@ -243,8 +264,8 @@ fn failing_cli_flushes_error_log_before_exit() {
         .expect("run failing instrumented CLI");
     assert!(!output.status.success());
 
-    let (path, body) = capture.recv();
-    assert_eq!(path, "/v1/logs");
+    let captured = capture.recv();
+    let body = captured.logs;
     assert!(protobuf_contains(&body, "cli.command.error"));
     assert!(
         protobuf_contains(&body, "--vault is required for this command"),
@@ -1031,8 +1052,8 @@ fn mcp_otlp_logs_record_complete_input_but_not_output() {
     assert_eq!(response["id"], 2);
     client.shutdown();
 
-    let (path, body) = capture.recv();
-    assert_eq!(path, "/v1/logs");
+    let captured = capture.recv();
+    let body = captured.logs;
     for expected in ["tool.call.start", "ReadNoteRequest", note] {
         assert!(
             protobuf_contains(&body, expected),
@@ -1042,5 +1063,12 @@ fn mcp_otlp_logs_record_complete_input_but_not_output() {
     assert!(
         !protobuf_contains(&body, "mcp-success-output-must-not-be-logged"),
         "successful tool output leaked into OTLP logs"
+    );
+    assert!(
+        captured
+            .traces
+            .iter()
+            .any(|trace| protobuf_contains(trace, "mcp.tool")),
+        "MCP tool span missing from OTLP traces"
     );
 }

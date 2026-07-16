@@ -15,6 +15,8 @@
 - Remove `--otel-log-level` and `OBSIDIAN_VAULT_MCP_OTEL_LOG_LEVEL`.
 - `--log-level` is the only filter for stderr, OpenTelemetry traces, and OpenTelemetry logs; its default is `debug`.
 - Record complete CLI and MCP inputs in a single `arguments` field on start events, without truncation or redaction. Record the complete formatted error chain on error events. Do not copy successful result/output bodies into lifecycle logs.
+- Create one `cli.command` root span per CLI invocation; in server mode, make each `mcp.tool` span a child. Close the root span before force-flushing traces.
+- Keep the tracing formatter explicitly bound to stderr. CLI stdout contains only result JSON and MCP stdout contains only JSON-RPC protocol data.
 - Telemetry delivery failures must not change a successful business command into a failed command.
 - Follow red-green-refactor: every production behavior change requires a test that was observed failing first.
 
