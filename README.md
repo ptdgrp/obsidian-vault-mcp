@@ -196,31 +196,42 @@ The server writes protocol data to stdout only. Logs stay on stderr.
 ## Observability
 
 The server emits `tracing` logs to stderr and keeps stdout reserved for MCP
-protocol data or CLI JSON. Use `--log-level` to control verbosity:
+protocol data or CLI JSON. `--log-level` defaults to `debug` and controls the
+level for stderr logs, OTEL traces, and OTEL logs together:
 
 ```sh
-cargo run -- --vault /path/to/vault --log-level info serve
+cargo run -- --vault /path/to/vault --log-level debug serve
 ```
 
 OpenTelemetry export is opt-in. Set an OTLP HTTP endpoint with either
 `--otel-endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` to export both traces and
-logs:
+logs. The endpoint is a base URL: the server sends traces to `/v1/traces` and
+logs to `/v1/logs`:
 
 ```sh
 cargo run -- --vault /path/to/vault \
-  --log-level info \
-  --otel-endpoint http://localhost:4318 \
+  --log-level debug \
+  --otel-endpoint http://10.5.11.4:11418 \
   serve
 ```
 
 The service name defaults to `obsidian-vault-mcp`; override it with
 `--otel-service-name` or `OTEL_SERVICE_NAME`.
 
-Each MCP tool call creates an `mcp.tool` span with `tool.name`, duration, and
-success/error events. The same tracing events are also exported as OTEL logs.
-Tool arguments, note contents, query text, and regex patterns are not recorded
-by default. On normal shutdown, the process force flushes pending spans and
-logs, then waits up to 5 seconds for OTEL shutdown.
+Lifecycle events let you correlate CLI and MCP work. `telemetry.initialized`
+marks telemetry setup; each CLI command emits `cli.command.start` followed by
+`cli.command.ok` or `cli.command.error`. Each MCP tool call retains its
+`mcp.tool` span and `tool.call.*` events. The same tracing events are also
+exported as OTEL logs. Tool arguments, note contents, query text, regex
+patterns, and endpoint values are not recorded in lifecycle fields; a
+`cli.command.error` retains the full error text for diagnosis.
+
+CLI completion and MCP shutdown force-flush pending OTEL logs and traces before
+the process exits. In Grafana Loki, query this service with:
+
+```logql
+{service_name="obsidian-vault-mcp"}
+```
 
 ## Safety boundaries
 

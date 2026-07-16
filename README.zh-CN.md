@@ -155,24 +155,32 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 
 ## 可观测性
 
-服务通过 `tracing` 把日志写到 stderr，stdout 只用于 MCP 协议或 CLI JSON。用 `--log-level` 控制日志级别：
+服务通过 `tracing` 把日志写到 stderr，stdout 只用于 MCP 协议或 CLI JSON。`--log-level` 默认是 `debug`，统一控制 stderr 日志、OTEL traces 和 OTEL logs 的级别：
 
 ```sh
-cargo run -- --vault /path/to/vault --log-level info serve
+cargo run -- --vault /path/to/vault --log-level debug serve
 ```
 
 OpenTelemetry 导出是可选的。通过 `--otel-endpoint` 或 `OTEL_EXPORTER_OTLP_ENDPOINT` 设置 OTLP HTTP endpoint 后，会同时导出 traces 和 logs：
 
+该 endpoint 是基础 URL：traces 会发送到 `/v1/traces`，logs 会发送到 `/v1/logs`。
+
 ```sh
 cargo run -- --vault /path/to/vault \
-  --log-level info \
-  --otel-endpoint http://localhost:4318 \
+  --log-level debug \
+  --otel-endpoint http://10.5.11.4:11418 \
   serve
 ```
 
 service name 默认是 `obsidian-vault-mcp`，可用 `--otel-service-name` 或 `OTEL_SERVICE_NAME` 覆盖。
 
-每次 MCP tool 调用都会创建一个 `mcp.tool` span，记录 `tool.name`、耗时以及成功/失败事件。同一批 tracing event 也会作为 OTEL logs 导出。默认不会记录工具参数、note 内容、搜索文本或 regex pattern。正常退出时，进程会先 force flush 待发送 span 和 logs，然后最多等待 5 秒完成 OTEL shutdown。
+生命周期事件可关联 CLI 和 MCP 的工作：`telemetry.initialized` 表示 telemetry 已初始化；每条 CLI command 都会发出 `cli.command.start`，随后发出 `cli.command.ok` 或 `cli.command.error`。每次 MCP tool 调用仍会创建 `mcp.tool` span 并保留 `tool.call.*` events。同一批 tracing event 也会作为 OTEL logs 导出。工具参数、note 内容、搜索文本、regex pattern 和 endpoint 值不会记录到生命周期字段中；`cli.command.error` 会保留完整错误文本以便诊断。
+
+CLI 完成和 MCP shutdown 都会在进程退出前 force flush 待发送的 OTEL logs 与 traces。在 Grafana Loki 中可使用以下查询筛选此服务：
+
+```logql
+{service_name="obsidian-vault-mcp"}
+```
 
 ## 安全边界
 

@@ -1,3 +1,4 @@
+use std::net::TcpListener;
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
@@ -6,10 +7,28 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use std::net::TcpListener;
 
 use serde_json::Value;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
+
+#[test]
+fn observability_docs_cover_lifecycle_and_loki_query() {
+    for path in ["README.md", "README.zh-CN.md"] {
+        let content =
+            fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
+                .expect("read observability docs");
+        for expected in [
+            "telemetry.initialized",
+            "cli.command.start",
+            "cli.command.ok",
+            "cli.command.error",
+            "http://10.5.11.4:11418",
+            r#"{service_name="obsidian-vault-mcp"}"#,
+        ] {
+            assert!(content.contains(expected), "{path} missing {expected}");
+        }
+    }
+}
 
 fn write_note(dir: &TempDir, path: &str, content: &str) {
     let full_path = dir.path().join(path);
@@ -44,10 +63,7 @@ struct OtlpHttpCapture {
 impl OtlpHttpCapture {
     fn spawn() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind OTLP capture");
-        let endpoint = format!(
-            "http://{}",
-            listener.local_addr().expect("capture address")
-        );
+        let endpoint = format!("http://{}", listener.local_addr().expect("capture address"));
         let (sender, request) = mpsc::channel();
         let server = thread::spawn(move || capture_otlp_request(listener, sender));
         Self {
@@ -881,11 +897,13 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
         "params": {}
     }));
     assert_eq!(tools["id"], 2);
-    assert!(tools["result"]["tools"]
-        .as_array()
-        .expect("tools array")
-        .iter()
-        .any(|tool| tool["name"] == "read_note"));
+    assert!(
+        tools["result"]["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .any(|tool| tool["name"] == "read_note")
+    );
 
     let read_note = client.request(serde_json::json!({
         "jsonrpc": "2.0",
@@ -895,14 +913,18 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
     }));
     assert_eq!(read_note["id"], 3);
     let structured = &read_note["result"]["structuredContent"];
-    assert!(structured["source"]
-        .as_str()
-        .expect("read source")
-        .contains("smoke.md"));
-    assert!(structured["content"]
-        .as_str()
-        .expect("read content")
-        .contains("ready"));
+    assert!(
+        structured["source"]
+            .as_str()
+            .expect("read source")
+            .contains("smoke.md")
+    );
+    assert!(
+        structured["content"]
+            .as_str()
+            .expect("read content")
+            .contains("ready")
+    );
 
     client.shutdown();
 }

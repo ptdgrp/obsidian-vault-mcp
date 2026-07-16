@@ -447,7 +447,10 @@ async fn main() -> anyhow::Result<()> {
         cli.otel_endpoint.as_deref(),
         &cli.otel_service_name,
     )?;
-    tracing::debug!(otel.enabled = telemetry.is_enabled(), "telemetry.initialized");
+    tracing::debug!(
+        otel.enabled = telemetry.is_enabled(),
+        "telemetry.initialized"
+    );
     let config = vault_config(&cli);
     let command = cli.command.unwrap_or(Command::Serve);
     let started = Instant::now();
