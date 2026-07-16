@@ -2,6 +2,7 @@ use crate::parser::{HeadingInfo, ParsedNote, ReferenceInfo, SourceSpan, source_f
 
 use super::{SectionSelector, levenshtein_distance::levenshtein_distance};
 
+#[tracing::instrument(name = "vault.select_section", skip_all, err)]
 pub(crate) fn section_source(
     relative_path: &str,
     content: &str,

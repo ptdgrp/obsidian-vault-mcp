@@ -23,7 +23,7 @@ fn observability_docs_cover_lifecycle_and_loki_query() {
             "cli.command.ok",
             "cli.command.error",
             "mcp.tool",
-            "arguments",
+            "input.preview",
             "resource.service.name",
             "http://10.5.11.4:11418",
             r#"{service_name="obsidian-vault-mcp"}"#,

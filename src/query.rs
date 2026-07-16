@@ -21,50 +21,10 @@ use crate::parser::{ParsedNote, ReferenceInfo, SectionInfo, SourceSpan, path_wit
 use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 use camino::Utf8Path;
-use opentelemetry::trace::Status;
 use rayon::prelude::*;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
-use std::{borrow::Cow, collections::BTreeMap, sync::Arc, time::Instant};
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-
-pub(crate) fn observe_operation<T>(
-    kind: &'static str,
-    operation: &'static str,
-    input: &impl std::fmt::Debug,
-    run: impl FnOnce() -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    let (input_preview, input_truncated) = crate::telemetry_preview(input);
-    let span = tracing::info_span!(
-        "vault.operation",
-        operation.kind = kind,
-        operation.name = operation,
-        input.preview = %input_preview,
-        input.truncated = input_truncated,
-    );
-    let started = Instant::now();
-    tracing::debug!(parent: &span, "vault.operation.start");
-
-    let result = span.in_scope(run);
-    let duration_ms = started.elapsed().as_millis() as u64;
-    match &result {
-        Ok(_) => tracing::info!(parent: &span, duration_ms, "vault.operation.ok"),
-        Err(error) => {
-            span.set_attribute("error.type", format!("{kind}.{operation}.error"));
-            span.set_status(Status::error("vault operation failed"));
-            let (error, error_truncated) =
-                crate::telemetry_preview(&crate::format_error_chain(error));
-            tracing::error!(
-                parent: &span,
-                duration_ms,
-                error = %error,
-                error.truncated = error_truncated,
-                "vault.operation.error"
-            );
-        }
-    }
-    result
-}
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 /// Schema-only stand-in for non-negative Rust integer fields exposed over MCP.
 ///
@@ -580,6 +540,7 @@ impl VaultQueries {
         Self { vault, parse_cache }
     }
 
+    #[tracing::instrument(name = "vault.parse_note")]
     pub(crate) fn parse_file_cached(
         &self,
         path: &Utf8Path,
@@ -589,21 +550,25 @@ impl VaultQueries {
             .parse_note(path, relative_path, self.vault.config.max_note_bytes)
     }
 
+    #[tracing::instrument(
+        name = "vault.query.index_filtered_notes",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "index_filtered_notes"),
+        err
+    )]
     fn index_filtered_notes(
         &self,
         filter: &path_filter::PathFilter,
     ) -> anyhow::Result<Vec<IndexedNote>> {
-        observe_operation("query", "index_filtered_notes", &(), || {
-            let mut notes: Vec<IndexedNote> = self
-                .vault
-                .list_notes()?
-                .into_par_iter()
-                .filter(|file| filter.is_match(&file.relative_path))
-                .map(|file| read_and_parse(self, &file))
-                .collect::<anyhow::Result<_>>()?;
-            notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
-            Ok(notes)
-        })
+        let mut notes: Vec<IndexedNote> = self
+            .vault
+            .list_notes()?
+            .into_par_iter()
+            .filter(|file| filter.is_match(&file.relative_path))
+            .map(|file| read_and_parse(self, &file))
+            .collect::<anyhow::Result<_>>()?;
+        notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
+        Ok(notes)
     }
 }
 

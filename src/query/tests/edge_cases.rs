@@ -135,7 +135,6 @@ fn missing_path_prefers_same_directory_stem_prefix_suggestions_without_resolving
     let error = queries
         .read_note("正文/vol01-卷一/章节/ch005.md", None, None)
         .expect_err("prefix candidate must not resolve the request");
-
     assert!(
         error
             .to_string()

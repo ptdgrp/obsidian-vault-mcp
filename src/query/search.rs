@@ -23,6 +23,11 @@ struct RawTextMatch {
 }
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.search_text",
+        fields(operation.kind = "query", operation.name = "search_text"),
+        err
+    )]
     pub fn search_text(
         &self,
         query: &str,
@@ -46,7 +51,11 @@ impl VaultQueries {
             pagination,
         })
     }
-
+    #[tracing::instrument(
+        name = "vault.query.search_regex",
+        fields(operation.kind = "query", operation.name = "search_regex"),
+        err
+    )]
     pub fn search_regex(
         &self,
         pattern: &str,
@@ -70,25 +79,29 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.collect_text_matches",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "collect_text_matches"),
+        err
+    )]
     fn collect_text_matches(
         &self,
         path_filter: &PathFilter,
         first_match: impl Fn(&str) -> Option<std::ops::Range<usize>> + Sync,
     ) -> anyhow::Result<Vec<RawTextMatch>> {
-        super::observe_operation("query", "collect_text_matches", &(), || {
-            let mut matches: Vec<RawTextMatch> = self
-                .vault
-                .list_notes()?
-                .into_par_iter()
-                .filter(|file| path_filter.is_match(&file.relative_path))
-                .map(|file| collect_matches_in_file(file, &first_match))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect();
-            sort_raw_matches(&mut matches);
-            Ok(matches)
-        })
+        let mut matches: Vec<RawTextMatch> = self
+            .vault
+            .list_notes()?
+            .into_par_iter()
+            .filter(|file| path_filter.is_match(&file.relative_path))
+            .map(|file| collect_matches_in_file(file, &first_match))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        sort_raw_matches(&mut matches);
+        Ok(matches)
     }
 }
 

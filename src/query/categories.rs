@@ -10,6 +10,11 @@ use super::{
 const CATEGORY_PAGE_SIZE: usize = 100;
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.list_categories",
+        fields(operation.kind = "query", operation.name = "list_categories"),
+        err
+    )]
     pub fn list_categories(
         &self,
         include: &[String],
@@ -30,6 +35,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.get_category",
+        fields(operation.kind = "query", operation.name = "get_category"),
+        err
+    )]
     pub fn get_category(
         &self,
         category: &str,

@@ -10,6 +10,11 @@ use super::{
 };
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.get_note_neighborhood",
+        fields(operation.kind = "query", operation.name = "get_note_neighborhood"),
+        err
+    )]
     pub fn get_note_neighborhood(
         &self,
         target: &str,
@@ -131,6 +136,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.audit_links",
+        fields(operation.kind = "query", operation.name = "audit_links"),
+        err
+    )]
     pub fn audit_links(&self, page: usize) -> anyhow::Result<AuditLinksResult> {
         if page == 0 {
             anyhow::bail!("page must be greater than or equal to 1");

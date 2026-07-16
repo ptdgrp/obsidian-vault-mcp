@@ -166,6 +166,7 @@ pub fn path_with_line_ref(path: &str, line_start: u64, line_end: u64) -> String 
 pub struct NoteParser {}
 
 impl NoteParser {
+    #[tracing::instrument(name = "parse_markdown")]
     pub fn parse(path: String, text: &str, max_input_bytes: usize) -> anyhow::Result<ParsedNote> {
         let options = ParserOptions::default()
             .enabled_gfm()

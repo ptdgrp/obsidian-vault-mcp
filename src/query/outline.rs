@@ -5,6 +5,11 @@ use super::{
 const NOTE_OUTLINE_PAGE_SIZE: usize = 100;
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.get_note_outline",
+        fields(operation.kind = "query", operation.name = "get_note_outline"),
+        err
+    )]
     pub fn get_note_outline(&self, note: &str, page: usize) -> anyhow::Result<NoteOutlineResult> {
         let parsed = self.parse_note(note)?;
         let headings = parsed

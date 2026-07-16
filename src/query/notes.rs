@@ -15,6 +15,11 @@ use super::{
 };
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.list_notes",
+        fields(operation.kind = "query", operation.name = "list_notes"),
+        err
+    )]
     pub fn list_notes(
         &self,
         include: &[String],
@@ -50,6 +55,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.read_note",
+        fields(operation.kind = "query", operation.name = "read_note"),
+        err
+    )]
     pub fn read_note(
         &self,
         note: &str,
@@ -72,12 +82,22 @@ impl VaultQueries {
         };
         let selected = slice_text(&content, source.byte_start, source.byte_end);
         let budget = max_chars.unwrap_or(self.vault.config.max_read_note_chars);
-        let truncated = selected.chars().count() > budget;
+        let selected_chars = selected.chars().count();
+        let truncated = selected_chars > budget;
         let content = if truncated {
             truncate_chars(&selected, budget)
         } else {
             selected
         };
+        let returned_chars = selected_chars.min(budget);
+        tracing::info!(
+            selector.kind = selector_kind(selector.as_ref()),
+            result.truncated = truncated,
+            result.selected_chars = selected_chars,
+            result.returned_chars = returned_chars,
+            result.selected_lines = source.line_end - source.line_start + 1,
+            "vault.query.read_note.result"
+        );
         Ok(ReadNoteResult {
             source: Locator::lines(&relative_path, source.line_start, source.line_end),
             content,
@@ -85,6 +105,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.get_note_stats",
+        fields(operation.kind = "query", operation.name = "get_note_stats"),
+        err
+    )]
     pub fn get_note_stats(&self, note: &str) -> anyhow::Result<NoteStatsResult> {
         let reference = RefResolver::parse_ref(note);
         let selector = selector_from_reference(&reference.reference)?;
@@ -134,7 +159,7 @@ impl VaultQueries {
         })
     }
 
-    pub fn parse_note(&self, note: &str) -> anyhow::Result<ParsedNote> {
+    pub(crate) fn parse_note(&self, note: &str) -> anyhow::Result<ParsedNote> {
         let path = self.resolve_note_path(note)?;
         Ok(self
             .parse_file_cached(&path, self.vault.relative_path(&path))?
@@ -142,32 +167,42 @@ impl VaultQueries {
             .clone())
     }
 
+    #[tracing::instrument(
+        name = "vault.query.get_note_structure",
+        fields(operation.kind = "query", operation.name = "get_note_structure"),
+        err
+    )]
     pub fn get_note_structure(&self, note: &str) -> anyhow::Result<NoteStructureResult> {
         Ok(compact_note_structure(self.parse_note(note)?))
     }
 
-    pub fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
+    pub(crate) fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
         let notes = self.index_notes()?;
         Ok(compact_resolve_result(
             RefResolver::resolve(reference, &notes),
             &notes,
         ))
     }
+    #[tracing::instrument(
+        name = "vault.query.index_notes",
+        fields(operation.kind = "query", operation.name = "index_notes"),
+        err
+    )]
     pub fn index_notes(&self) -> anyhow::Result<Vec<IndexedNote>> {
-        super::observe_operation("query", "index_notes", &(), || {
-            let mut notes: Vec<IndexedNote> = self
-                .vault
-                .list_notes()?
-                .into_par_iter()
-                .map(|file| read_and_parse(self, &file))
-                .collect::<anyhow::Result<_>>()?;
-            notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
-            Ok(notes)
-        })
+        let mut notes: Vec<IndexedNote> = self
+            .vault
+            .list_notes()?
+            .into_par_iter()
+            .map(|file| read_and_parse(self, &file))
+            .collect::<anyhow::Result<_>>()?;
+        notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
+        Ok(notes)
     }
 
     pub(crate) fn resolve_note_path(&self, note: &str) -> anyhow::Result<camino::Utf8PathBuf> {
-        if let Ok((path, _)) = self.vault.read_note(note) {
+        if let Ok(path) = self.vault.resolve_path(note)
+            && path.is_file()
+        {
             return Ok(path);
         }
         let notes = self.index_notes()?;
@@ -175,16 +210,28 @@ impl VaultQueries {
         Ok(indexed.file.path.clone())
     }
 
+    #[tracing::instrument(name = "vault.resolve_reference")]
     fn resolve_reference_note_path(
         &self,
         reference: &ObsidianRef,
     ) -> anyhow::Result<camino::Utf8PathBuf> {
-        if let Ok((path, _)) = self.vault.read_note(&reference.target) {
+        if let Ok(path) = self.vault.resolve_path(&reference.target)
+            && path.is_file()
+        {
             return Ok(path);
         }
         let notes = self.index_notes()?;
         let indexed = find_indexed_note(&reference.raw, &notes)?;
         Ok(indexed.file.path.clone())
+    }
+}
+
+fn selector_kind(selector: Option<&SectionSelector>) -> &'static str {
+    match selector {
+        None => "whole_note",
+        Some(SectionSelector::Heading { .. }) => "heading",
+        Some(SectionSelector::Block { .. }) => "block",
+        Some(SectionSelector::Lines { .. }) => "lines",
     }
 }
 

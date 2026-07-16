@@ -46,6 +46,7 @@ pub struct IndexedNote {
 pub struct RefResolver {}
 
 impl RefResolver {
+    #[tracing::instrument(name = "vault.parse_ref")]
     pub fn parse_ref(input: &str) -> ObsidianRef {
         let mut raw = input.trim().to_string();
         if raw.starts_with("![[") && raw.ends_with("]]") {

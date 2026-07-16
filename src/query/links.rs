@@ -37,6 +37,11 @@ fn backlink_scope_contains(wanted: &ResolvedReference, actual: &ResolvedReferenc
 }
 
 impl VaultQueries {
+    #[tracing::instrument(
+        name = "vault.query.get_outlinks",
+        fields(operation.kind = "query", operation.name = "get_outlinks"),
+        err
+    )]
     pub fn get_outlinks(&self, note: &str, page: usize) -> anyhow::Result<OutlinksResult> {
         let notes = self.index_notes()?;
         let indexed = find_indexed_note(note, &notes)?;
@@ -108,6 +113,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.get_backlinks",
+        fields(operation.kind = "query", operation.name = "get_backlinks"),
+        err
+    )]
     pub fn get_backlinks(
         &self,
         target: &str,
@@ -204,6 +214,11 @@ impl VaultQueries {
             .count())
     }
 
+    #[tracing::instrument(
+        name = "vault.query.list_tags",
+        fields(operation.kind = "query", operation.name = "list_tags"),
+        err
+    )]
     pub fn list_tags(
         &self,
         scope: TagScope,
@@ -225,6 +240,11 @@ impl VaultQueries {
         })
     }
 
+    #[tracing::instrument(
+        name = "vault.query.get_tag",
+        fields(operation.kind = "query", operation.name = "get_tag"),
+        err
+    )]
     pub fn get_tag(
         &self,
         tag: &str,
@@ -330,6 +350,11 @@ impl VaultQueries {
         Ok(locators)
     }
 
+    #[tracing::instrument(
+        name = "vault.query.query_frontmatter",
+        fields(operation.kind = "query", operation.name = "query_frontmatter"),
+        err
+    )]
     pub fn query_frontmatter(
         &self,
         options: FrontmatterQueryOptions,

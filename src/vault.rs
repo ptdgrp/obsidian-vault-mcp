@@ -30,9 +30,12 @@ impl Vault {
             return Err(VaultError::AbsolutePathNotAllowed);
         }
         let candidate = self.root.join(path);
-        let normalized = normalize_path(&candidate);
+        let mut normalized = normalize_path(&candidate);
         if !normalized.starts_with(&self.root) {
             return Err(VaultError::PathEscapesVault);
+        }
+        if normalized.extension().is_none() {
+            normalized.set_extension("md");
         }
         Ok(normalized)
     }
@@ -53,11 +56,9 @@ impl Vault {
             .replace('\\', "/")
     }
 
+    #[cfg(test)]
     pub fn read_note(&self, note: &str) -> Result<(Utf8PathBuf, String), VaultError> {
-        let mut path = self.resolve_path(note)?;
-        if path.extension().is_none() {
-            path.set_extension("md");
-        }
+        let path = self.resolve_path(note)?;
         if !path.is_file() {
             return Err(VaultError::NoteNotFound(note.to_string()));
         }
