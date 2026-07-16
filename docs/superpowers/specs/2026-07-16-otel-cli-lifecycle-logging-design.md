@@ -26,7 +26,7 @@ Wrap the selected command in a single lifecycle and emit:
 
 The `serve` command uses the same lifecycle. Its duration covers the server lifetime, while individual MCP calls continue to emit the existing `mcp.tool` span and `tool.call.*` events.
 
-Command names are stable, low-cardinality identifiers derived from the enum variant. Lifecycle events must not contain vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values.
+Command names are stable, low-cardinality identifiers derived from the enum variant. Lifecycle events must not add vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values as dedicated fields. The `cli.command.error` event deliberately retains the full `error = %error` value; operational input-derived context in that error is acceptable because these logs are controlled by the user.
 
 ## Execution and Shutdown Flow
 
@@ -60,5 +60,5 @@ Update the English and Chinese observability sections to describe the unified lo
 
 - Adding application metrics.
 - Changing the remote Collector, Loki, Tempo, or Grafana configuration.
-- Logging command arguments or vault data.
+- Adding command arguments, vault paths or content, search text, regular expressions, or OTLP endpoint values as dedicated lifecycle fields. This does not prohibit the full `error = %error` value on `cli.command.error`.
 - Making telemetry delivery failures change CLI business-command exit status.

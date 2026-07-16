@@ -14,7 +14,7 @@
 - The main agent reviews the diff and fresh test evidence between tasks.
 - Remove `--otel-log-level` and `OBSIDIAN_VAULT_MCP_OTEL_LOG_LEVEL`.
 - `--log-level` is the only filter for stderr, OpenTelemetry traces, and OpenTelemetry logs; its default is `debug`.
-- Do not log vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values as lifecycle fields.
+- Do not add vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values as dedicated lifecycle fields. Keep the full `error = %error` value on `cli.command.error`; operational input-derived context in that error is acceptable because logs are controlled by the user.
 - Telemetry delivery failures must not change a successful business command into a failed command.
 - Follow red-green-refactor: every production behavior change requires a test that was observed failing first.
 
@@ -518,5 +518,5 @@ Then verify the requirements line by line:
 - only `--log-level` remains and defaults to `debug`;
 - successful and failing commands export lifecycle logs;
 - shutdown happens after terminal-event emission and before returning from `main`;
-- no lifecycle field contains command arguments or vault data;
+- no dedicated lifecycle field contains command arguments, vault paths or content, search text, regular expressions, or OTLP endpoint values, while `cli.command.error` retains the full `error = %error` value;
 - both READMEs document the Loki query and flush behavior.
