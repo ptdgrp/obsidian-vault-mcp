@@ -12,6 +12,8 @@
 - 只通过显式章节操作编辑 note，每次写入都是原子替换。
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
 - 扫描可见 Markdown note 时遵守 `.gitignore`、`.git/info/exclude` 和父目录规则。
+- 扫描可见 Markdown note 时遵守 Obsidian `.obsidian/app.json` 的
+  `userIgnoreFilters`；精确 path 读取仍然可用。
 - 返回 vault-relative path、Obsidian 风格行引用和最近标题，便于 LLM 引用证据。
 
 它不会推断“人物”“组织”“章节”等业务领域类型。文件路径、Markdown 标题、本地链接、标签和 frontmatter 才是语义来源；agent 应该基于这些证据继续推理，而不是让 MCP server 替它猜。

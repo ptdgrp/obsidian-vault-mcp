@@ -3,6 +3,7 @@ use std::{fs, io::Write};
 use camino::{Utf8Path, Utf8PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
@@ -93,6 +94,7 @@ impl Vault {
     pub fn list_notes(&self) -> Result<Vec<NoteFile>, VaultError> {
         let include = compile_globs(&self.config.include)?;
         let exclude = compile_globs(&self.config.exclude)?;
+        let obsidian_ignore = self.obsidian_ignore_filters()?;
         let mut files = Vec::new();
         let mut walker = WalkBuilder::new(&self.root);
         walker
@@ -114,7 +116,10 @@ impl Vault {
                 continue;
             }
             let rel = self.relative_path(&path);
-            if default_ignored(&rel) || exclude.is_match(&rel) {
+            if default_ignored(&rel)
+                || exclude.is_match(&rel)
+                || obsidian_ignore.iter().any(|filter| filter.is_match(&rel))
+            {
                 continue;
             }
             if !self.config.include.is_empty() && !include.is_match(&rel) {
@@ -134,6 +139,56 @@ impl Vault {
         }
         files.sort_by(|a, b| natord::compare(&a.relative_path, &b.relative_path));
         Ok(files)
+    }
+
+    fn obsidian_ignore_filters(&self) -> Result<Vec<ObsidianIgnoreFilter>, VaultError> {
+        let path = self.root.join(".obsidian/app.json");
+        if !path.is_file() {
+            return Ok(Vec::new());
+        }
+        let content = fs::read_to_string(&path).map_err(|err| VaultError::Io(err.to_string()))?;
+        let config: ObsidianAppConfig = serde_json::from_str(&content)
+            .map_err(|err| VaultError::InvalidObsidianAppConfig(err.to_string()))?;
+        config
+            .user_ignore_filters
+            .into_iter()
+            .filter_map(|filter| ObsidianIgnoreFilter::parse(&filter))
+            .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ObsidianAppConfig {
+    #[serde(default, rename = "userIgnoreFilters")]
+    user_ignore_filters: Vec<String>,
+}
+
+enum ObsidianIgnoreFilter {
+    Path(String),
+    Regex(Regex),
+}
+
+impl ObsidianIgnoreFilter {
+    fn parse(filter: &str) -> Option<Result<Self, VaultError>> {
+        if filter.len() > 1 && filter.starts_with('/') && filter.ends_with('/') {
+            let pattern = &filter[1..filter.len() - 1];
+            return Some(
+                Regex::new(pattern)
+                    .map(Self::Regex)
+                    .map_err(|err| VaultError::InvalidObsidianIgnoreFilter(err.to_string())),
+            );
+        }
+        let path = filter.trim_matches('/');
+        (!path.is_empty()).then(|| Ok(Self::Path(path.to_string())))
+    }
+
+    fn is_match(&self, relative_path: &str) -> bool {
+        match self {
+            Self::Path(path) => {
+                relative_path == path || relative_path.starts_with(&format!("{path}/"))
+            }
+            Self::Regex(regex) => regex.is_match(relative_path),
+        }
     }
 }
 
@@ -210,6 +265,10 @@ pub enum VaultError {
     NonUtf8Path(String),
     #[error("invalid glob: {0}")]
     InvalidGlob(String),
+    #[error("invalid .obsidian/app.json: {0}")]
+    InvalidObsidianAppConfig(String),
+    #[error("invalid Obsidian user ignore filter: {0}")]
+    InvalidObsidianIgnoreFilter(String),
     #[error("io error: {0}")]
     Io(String),
 }

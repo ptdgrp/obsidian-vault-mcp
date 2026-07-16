@@ -17,6 +17,8 @@ The server is deliberately mechanical:
   `.agents/`, and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
   scanning visible Markdown notes
+- respects Obsidian's `.obsidian/app.json` `userIgnoreFilters` while scanning
+  visible Markdown notes; exact-path reads remain available
 - returns vault-relative paths, Obsidian-style line references, and nearest
   headings so an LLM can cite evidence
 

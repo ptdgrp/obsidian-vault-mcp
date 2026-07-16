@@ -184,3 +184,29 @@ fn list_notes_ignores_default_hidden_and_generated_paths() {
 
     assert_eq!(paths, vec!["visible.md".to_string()]);
 }
+
+#[test]
+fn list_notes_honors_obsidian_user_ignore_filters() {
+    let (dir, vault) = fixture(VaultConfig::default());
+    fs::create_dir_all(dir.path().join(".obsidian")).expect("obsidian config dir");
+    fs::write(
+        dir.path().join(".obsidian/app.json"),
+        r#"{"userIgnoreFilters":["archive","ignored.md","/generated-[0-9]+\\.md$/"]}"#,
+    )
+    .expect("write obsidian app config");
+    fs::write(dir.path().join("visible.md"), "# visible\n").expect("write visible note");
+    fs::create_dir_all(dir.path().join("archive")).expect("archive dir");
+    fs::write(dir.path().join("archive/note.md"), "# archive\n").expect("write archive note");
+    fs::write(dir.path().join("ignored.md"), "# ignored\n").expect("write ignored note");
+    fs::write(dir.path().join("generated-42.md"), "# generated\n").expect("write generated note");
+
+    let paths = vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .map(|note| note.relative_path)
+        .collect::<Vec<_>>();
+
+    assert_eq!(paths, vec!["visible.md".to_string()]);
+    assert!(vault.read_note("archive/note.md").is_ok());
+}
