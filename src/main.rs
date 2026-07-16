@@ -10,10 +10,14 @@ use std::time::{Duration, Instant};
 
 use camino::Utf8PathBuf;
 use clap::Parser;
-use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::{
+    KeyValue,
+    trace::{Status, TracerProvider as _},
+};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
 use tracing::Instrument as _;
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::{
     EnvFilter, Layer as _, Registry, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -454,12 +458,14 @@ async fn main() -> anyhow::Result<()> {
     );
     let config = vault_config(&cli);
     let started = Instant::now();
+    let (input_preview, input_truncated) = telemetry_preview(&cli);
     let command_span = tracing::info_span!(
         "cli.command",
         command = command_name,
-        arguments = ?cli
+        input.preview = %input_preview,
+        input.truncated = input_truncated,
     );
-    tracing::debug!(parent: &command_span, command = command_name, arguments = ?cli, "cli.command.start");
+    tracing::info!(parent: &command_span, command = command_name, input.preview = %input_preview, input.truncated = input_truncated, "cli.command.start");
     let command = cli.command.unwrap_or(Command::Serve);
     let result = async {
         if let Command::GenerateDocs { check, output } = command {
@@ -676,9 +682,11 @@ async fn main() -> anyhow::Result<()> {
     let duration_ms = started.elapsed().as_millis() as u64;
     match &result {
         Ok(()) => {
-            tracing::debug!(parent: &command_span, command = command_name, duration_ms, "cli.command.ok")
+            tracing::info!(parent: &command_span, command = command_name, duration_ms, "cli.command.ok")
         }
         Err(error) => {
+            command_span.set_attribute("error.type", "command.error");
+            command_span.set_status(Status::error("command failed"));
             let error = format_error_chain(error);
             tracing::error!(
                 parent: &command_span,
@@ -692,6 +700,24 @@ async fn main() -> anyhow::Result<()> {
     drop(command_span);
     telemetry.shutdown();
     result
+}
+
+pub(crate) fn telemetry_preview(value: &impl std::fmt::Debug) -> (String, bool) {
+    const MAX_TELEMETRY_INPUT_BYTES: usize = 1024;
+    const TRUNCATION_MARKER: &str = "…";
+
+    let mut preview = format!("{value:?}");
+    if preview.len() <= MAX_TELEMETRY_INPUT_BYTES {
+        return (preview, false);
+    }
+
+    let mut cutoff = MAX_TELEMETRY_INPUT_BYTES - TRUNCATION_MARKER.len();
+    while !preview.is_char_boundary(cutoff) {
+        cutoff -= 1;
+    }
+    preview.truncate(cutoff);
+    preview.push_str(TRUNCATION_MARKER);
+    (preview, true)
 }
 
 pub(crate) fn format_error_chain(error: &anyhow::Error) -> String {
@@ -813,6 +839,7 @@ fn init_tracing(
     let log_endpoint = otlp_signal_endpoint(endpoint, "v1/logs")?;
     let resource = Resource::builder()
         .with_service_name(otel_service_name.to_string())
+        .with_attributes([KeyValue::new("service.version", env!("CARGO_PKG_VERSION"))])
         .build();
 
     let span_exporter = opentelemetry_otlp::SpanExporter::builder()

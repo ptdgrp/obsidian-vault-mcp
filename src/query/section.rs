@@ -1,6 +1,6 @@
 use crate::parser::{HeadingInfo, ParsedNote, ReferenceInfo, SourceSpan, source_for_line};
 
-use super::{SectionSelector, edit_distance::levenshtein_distance};
+use super::{SectionSelector, levenshtein_distance::levenshtein_distance};
 
 pub(crate) fn section_source(
     relative_path: &str,

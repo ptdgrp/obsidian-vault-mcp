@@ -222,15 +222,16 @@ Lifecycle events let you correlate CLI and MCP work. `telemetry.initialized`
 marks telemetry setup; each CLI command emits `cli.command.start` followed by
 `cli.command.ok` or `cli.command.error`. Each MCP tool call retains its
 `mcp.tool` span and `tool.call.*` events. The same tracing events are also
-exported as OTEL logs. Start events record complete CLI and MCP input
-arguments, including note content, query text, regular expressions, paths, and
-endpoint values, so a failed call can be reproduced. Error events retain the
-complete error chain. Successful command and tool output bodies are not copied
-into logs.
+exported as OTEL logs. Start events record an `input.preview` of CLI and MCP
+arguments, capped at 1 KiB; `input.truncated=true` marks a clipped value. This
+keeps small inputs available for diagnosis without exporting arbitrarily large
+note content or query payloads. Error events retain the complete error chain.
+Successful command and tool output bodies are not copied into logs.
 
 Tempo receives one root `cli.command` span for every CLI invocation. In server
-mode that root span covers the MCP stdio lifetime, and every tool call creates
-a child `mcp.tool` span. In Grafana Explore, select Tempo and search for
+mode that span covers only the MCP stdio lifecycle; every tool call creates an
+independent root `mcp.tool` span with its own trace ID. In Grafana Explore,
+select Tempo and search for
 `resource.service.name = "obsidian-vault-mcp"`.
 
 Normal CLI completion and normal MCP stdio/EOF shutdown force-flush pending

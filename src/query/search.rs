@@ -75,18 +75,20 @@ impl VaultQueries {
         path_filter: &PathFilter,
         first_match: impl Fn(&str) -> Option<std::ops::Range<usize>> + Sync,
     ) -> anyhow::Result<Vec<RawTextMatch>> {
-        let mut matches: Vec<RawTextMatch> = self
-            .vault
-            .list_notes()?
-            .into_par_iter()
-            .filter(|file| path_filter.is_match(&file.relative_path))
-            .map(|file| collect_matches_in_file(file, &first_match))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        sort_raw_matches(&mut matches);
-        Ok(matches)
+        super::observe_operation("query", "collect_text_matches", &(), || {
+            let mut matches: Vec<RawTextMatch> = self
+                .vault
+                .list_notes()?
+                .into_par_iter()
+                .filter(|file| path_filter.is_match(&file.relative_path))
+                .map(|file| collect_matches_in_file(file, &first_match))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect();
+            sort_raw_matches(&mut matches);
+            Ok(matches)
+        })
     }
 }
 

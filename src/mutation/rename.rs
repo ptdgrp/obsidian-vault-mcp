@@ -83,17 +83,9 @@ impl VaultMutations {
                 let indexed = find_indexed_note(&path, &notes)?;
                 let updated =
                     apply_edits(std::fs::read_to_string(&indexed.file.path)?, note_edits)?;
-                self.queries
-                    .vault
-                    .write_note_atomic(&indexed.file.path, &updated)?;
-                self.queries
-                    .parse_cache
-                    .invalidate(&indexed.file.relative_path);
+                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
             }
-            std::fs::rename(&target.file.path, &destination)?;
-            self.queries
-                .parse_cache
-                .invalidate(&target.file.relative_path);
+            self.rename_note_path(&target.file.path, &destination, &target.file.relative_path)?;
         }
         Ok(RenameResult {
             dry_run,
@@ -159,12 +151,7 @@ impl VaultMutations {
                 let indexed = find_indexed_note(&path, &notes)?;
                 let updated =
                     apply_edits(std::fs::read_to_string(&indexed.file.path)?, note_edits)?;
-                self.queries
-                    .vault
-                    .write_note_atomic(&indexed.file.path, &updated)?;
-                self.queries
-                    .parse_cache
-                    .invalidate(&indexed.file.relative_path);
+                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
             }
         }
         Ok(RenameResult {
@@ -247,12 +234,7 @@ impl VaultMutations {
                 let indexed = find_indexed_note(&path, &notes)?;
                 let content = std::fs::read_to_string(&indexed.file.path)?;
                 let updated = apply_edits(content, note_edits)?;
-                self.queries
-                    .vault
-                    .write_note_atomic(&indexed.file.path, &updated)?;
-                self.queries
-                    .parse_cache
-                    .invalidate(&indexed.file.relative_path);
+                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
             }
         }
         Ok(RenameResult {

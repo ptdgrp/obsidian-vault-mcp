@@ -86,8 +86,7 @@ impl VaultMutations {
         line_start: u64,
         line_end: u64,
     ) -> anyhow::Result<EditSectionResult> {
-        self.queries.vault.write_note_atomic(path, content)?;
-        self.queries.parse_cache.invalidate(relative_path);
+        self.write_note_atomic(path, relative_path, content)?;
         let max_line = content.lines().count().max(1) as u64;
         let line_start = line_start.clamp(1, max_line);
         let line_end = line_end.clamp(line_start, max_line);

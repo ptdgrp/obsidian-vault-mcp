@@ -154,14 +154,16 @@ impl VaultQueries {
         ))
     }
     pub fn index_notes(&self) -> anyhow::Result<Vec<IndexedNote>> {
-        let mut notes: Vec<IndexedNote> = self
-            .vault
-            .list_notes()?
-            .into_par_iter()
-            .map(|file| read_and_parse(self, &file))
-            .collect::<anyhow::Result<_>>()?;
-        notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
-        Ok(notes)
+        super::observe_operation("query", "index_notes", &(), || {
+            let mut notes: Vec<IndexedNote> = self
+                .vault
+                .list_notes()?
+                .into_par_iter()
+                .map(|file| read_and_parse(self, &file))
+                .collect::<anyhow::Result<_>>()?;
+            notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
+            Ok(notes)
+        })
     }
 
     pub(crate) fn resolve_note_path(&self, note: &str) -> anyhow::Result<camino::Utf8PathBuf> {
