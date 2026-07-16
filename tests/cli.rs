@@ -221,6 +221,21 @@ fn removed_commands_new_command_help_uses_mcp_task_definitions() {
 }
 
 #[test]
+fn observability_uses_one_debug_log_filter() {
+    let output = run_raw_cli(&["--help"]);
+    assert!(
+        output.status.success(),
+        "help stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--log-level <LOG_LEVEL>"), "help: {help}");
+    assert!(help.contains("[default: debug]"), "help: {help}");
+    assert!(!help.contains("--otel-log-level"), "help: {help}");
+}
+
+#[test]
 fn resolve_ref_command_returns_machine_readable_json() {
     let dir = tempdir().expect("tempdir");
     write_note(

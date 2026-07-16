@@ -59,8 +59,8 @@ struct Cli {
     #[arg(long, default_value_t = 1024)]
     parse_cache_max_entries: usize,
 
-    /// Log level, written to stderr
-    #[arg(long, default_value = "warn")]
+    /// Log level for stderr, OpenTelemetry traces, and OpenTelemetry logs.
+    #[arg(long, default_value = "debug")]
     log_level: String,
 
     /// Optional OTLP HTTP endpoint. When absent, telemetry stays on stderr only.
@@ -70,14 +70,6 @@ struct Cli {
     /// OpenTelemetry service name
     #[arg(long, env = "OTEL_SERVICE_NAME", default_value = "obsidian-vault-mcp")]
     otel_service_name: String,
-
-    /// OTEL logs filter. Defaults to warnings/errors; traces still capture tool spans.
-    #[arg(
-        long,
-        env = "OBSIDIAN_VAULT_MCP_OTEL_LOG_LEVEL",
-        default_value = "warn"
-    )]
-    otel_log_level: String,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -417,7 +409,6 @@ async fn main() -> anyhow::Result<()> {
         &cli.log_level,
         cli.otel_endpoint.as_deref(),
         &cli.otel_service_name,
-        &cli.otel_log_level,
     )?;
     let config = vault_config(&cli);
     let command = cli.command.unwrap_or(Command::Serve);
@@ -727,7 +718,6 @@ fn init_tracing(
     level: &str,
     otel_endpoint: Option<&str>,
     otel_service_name: &str,
-    otel_log_level: &str,
 ) -> anyhow::Result<TelemetryGuard> {
     let filter = telemetry_filter(level)?;
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -771,10 +761,9 @@ fn init_tracing(
         .with_resource(resource)
         .with_batch_exporter(log_exporter)
         .build();
-    let otel_log_filter = telemetry_filter(otel_log_level)?;
     let otel_log_layer =
         opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&logger_provider)
-            .with_filter(otel_log_filter);
+            .with_filter(filter.clone());
 
     Registry::default()
         .with(fmt_layer)
