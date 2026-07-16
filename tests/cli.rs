@@ -88,7 +88,37 @@ impl OtlpHttpCapture {
 }
 
 fn capture_otlp_request(listener: TcpListener, sender: Sender<(String, Vec<u8>)>) {
-    let (mut stream, _) = listener.accept().expect("accept OTLP request");
+    listener
+        .set_nonblocking(true)
+        .expect("set OTLP listener nonblocking");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                if capture_otlp_connection(stream, &sender) {
+                    return;
+                }
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                panic!("timed out waiting for OTLP logs request")
+            }
+            Err(error) => panic!("accept OTLP request: {error}"),
+        }
+    }
+}
+
+fn capture_otlp_connection(
+    mut stream: std::net::TcpStream,
+    sender: &Sender<(String, Vec<u8>)>,
+) -> bool {
+    stream
+        .set_nonblocking(false)
+        .expect("set OTLP stream blocking");
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("set OTLP read timeout");
@@ -125,7 +155,12 @@ fn capture_otlp_request(listener: TcpListener, sender: Sender<(String, Vec<u8>)>
             b"HTTP/1.1 200 OK\r\nContent-Type: application/x-protobuf\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         )
         .expect("write OTLP response");
-    sender.send((path, body)).expect("send captured request");
+    if path == "/v1/logs" {
+        sender.send((path, body)).expect("send captured request");
+        return true;
+    }
+    assert_eq!(path, "/v1/traces", "unexpected OTLP request path");
+    false
 }
 
 fn protobuf_contains(body: &[u8], value: &str) -> bool {

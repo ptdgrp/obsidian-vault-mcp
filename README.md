@@ -226,8 +226,9 @@ exported as OTEL logs. Tool arguments, note contents, query text, regex
 patterns, and endpoint values are not recorded in lifecycle fields; a
 `cli.command.error` retains the full error text for diagnosis.
 
-CLI completion and MCP shutdown force-flush pending OTEL logs and traces before
-the process exits. In Grafana Loki, query this service with:
+Normal CLI completion and normal MCP stdio/EOF shutdown force-flush pending
+OTEL logs and traces before the process exits. This guarantee does not cover
+SIGINT or SIGTERM. In Grafana Loki, query this service with:
 
 ```logql
 {service_name="obsidian-vault-mcp"}

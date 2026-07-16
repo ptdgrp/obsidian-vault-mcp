@@ -791,7 +791,8 @@ fn init_tracing(
         });
     };
 
-    let endpoint = endpoint.trim_end_matches('/');
+    let trace_endpoint = otlp_signal_endpoint(endpoint, "v1/traces")?;
+    let log_endpoint = otlp_signal_endpoint(endpoint, "v1/logs")?;
     let resource = Resource::builder()
         .with_service_name(otel_service_name.to_string())
         .build();
@@ -799,7 +800,7 @@ fn init_tracing(
     let span_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .with_endpoint(format!("{endpoint}/v1/traces"))
+        .with_endpoint(trace_endpoint)
         .build()?;
     let tracer_provider = SdkTracerProvider::builder()
         .with_resource(resource.clone())
@@ -813,7 +814,7 @@ fn init_tracing(
     let log_exporter = opentelemetry_otlp::LogExporter::builder()
         .with_http()
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .with_endpoint(format!("{endpoint}/v1/logs"))
+        .with_endpoint(log_endpoint)
         .build()?;
     let logger_provider = SdkLoggerProvider::builder()
         .with_resource(resource)
@@ -841,4 +842,51 @@ fn telemetry_filter(input: &str) -> anyhow::Result<EnvFilter> {
     Ok(EnvFilter::try_new(format!(
         "obsidian_vault_mcp={input},warn"
     ))?)
+}
+
+fn otlp_signal_endpoint(base_endpoint: &str, signal_path: &str) -> anyhow::Result<String> {
+    let mut endpoint = url::Url::parse(base_endpoint.trim())?;
+    let base_path = endpoint.path().trim_end_matches('/');
+    endpoint.set_path(&format!("{base_path}/{signal_path}"));
+    endpoint.set_query(None);
+    endpoint.set_fragment(None);
+    Ok(endpoint.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::otlp_signal_endpoint;
+
+    #[test]
+    fn derives_otlp_signal_endpoints_from_base_url_paths() {
+        let cases = [
+            (
+                "http://collector/prefix",
+                "v1/traces",
+                "http://collector/prefix/v1/traces",
+            ),
+            (
+                "http://collector/prefix/",
+                "v1/logs",
+                "http://collector/prefix/v1/logs",
+            ),
+            (
+                " http://collector/prefix?tenant=a#ignored ",
+                "v1/traces",
+                "http://collector/prefix/v1/traces",
+            ),
+            (
+                "http://collector/?tenant=a",
+                "v1/logs",
+                "http://collector/v1/logs",
+            ),
+        ];
+
+        for (base, signal_path, expected) in cases {
+            assert_eq!(
+                otlp_signal_endpoint(base, signal_path).expect("derive endpoint"),
+                expected
+            );
+        }
+    }
 }
