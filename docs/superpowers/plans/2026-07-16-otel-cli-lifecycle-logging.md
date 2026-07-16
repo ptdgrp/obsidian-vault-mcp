@@ -14,7 +14,7 @@
 - The main agent reviews the diff and fresh test evidence between tasks.
 - Remove `--otel-log-level` and `OBSIDIAN_VAULT_MCP_OTEL_LOG_LEVEL`.
 - `--log-level` is the only filter for stderr, OpenTelemetry traces, and OpenTelemetry logs; its default is `debug`.
-- Do not add vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values as dedicated lifecycle fields. Keep the full `error = %error` value on `cli.command.error`; operational input-derived context in that error is acceptable because logs are controlled by the user.
+- Record complete CLI and MCP inputs in a single `arguments` field on start events, without truncation or redaction. Record the complete formatted error chain on error events. Do not copy successful result/output bodies into lifecycle logs.
 - Telemetry delivery failures must not change a successful business command into a failed command.
 - Follow red-green-refactor: every production behavior change requires a test that was observed failing first.
 

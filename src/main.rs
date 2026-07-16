@@ -20,7 +20,7 @@ use tracing_subscriber::{
 use crate::server::{run_mcp_server, section_parts};
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig};
 
-#[derive(clap::Parser)]
+#[derive(Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Vault root directory
@@ -75,7 +75,7 @@ struct Cli {
     command: Option<Command>,
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Debug, clap::Subcommand)]
 enum Command {
     /// Run MCP server over stdio
     Serve,
@@ -452,9 +452,9 @@ async fn main() -> anyhow::Result<()> {
         "telemetry.initialized"
     );
     let config = vault_config(&cli);
-    let command = cli.command.unwrap_or(Command::Serve);
     let started = Instant::now();
-    tracing::debug!(command = command_name, "cli.command.start");
+    tracing::debug!(command = command_name, arguments = ?cli, "cli.command.start");
+    let command = cli.command.unwrap_or(Command::Serve);
     let result = async {
         if let Command::GenerateDocs { check, output } = command {
             let content =
@@ -669,15 +669,22 @@ async fn main() -> anyhow::Result<()> {
     let duration_ms = started.elapsed().as_millis() as u64;
     match &result {
         Ok(()) => tracing::debug!(command = command_name, duration_ms, "cli.command.ok"),
-        Err(error) => tracing::error!(
-            command = command_name,
-            duration_ms,
-            error = %error,
-            "cli.command.error"
-        ),
+        Err(error) => {
+            let error = format_error_chain(error);
+            tracing::error!(
+                command = command_name,
+                duration_ms,
+                error = %error,
+                "cli.command.error"
+            )
+        }
     }
     telemetry.shutdown();
     result
+}
+
+pub(crate) fn format_error_chain(error: &anyhow::Error) -> String {
+    format!("{error:#}")
 }
 
 fn parse_neighborhood_direction(
@@ -855,7 +862,13 @@ fn otlp_signal_endpoint(base_endpoint: &str, signal_path: &str) -> anyhow::Resul
 
 #[cfg(test)]
 mod tests {
-    use super::otlp_signal_endpoint;
+    use super::{format_error_chain, otlp_signal_endpoint};
+
+    #[test]
+    fn formats_complete_error_chain() {
+        let error = anyhow::anyhow!("inner cause").context("outer context");
+        assert_eq!(format_error_chain(&error), "outer context: inner cause");
+    }
 
     #[test]
     fn derives_otlp_signal_endpoints_from_base_url_paths() {

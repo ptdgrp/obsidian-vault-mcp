@@ -445,38 +445,46 @@ impl ObsidianVaultMcp {
     #[tool(description = "Page through visible Markdown notes for lightweight navigation.")]
     fn list_notes(
         &self,
-        Parameters(ListNotesRequest {
-            include,
-            exclude,
-            page,
-        }): Parameters<ListNotesRequest>,
+        Parameters(request): Parameters<ListNotesRequest>,
     ) -> Result<Json<ListNotesResult>, String> {
-        run_tool("list_notes", || {
-            self.queries().list_notes(&include, &exclude, page)
-        })
+        run_tool(
+            "list_notes",
+            request,
+            |ListNotesRequest {
+                 include,
+                 exclude,
+                 page,
+             }| { self.queries().list_notes(&include, &exclude, page) },
+        )
     }
 
     #[tool(description = "Audit unresolved and ambiguous local links across the visible vault.")]
     fn audit_links(
         &self,
-        Parameters(AuditLinksRequest { page }): Parameters<AuditLinksRequest>,
+        Parameters(request): Parameters<AuditLinksRequest>,
     ) -> Result<Json<AuditLinksResult>, String> {
-        run_tool("audit_links", || self.queries().audit_links(page))
+        run_tool("audit_links", request, |AuditLinksRequest { page }| {
+            self.queries().audit_links(page)
+        })
     }
 
     #[tool(description = "Return a bounded resolved-link neighborhood around one note reference.")]
     fn get_note_neighborhood(
         &self,
-        Parameters(NeighborhoodRequest {
-            target,
-            depth,
-            direction,
-        }): Parameters<NeighborhoodRequest>,
+        Parameters(request): Parameters<NeighborhoodRequest>,
     ) -> Result<Json<NeighborhoodResult>, String> {
-        run_tool("get_note_neighborhood", || {
-            self.queries()
-                .get_note_neighborhood(&target, depth, direction)
-        })
+        run_tool(
+            "get_note_neighborhood",
+            request,
+            |NeighborhoodRequest {
+                 target,
+                 depth,
+                 direction,
+             }| {
+                self.queries()
+                    .get_note_neighborhood(&target, depth, direction)
+            },
+        )
     }
 
     #[tool(
@@ -484,18 +492,23 @@ impl ObsidianVaultMcp {
     )]
     fn read_note(
         &self,
-        Parameters(ReadNoteRequest {
-            note,
-            max_chars,
-            heading,
-            block_id,
-            line,
-        }): Parameters<ReadNoteRequest>,
+        Parameters(request): Parameters<ReadNoteRequest>,
     ) -> Result<Json<ReadNoteResult>, String> {
-        let (note, selector) = read_note_parts(note, heading, block_id, line)?;
-        run_tool("read_note", || {
-            self.queries().read_note(&note, max_chars, selector)
-        })
+        run_tool(
+            "read_note",
+            request,
+            |ReadNoteRequest {
+                 note,
+                 max_chars,
+                 heading,
+                 block_id,
+                 line,
+             }| {
+                let (note, selector) =
+                    read_note_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                self.queries().read_note(&note, max_chars, selector)
+            },
+        )
     }
 
     #[tool(
@@ -503,11 +516,13 @@ impl ObsidianVaultMcp {
     )]
     fn get_note_structure(
         &self,
-        Parameters(NoteStructureRequest { note }): Parameters<NoteStructureRequest>,
+        Parameters(request): Parameters<NoteStructureRequest>,
     ) -> Result<Json<NoteStructureResult>, String> {
-        run_tool("get_note_structure", || {
-            self.queries().get_note_structure(&note)
-        })
+        run_tool(
+            "get_note_structure",
+            request,
+            |NoteStructureRequest { note }| self.queries().get_note_structure(&note),
+        )
     }
 
     #[tool(
@@ -515,9 +530,11 @@ impl ObsidianVaultMcp {
     )]
     fn get_note_stats(
         &self,
-        Parameters(NoteStatsRequest { note }): Parameters<NoteStatsRequest>,
+        Parameters(request): Parameters<NoteStatsRequest>,
     ) -> Result<Json<NoteStatsResult>, String> {
-        run_tool("get_note_stats", || self.queries().get_note_stats(&note))
+        run_tool("get_note_stats", request, |NoteStatsRequest { note }| {
+            self.queries().get_note_stats(&note)
+        })
     }
 
     #[tool(
@@ -525,11 +542,13 @@ impl ObsidianVaultMcp {
     )]
     fn get_note_outline(
         &self,
-        Parameters(NoteOutlineRequest { note, page }): Parameters<NoteOutlineRequest>,
+        Parameters(request): Parameters<NoteOutlineRequest>,
     ) -> Result<Json<NoteOutlineResult>, String> {
-        run_tool("get_note_outline", || {
-            self.queries().get_note_outline(&note, page)
-        })
+        run_tool(
+            "get_note_outline",
+            request,
+            |NoteOutlineRequest { note, page }| self.queries().get_note_outline(&note, page),
+        )
     }
 
     #[tool(
@@ -537,18 +556,22 @@ impl ObsidianVaultMcp {
     )]
     fn search_text(
         &self,
-        Parameters(SearchTextRequest {
-            query,
-            case_sensitive,
-            include,
-            exclude,
-            page,
-        }): Parameters<SearchTextRequest>,
+        Parameters(request): Parameters<SearchTextRequest>,
     ) -> Result<Json<SearchTextResult>, String> {
-        run_tool("search_text", || {
-            self.queries()
-                .search_text(&query, case_sensitive, &include, &exclude, page)
-        })
+        run_tool(
+            "search_text",
+            request,
+            |SearchTextRequest {
+                 query,
+                 case_sensitive,
+                 include,
+                 exclude,
+                 page,
+             }| {
+                self.queries()
+                    .search_text(&query, case_sensitive, &include, &exclude, page)
+            },
+        )
     }
 
     #[tool(
@@ -556,18 +579,22 @@ impl ObsidianVaultMcp {
     )]
     fn search_regex(
         &self,
-        Parameters(SearchRegexRequest {
-            pattern,
-            case_sensitive,
-            include,
-            exclude,
-            page,
-        }): Parameters<SearchRegexRequest>,
+        Parameters(request): Parameters<SearchRegexRequest>,
     ) -> Result<Json<SearchRegexResult>, String> {
-        run_tool("search_regex", || {
-            self.queries()
-                .search_regex(&pattern, case_sensitive, &include, &exclude, page)
-        })
+        run_tool(
+            "search_regex",
+            request,
+            |SearchRegexRequest {
+                 pattern,
+                 case_sensitive,
+                 include,
+                 exclude,
+                 page,
+             }| {
+                self.queries()
+                    .search_regex(&pattern, case_sensitive, &include, &exclude, page)
+            },
+        )
     }
 
     #[tool(
@@ -575,9 +602,11 @@ impl ObsidianVaultMcp {
     )]
     fn resolve_ref(
         &self,
-        Parameters(ResolveRefRequest { reference }): Parameters<ResolveRefRequest>,
+        Parameters(request): Parameters<ResolveRefRequest>,
     ) -> Result<Json<ResolveRefResult>, String> {
-        run_tool("resolve_ref", || self.queries().resolve_ref(&reference))
+        run_tool("resolve_ref", request, |ResolveRefRequest { reference }| {
+            self.queries().resolve_ref(&reference)
+        })
     }
 
     #[tool(
@@ -585,9 +614,11 @@ impl ObsidianVaultMcp {
     )]
     fn get_outlinks(
         &self,
-        Parameters(OutlinksRequest { note, page }): Parameters<OutlinksRequest>,
+        Parameters(request): Parameters<OutlinksRequest>,
     ) -> Result<Json<OutlinksResult>, String> {
-        run_tool("get_outlinks", || self.queries().get_outlinks(&note, page))
+        run_tool("get_outlinks", request, |OutlinksRequest { note, page }| {
+            self.queries().get_outlinks(&note, page)
+        })
     }
 
     #[tool(
@@ -595,17 +626,21 @@ impl ObsidianVaultMcp {
     )]
     fn get_backlinks(
         &self,
-        Parameters(BacklinksRequest {
-            target,
-            include,
-            exclude,
-            page,
-        }): Parameters<BacklinksRequest>,
+        Parameters(request): Parameters<BacklinksRequest>,
     ) -> Result<Json<BacklinksResult>, String> {
-        run_tool("get_backlinks", || {
-            self.queries()
-                .get_backlinks(&target, &include, &exclude, page)
-        })
+        run_tool(
+            "get_backlinks",
+            request,
+            |BacklinksRequest {
+                 target,
+                 include,
+                 exclude,
+                 page,
+             }| {
+                self.queries()
+                    .get_backlinks(&target, &include, &exclude, page)
+            },
+        )
     }
 
     #[tool(
@@ -613,16 +648,18 @@ impl ObsidianVaultMcp {
     )]
     fn list_tags(
         &self,
-        Parameters(ListTagsRequest {
-            scope,
-            include,
-            exclude,
-            page,
-        }): Parameters<ListTagsRequest>,
+        Parameters(request): Parameters<ListTagsRequest>,
     ) -> Result<Json<ListTagsResult>, String> {
-        run_tool("list_tags", || {
-            self.queries().list_tags(scope, &include, &exclude, page)
-        })
+        run_tool(
+            "list_tags",
+            request,
+            |ListTagsRequest {
+                 scope,
+                 include,
+                 exclude,
+                 page,
+             }| { self.queries().list_tags(scope, &include, &exclude, page) },
+        )
     }
 
     #[tool(
@@ -630,21 +667,27 @@ impl ObsidianVaultMcp {
     )]
     fn get_tag(
         &self,
-        Parameters(GetTagRequest {
-            tag,
-            scope,
-            include,
-            exclude,
-            page,
-        }): Parameters<GetTagRequest>,
+        Parameters(request): Parameters<GetTagRequest>,
     ) -> Result<Json<GetTagResult>, String> {
-        if tag.trim().trim_start_matches('#').is_empty() {
-            return Err("provide a non-empty tag; use list_tags to discover tag names".to_string());
-        }
-        run_tool("get_tag", || {
-            self.queries()
-                .get_tag(&tag, scope, &include, &exclude, page)
-        })
+        run_tool(
+            "get_tag",
+            request,
+            |GetTagRequest {
+                 tag,
+                 scope,
+                 include,
+                 exclude,
+                 page,
+             }| {
+                if tag.trim().trim_start_matches('#').is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide a non-empty tag; use list_tags to discover tag names"
+                    ));
+                }
+                self.queries()
+                    .get_tag(&tag, scope, &include, &exclude, page)
+            },
+        )
     }
 
     #[tool(
@@ -652,15 +695,17 @@ impl ObsidianVaultMcp {
     )]
     fn list_categories(
         &self,
-        Parameters(ListCategoriesRequest {
-            include,
-            exclude,
-            page,
-        }): Parameters<ListCategoriesRequest>,
+        Parameters(request): Parameters<ListCategoriesRequest>,
     ) -> Result<Json<ListCategoriesResult>, String> {
-        run_tool("list_categories", || {
-            self.queries().list_categories(&include, &exclude, page)
-        })
+        run_tool(
+            "list_categories",
+            request,
+            |ListCategoriesRequest {
+                 include,
+                 exclude,
+                 page,
+             }| { self.queries().list_categories(&include, &exclude, page) },
+        )
     }
 
     #[tool(
@@ -668,23 +713,26 @@ impl ObsidianVaultMcp {
     )]
     fn get_category(
         &self,
-        Parameters(GetCategoryRequest {
-            category,
-            include,
-            exclude,
-            page,
-        }): Parameters<GetCategoryRequest>,
+        Parameters(request): Parameters<GetCategoryRequest>,
     ) -> Result<Json<GetCategoryResult>, String> {
-        if category.trim().trim_matches('/').is_empty() {
-            return Err(
-                "provide a non-empty category; use list_categories to discover category names"
-                    .to_string(),
-            );
-        }
-        run_tool("get_category", || {
-            self.queries()
-                .get_category(&category, &include, &exclude, page)
-        })
+        run_tool(
+            "get_category",
+            request,
+            |GetCategoryRequest {
+                 category,
+                 include,
+                 exclude,
+                 page,
+             }| {
+                if category.trim().trim_matches('/').is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "provide a non-empty category; use list_categories to discover category names"
+                    ));
+                }
+                self.queries()
+                    .get_category(&category, &include, &exclude, page)
+            },
+        )
     }
 
     #[tool(
@@ -694,7 +742,7 @@ impl ObsidianVaultMcp {
         &self,
         Parameters(request): Parameters<FrontmatterQueryRequest>,
     ) -> Result<Json<FrontmatterQueryResult>, String> {
-        run_tool("query_frontmatter", || {
+        run_tool("query_frontmatter", request, |request| {
             self.queries().query_frontmatter(request)
         })
     }
@@ -704,18 +752,23 @@ impl ObsidianVaultMcp {
     )]
     fn append_section(
         &self,
-        Parameters(AppendSectionRequest {
-            note,
-            heading,
-            block_id,
-            line,
-            content,
-        }): Parameters<AppendSectionRequest>,
+        Parameters(request): Parameters<AppendSectionRequest>,
     ) -> Result<Json<EditSectionResult>, String> {
-        let (note, selector) = section_parts(note, heading, block_id, line)?;
-        run_tool("append_section", || {
-            self.mutations().append_section(&note, selector, &content)
-        })
+        run_tool(
+            "append_section",
+            request,
+            |AppendSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+                 line,
+                 content,
+             }| {
+                let (note, selector) =
+                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                self.mutations().append_section(&note, selector, &content)
+            },
+        )
     }
 
     #[tool(
@@ -723,18 +776,23 @@ impl ObsidianVaultMcp {
     )]
     fn replace_section(
         &self,
-        Parameters(ReplaceSectionRequest {
-            note,
-            heading,
-            block_id,
-            line,
-            content,
-        }): Parameters<ReplaceSectionRequest>,
+        Parameters(request): Parameters<ReplaceSectionRequest>,
     ) -> Result<Json<EditSectionResult>, String> {
-        let (note, selector) = section_parts(note, heading, block_id, line)?;
-        run_tool("replace_section", || {
-            self.mutations().replace_section(&note, selector, &content)
-        })
+        run_tool(
+            "replace_section",
+            request,
+            |ReplaceSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+                 line,
+                 content,
+             }| {
+                let (note, selector) =
+                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                self.mutations().replace_section(&note, selector, &content)
+            },
+        )
     }
 
     #[tool(
@@ -742,17 +800,22 @@ impl ObsidianVaultMcp {
     )]
     fn delete_section(
         &self,
-        Parameters(DeleteSectionRequest {
-            note,
-            heading,
-            block_id,
-            line,
-        }): Parameters<DeleteSectionRequest>,
+        Parameters(request): Parameters<DeleteSectionRequest>,
     ) -> Result<Json<EditSectionResult>, String> {
-        let (note, selector) = section_parts(note, heading, block_id, line)?;
-        run_tool("delete_section", || {
-            self.mutations().delete_section(&note, selector)
-        })
+        run_tool(
+            "delete_section",
+            request,
+            |DeleteSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+                 line,
+             }| {
+                let (note, selector) =
+                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                self.mutations().delete_section(&note, selector)
+            },
+        )
     }
 
     #[tool(
@@ -760,17 +823,21 @@ impl ObsidianVaultMcp {
     )]
     fn rename_heading(
         &self,
-        Parameters(RenameHeadingRequest {
-            note,
-            old_heading,
-            new_heading,
-            dry_run,
-        }): Parameters<RenameHeadingRequest>,
+        Parameters(request): Parameters<RenameHeadingRequest>,
     ) -> Result<Json<RenameResult>, String> {
-        run_tool("rename_heading", || {
-            self.mutations()
-                .rename_heading(&note, &old_heading, &new_heading, dry_run)
-        })
+        run_tool(
+            "rename_heading",
+            request,
+            |RenameHeadingRequest {
+                 note,
+                 old_heading,
+                 new_heading,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .rename_heading(&note, &old_heading, &new_heading, dry_run)
+            },
+        )
     }
 
     #[tool(
@@ -778,15 +845,17 @@ impl ObsidianVaultMcp {
     )]
     fn rename_note(
         &self,
-        Parameters(RenameNoteRequest {
-            path,
-            new_path,
-            dry_run,
-        }): Parameters<RenameNoteRequest>,
+        Parameters(request): Parameters<RenameNoteRequest>,
     ) -> Result<Json<RenameResult>, String> {
-        run_tool("rename_note", || {
-            self.mutations().rename_note(&path, &new_path, dry_run)
-        })
+        run_tool(
+            "rename_note",
+            request,
+            |RenameNoteRequest {
+                 path,
+                 new_path,
+                 dry_run,
+             }| { self.mutations().rename_note(&path, &new_path, dry_run) },
+        )
     }
 
     #[tool(
@@ -794,17 +863,21 @@ impl ObsidianVaultMcp {
     )]
     fn rename_block_id(
         &self,
-        Parameters(RenameBlockIdRequest {
-            note,
-            old_block_id,
-            new_block_id,
-            dry_run,
-        }): Parameters<RenameBlockIdRequest>,
+        Parameters(request): Parameters<RenameBlockIdRequest>,
     ) -> Result<Json<RenameResult>, String> {
-        run_tool("rename_block_id", || {
-            self.mutations()
-                .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
-        })
+        run_tool(
+            "rename_block_id",
+            request,
+            |RenameBlockIdRequest {
+                 note,
+                 old_block_id,
+                 new_block_id,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
+            },
+        )
     }
 }
 
@@ -817,16 +890,20 @@ impl ServerHandler for ObsidianVaultMcp {
     }
 }
 
-fn run_tool<T>(
+fn run_tool<A, T>(
     tool_name: &'static str,
-    run: impl FnOnce() -> anyhow::Result<T>,
-) -> Result<Json<T>, String> {
+    arguments: A,
+    run: impl FnOnce(A) -> anyhow::Result<T>,
+) -> Result<Json<T>, String>
+where
+    A: std::fmt::Debug,
+{
     let span = tracing::info_span!("mcp.tool", tool.name = tool_name);
     let _enter = span.enter();
     let started = Instant::now();
 
-    tracing::info!("tool.call.start");
-    match run() {
+    tracing::info!(arguments = ?arguments, "tool.call.start");
+    match run(arguments) {
         Ok(result) => {
             tracing::info!(
                 duration_ms = started.elapsed().as_millis() as u64,
@@ -836,9 +913,10 @@ fn run_tool<T>(
         }
         Err(error) => {
             let message = error.to_string();
+            let error = crate::format_error_chain(&error);
             tracing::error!(
                 duration_ms = started.elapsed().as_millis() as u64,
-                error = %message,
+                error = %error,
                 "tool.call.error"
             );
             Err(message)

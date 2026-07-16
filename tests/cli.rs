@@ -22,6 +22,7 @@ fn observability_docs_cover_lifecycle_and_loki_query() {
             "cli.command.start",
             "cli.command.ok",
             "cli.command.error",
+            "arguments",
             "http://10.5.11.4:11418",
             r#"{service_name="obsidian-vault-mcp"}"#,
         ] {
@@ -200,6 +201,39 @@ fn successful_cli_flushes_lifecycle_logs_before_exit() {
 }
 
 #[test]
+fn successful_cli_otlp_logs_record_complete_input_but_not_output() {
+    let dir = tempdir().expect("tempdir");
+    let note = "input-only-note.md";
+    let body = "cli-success-output-must-not-be-logged";
+    write_note(&dir, note, &format!("# Note\n{body}\n"));
+    let capture = OtlpHttpCapture::spawn();
+    let endpoint = capture.endpoint.clone();
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .args(["--vault", dir.path().to_str().expect("vault path")])
+        .args(["--max-results", "73"])
+        .args(["--otel-endpoint", &capture.endpoint])
+        .args(["read-note", note])
+        .output()
+        .expect("run instrumented CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let (path, body) = capture.recv();
+    assert_eq!(path, "/v1/logs");
+    assert!(protobuf_contains(&body, "cli.command.start"));
+    for input in [note, "73", &endpoint] {
+        assert!(protobuf_contains(&body, input), "missing CLI input {input}");
+    }
+    assert!(
+        !protobuf_contains(&body, "cli-success-output-must-not-be-logged"),
+        "successful command output leaked into OTLP logs"
+    );
+}
+
+#[test]
 fn failing_cli_flushes_error_log_before_exit() {
     let capture = OtlpHttpCapture::spawn();
     let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
@@ -212,6 +246,10 @@ fn failing_cli_flushes_error_log_before_exit() {
     let (path, body) = capture.recv();
     assert_eq!(path, "/v1/logs");
     assert!(protobuf_contains(&body, "cli.command.error"));
+    assert!(
+        protobuf_contains(&body, "--vault is required for this command"),
+        "error event must include the full anyhow error chain"
+    );
 }
 
 const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -225,10 +263,14 @@ struct McpStdioClient {
 
 impl McpStdioClient {
     fn spawn(dir: &TempDir) -> Self {
+        Self::spawn_with_args(dir, &["--log-level", "warn"])
+    }
+
+    fn spawn_with_args(dir: &TempDir, args: &[&str]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
             .arg("--vault")
             .arg(dir.path())
-            .args(["--log-level", "warn"])
+            .args(args)
             .arg("serve")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -312,6 +354,24 @@ impl McpStdioClient {
             "MCP server exited unsuccessfully: {status}"
         );
     }
+}
+
+fn initialize_mcp(client: &mut McpStdioClient) {
+    let initialize = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "smoke", "version": "1"}
+        }
+    }));
+    assert_eq!(initialize["id"], 1);
+    client.notification(serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    }));
 }
 
 impl Drop for McpStdioClient {
@@ -908,22 +968,7 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
     write_note(&dir, "smoke.md", "# Smoke\n\nready\n");
 
     let mut client = McpStdioClient::spawn(&dir);
-    let initialize = client.request(serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": {"name": "smoke", "version": "1"}
-        }
-    }));
-    assert_eq!(initialize["id"], 1);
-
-    client.notification(serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/initialized"
-    }));
+    initialize_mcp(&mut client);
 
     let tools = client.request(serde_json::json!({
         "jsonrpc": "2.0",
@@ -962,4 +1007,40 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
     );
 
     client.shutdown();
+}
+
+#[test]
+fn mcp_otlp_logs_record_complete_input_but_not_output() {
+    let dir = tempdir().expect("tempdir");
+    let note = "mcp-input-note.md";
+    write_note(
+        &dir,
+        note,
+        "# MCP input\n\nmcp-success-output-must-not-be-logged\n",
+    );
+    let capture = OtlpHttpCapture::spawn();
+    let mut client = McpStdioClient::spawn_with_args(&dir, &["--otel-endpoint", &capture.endpoint]);
+    initialize_mcp(&mut client);
+
+    let response = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "read_note", "arguments": {"note": note}}
+    }));
+    assert_eq!(response["id"], 2);
+    client.shutdown();
+
+    let (path, body) = capture.recv();
+    assert_eq!(path, "/v1/logs");
+    for expected in ["tool.call.start", "ReadNoteRequest", note] {
+        assert!(
+            protobuf_contains(&body, expected),
+            "missing MCP input {expected}"
+        );
+    }
+    assert!(
+        !protobuf_contains(&body, "mcp-success-output-must-not-be-logged"),
+        "successful tool output leaked into OTLP logs"
+    );
 }

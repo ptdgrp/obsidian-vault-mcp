@@ -26,7 +26,7 @@ Wrap the selected command in a single lifecycle and emit:
 
 The `serve` command uses the same lifecycle. Its duration covers the server lifetime, while individual MCP calls continue to emit the existing `mcp.tool` span and `tool.call.*` events.
 
-Command names are stable, low-cardinality identifiers derived from the enum variant. Lifecycle events must not add vault paths, note content, command arguments, search text, regular expressions, or OTLP endpoint values as dedicated fields. The `cli.command.error` event deliberately retains the full `error = %error` value; operational input-derived context in that error is acceptable because these logs are controlled by the user.
+Command names are stable, low-cardinality identifiers derived from the enum variant. Start events include a single `arguments` field containing the complete CLI or MCP input, including vault paths, note content, search text, regular expressions, and OTLP endpoint values. Inputs are not truncated or redacted because the user controls the log destination and needs complete reproduction context. Error events retain the complete formatted error chain. Successful result/output bodies are never copied into lifecycle logs.
 
 ## Execution and Shutdown Flow
 

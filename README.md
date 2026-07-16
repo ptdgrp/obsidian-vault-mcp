@@ -222,9 +222,11 @@ Lifecycle events let you correlate CLI and MCP work. `telemetry.initialized`
 marks telemetry setup; each CLI command emits `cli.command.start` followed by
 `cli.command.ok` or `cli.command.error`. Each MCP tool call retains its
 `mcp.tool` span and `tool.call.*` events. The same tracing events are also
-exported as OTEL logs. Tool arguments, note contents, query text, regex
-patterns, and endpoint values are not recorded in lifecycle fields; a
-`cli.command.error` retains the full error text for diagnosis.
+exported as OTEL logs. Start events record complete CLI and MCP input
+arguments, including note content, query text, regular expressions, paths, and
+endpoint values, so a failed call can be reproduced. Error events retain the
+complete error chain. Successful command and tool output bodies are not copied
+into logs.
 
 Normal CLI completion and normal MCP stdio/EOF shutdown force-flush pending
 OTEL logs and traces before the process exits. This guarantee does not cover
