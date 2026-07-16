@@ -85,6 +85,9 @@ enum Command {
     /// Run MCP server over stdio
     Serve,
 
+    /// Blurprint tools
+    Blueprint,
+
     /// Generate docs from the MCP tool schemas
     GenerateDocs {
         /// Check whether docs/tools.md is up to date without writing it
@@ -411,6 +414,7 @@ impl Command {
     fn telemetry_name(&self) -> &'static str {
         match self {
             Self::Serve => "serve",
+            Self::Blueprint => "blueprint",
             Self::GenerateDocs { .. } => "generate_docs",
             Self::Doctor => "doctor",
             Self::ListNotes { .. } => "list_notes",
@@ -490,6 +494,9 @@ async fn main() -> anyhow::Result<()> {
 
         match command {
             Command::Serve => run_mcp_server(vault).await?,
+            Command::Blueprint => {
+                todo!("")
+            }
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
             Command::Doctor => {
                 print_value(&queries.list_notes(&[], &[], 1)?)?;
