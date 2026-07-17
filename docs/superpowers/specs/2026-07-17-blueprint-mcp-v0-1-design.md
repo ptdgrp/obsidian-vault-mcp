@@ -1,86 +1,86 @@
-# Blueprint MCP v0.1 Design
+# Blueprint MCP v0.1 设计
 
-## Goal
+## 目标
 
-Implement the complete Blueprint v0.1 protocol as MCP tools for a local Markdown workspace. Blueprint files are the only source of truth; Git preserves history outside the protocol.
+将 Blueprint v0.1 协议完整实现为面向本地 Markdown 工作区的 MCP 工具。Blueprint 文件是唯一事实来源；协议之外的文件历史由 Git 保存。
 
-## Scope
+## 范围
 
-The implementation covers the workspace layout, Blueprint lifecycle, Definition of Done updates, Todo graph lifecycle, derived execution state, structural validation, ETag concurrency control, per-file locking, atomic writes, and all 21 tools named in the v0.1 design draft.
+本次实现涵盖工作区目录、Blueprint 生命周期、完成定义（Definition of Done，以下简称 DoD）更新、Todo 图生命周期、派生执行状态、结构校验、ETag 并发控制、单文件锁、原子写入，以及设计稿列出的全部 21 个工具。
 
-All Blueprint-specific production code lives under `src/blueprint`. The existing MCP server only defines request schemas and delegates calls to the Blueprint service. The existing `blueprint` CLI placeholder becomes a safe workspace-initialization command.
+所有 Blueprint 生产代码均放在 `src/blueprint`。既有 MCP 服务仅定义请求结构并将调用委托给 Blueprint 服务。现有的 `blueprint` CLI 占位命令改为安全的工作区初始化入口。
 
-## Architecture
+## 架构
 
-### Source-preserving document model
+### 保留源文本的文档模型
 
-`src/blueprint/document.rs` scans Markdown headings and list structure into a source-span document model. It locates fixed H2 sections, tasks, Block IDs, Todo field blocks, and `Children` nesting. The model records exact byte ranges and indentation, then applies a minimal replacement only to the node or section being changed.
+`src/blueprint/document.rs` 扫描 Markdown 标题与列表结构，建立保留源文本位置的文档模型。它定位固定 H2 章节、任务、Block ID、Todo 字段块以及 `Children` 嵌套关系。模型记录精确的字节范围与缩进；写入时仅替换被修改的节点或章节。
 
-This is deliberately not a parse-and-reformat pipeline. It preserves unknown sections and fields, HTML comments, wiki links, callouts, ordinary prose, and existing layout. The scanner recognizes the Markdown structures required by Blueprint while keeping all unrelated source text opaque.
+这不是“解析后重新格式化”的管线。未知章节和字段、HTML 注释、Wiki Link、Callout、普通文本和既有排版都会保留。扫描器只识别 Blueprint 所需的 Markdown 结构，其他源文本一律保持不透明。
 
-### Domain model and validation
+### 领域模型与校验
 
-`src/blueprint/model.rs` defines serializable request-facing models: workspace and Blueprint states, parsed Blueprint fields, DoD entries, Todo entries, Todo status, readiness, lifecycle results, and resume/full views.
+`src/blueprint/model.rs` 定义可序列化的对外模型：工作区和 Blueprint 状态、解析后的 Blueprint 字段、DoD、Todo、Todo 状态、readiness、生命周期结果，以及完整和恢复视图。
 
-`src/blueprint/validate.rs` validates every read and every candidate write. Validation requires the eight fixed sections, a legal `bp-*.md` filename and directory lifecycle state, `Created By`, unique correctly prefixed DoD and Todo Block IDs, valid dependency references, no self-dependency or dependency cycle, valid `Children` containment, and each status-specific invariant.
+`src/blueprint/validate.rs` 在每次读取和候选写入时执行校验。校验要求：八个固定章节、合法的 `bp-*.md` 文件名及目录生命周期状态、`Created By`、唯一且前缀正确的 DoD/Todo Block ID、有效依赖引用、无自依赖和依赖环、有效的 `Children` 包含关系，以及所有状态特有的不变量。
 
-The service derives execution state at read time. Pending Todos are ready only when every dependency is completed. Dependencies that are blocked or cancelled keep dependents pending and not ready. DoD and Todo state remain independent.
+服务在读取时派生执行状态。只有 `pending` Todo 参与 readiness 计算；仅当全部依赖完成时才 ready。被阻塞或取消的依赖会使依赖方保持 pending 且 not ready。DoD 与 Todo 状态始终相互独立。
 
-### Storage and concurrency
+### 存储与并发
 
-`src/blueprint/store.rs` owns all filesystem behavior. It creates and discovers `.blueprint` workspaces, reads Blueprint files, calculates a file-content ETag, serializes writes with a per-Blueprint lock in `.blueprint/.locks`, re-reads under the lock, checks `expected_etag` when supplied, writes through `.blueprint/.tmp`, and atomically replaces the target file.
+`src/blueprint/store.rs` 负责全部文件系统行为：创建和发现 `.blueprint` 工作区、读取 Blueprint 文件、计算文件内容 ETag、通过 `.blueprint/.locks` 中每个 Blueprint 独立的锁串行化写入、在锁内重新读取、可选的 `expected_etag` 校验、通过 `.blueprint/.tmp` 写入临时文件，以及对目标文件进行原子替换。
 
-Lifecycle transitions use an atomic rename between `active`, `closed`, and `cancelled` after the document update has been validated and written. Different Blueprint IDs use separate locks.
+生命周期变更会先完成文档更新和校验，再通过 `active`、`closed`、`cancelled` 目录之间的原子重命名移动文件。不同 Blueprint ID 使用不同锁，可并发写入。
 
-### Service and MCP boundary
+### 服务与 MCP 边界
 
-`src/blueprint/service.rs` exposes domain operations for all tools:
+`src/blueprint/service.rs` 提供全部工具的领域操作：
 
-- Workspace: `blueprint_init`, `blueprint_discover`.
-- Blueprint: `blueprint_create`, `blueprint_get`, `blueprint_list`, `blueprint_update`, `blueprint_status`, `blueprint_close`, `blueprint_cancel`.
-- DoD: `dod_update`.
-- Todo: `todo_create`, `todo_get`, `todo_list`, `todo_update`, `todo_assign`, `todo_start`, `todo_complete`, `todo_block`, `todo_cancel`.
+- 工作区：`blueprint_init`、`blueprint_discover`。
+- Blueprint：`blueprint_create`、`blueprint_get`、`blueprint_list`、`blueprint_update`、`blueprint_status`、`blueprint_close`、`blueprint_cancel`。
+- DoD：`dod_update`。
+- Todo：`todo_create`、`todo_get`、`todo_list`、`todo_update`、`todo_assign`、`todo_start`、`todo_complete`、`todo_block`、`todo_cancel`。
 
-`src/server.rs` adds `schemars` request types and thin tool handlers. It has no Markdown editing or graph logic. `src/main.rs` constructs the service and invokes `blueprint_init` for the existing `blueprint` command.
+`src/server.rs` 新增 `schemars` 请求类型和薄工具处理器，不包含 Markdown 编辑或图逻辑。`src/main.rs` 创建服务，并让现有 `blueprint` 命令调用 `blueprint_init`。
 
-## Behavioral details
+## 行为细节
 
-### IDs and files
+### ID 与文件
 
-Generated Blueprint, Todo, and DoD IDs use time-sortable ULID-compatible identifiers with `bp-`, `todo-`, and `dod-` prefixes. IDs are unique within a `.blueprint` workspace. A Blueprint is stored only as `.blueprint/{active,closed,cancelled}/bp-<id>.md`; the directory is its lifecycle state.
+新生成的 Blueprint、Todo 和 DoD ID 使用可按时间排序的 ULID 兼容标识符，前缀分别为 `bp-`、`todo-`、`dod-`。ID 在同一 `.blueprint` 工作区内唯一。Blueprint 只能存放在 `.blueprint/{active,closed,cancelled}/bp-<id>.md`；所在目录即其生命周期状态。
 
-`blueprint_init` creates `manifest.md`, `active`, `closed`, `cancelled`, `.locks`, and `.tmp`. The manifest contains only the specified `blueprint/v1` frontmatter and workspace H1. `blueprint_discover` searches from a supplied vault-relative directory upward until it finds a valid workspace.
+`blueprint_init` 创建 `manifest.md`、`active`、`closed`、`cancelled`、`.locks` 与 `.tmp`。manifest 只含设计稿规定的 `blueprint/v1` frontmatter 和工作区 H1。`blueprint_discover` 从给定的 vault 相对目录向上查找，直到发现有效工作区。
 
-### Mutations
+### 修改规则
 
-Normal Blueprint updates can change title, Intent, Constraints, Plan, Results, and Notes. They cannot change Record fields or Todo status. Only dedicated lifecycle methods modify `Closed By`, `Cancelled By`, `Completed By`, checkbox statuses, or lifecycle directories.
+普通 Blueprint 更新只能修改标题、Intent、Constraints、Plan、Results 与 Notes，不能修改 Record 字段或 Todo 状态。只有专用的生命周期工具能修改 `Closed By`、`Cancelled By`、`Completed By`、任务 checkbox 状态或生命周期目录。
 
-Todo mutations enforce the state machine from the draft. Starting requires an owner and completed dependencies. Completing requires an in-progress Todo, every completion criterion checked, all non-cancelled children completed, and a non-empty result summary. Blocking requires both a reason and a handoff. Cancelling requires a reason. Reassigning an in-progress or blocked Todo requires an existing handoff.
+Todo 修改严格遵守设计稿中的状态机。开始时必须已分配 Owner 且依赖全部完成。完成时必须处于 in_progress、所有完成条件已勾选、所有未取消子 Todo 已完成，并包含非空 Result Summary。阻塞时必须同时提供原因和 Handoff。取消时必须提供原因。重新分配 in_progress 或 blocked Todo 前必须已有 Handoff。
 
-Closing always succeeds once supplied with `closed_by`; an incomplete close additionally requires a reason and records open DoD/Todos in `Results`. Cancelling records the reason and actor, updates Record, appends cancellation output, and moves the file to `cancelled`.
+只要提供 `closed_by`，关闭操作始终允许；未完整关闭时还必须提供原因，并在 Results 中记录未完成 DoD/Todo。取消操作记录原因和执行者，更新 Record，追加取消结果，并将文件移至 `cancelled`。
 
-### Returned views
+### 返回视图
 
-Every file read returns an ETag and derived execution state. `blueprint_get(view: resume)` limits the document payload to Intent, Constraints, open DoD, Plan, in-progress/ready/blocked Todos with handoffs, and current Results. Status returns counts, ready and not-ready Todos with unsatisfied dependencies, blocked/unassigned Todos, and open Todos.
+每次读取文件都返回 ETag 与派生执行状态。`blueprint_get(view: resume)` 只返回 Intent、Constraints、未完成 DoD、Plan、进行中/ready/blocked Todo（含 Handoff）和当前 Results。状态工具返回计数、ready Todo、带未满足依赖的 not-ready Todo、blocked/unassigned Todo 与未完成 Todo。
 
-## Error handling
+## 错误处理
 
-Malformed files produce actionable validation errors and are never partially rewritten. A stale `expected_etag` is rejected after lock acquisition and fresh re-read. Invalid lifecycle, state transition, field mutation, dependency, or parent relationship is rejected before writing. I/O and lock errors are surfaced through existing MCP error handling.
+格式错误的文件会返回可定位的校验错误，绝不发生部分重写。过期的 `expected_etag` 会在获得锁并重新读取后被拒绝。非法生命周期、状态变更、字段修改、依赖或父子关系都会在写入前被拒绝。I/O 与锁错误沿用现有 MCP 错误处理链返回。
 
-## Test strategy
+## 测试策略
 
-Tests under `src/blueprint/tests/` will cover:
+`src/blueprint/tests/` 下的测试覆盖：
 
-- initialization, discovery, manifest validation, and Blueprint creation;
-- complete parsing and source-preserving targeted edits with unknown Markdown retained;
-- every structural and status invariant, duplicate IDs, illegal Block ID placement, parent cycles, dependency cycles, and missing references;
-- readiness and resume/status derivation, including blocked and cancelled dependencies;
-- every lifecycle tool and required Record/Results output;
-- optimistic ETag conflict, independent Blueprint lock paths, and atomic storage behavior;
-- MCP schemas/dispatch and the CLI initialization command.
+- 初始化、发现、manifest 校验和 Blueprint 创建；
+- 完整解析，以及保留未知 Markdown 的定点修改；
+- 所有结构和状态不变量、重复 ID、非法 Block ID 位置、父子环、依赖环与缺失引用；
+- readiness、恢复/状态派生，包含 blocked 和 cancelled 依赖；
+- 每个生命周期工具及其必需的 Record/Results 输出；
+- 乐观 ETag 冲突、独立 Blueprint 锁路径和原子存储行为；
+- MCP schema/分发与 CLI 初始化命令。
 
-The docs generator test will ensure `docs/tools.md` accurately reflects the expanded tool set.
+文档生成测试还会确保 `docs/tools.md` 与新增工具集合一致。
 
-## Explicit non-goals
+## 明确不做的事
 
-Blueprint does not maintain revision history, persist execution state or readiness, automatically synchronize DoD and Todo checkboxes, interpret arbitrary user Markdown beyond the protocol structures, or rewrite unrelated Markdown formatting.
+Blueprint 不维护修订历史，不持久化执行状态或 readiness，不自动同步 DoD 与 Todo checkbox，不解释协议结构之外的任意用户 Markdown，也不重写无关 Markdown 的格式。
