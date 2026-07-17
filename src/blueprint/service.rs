@@ -1,5 +1,6 @@
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use ulid::Ulid;
 
 pub fn run_blueprint_cli(
@@ -7,6 +8,10 @@ pub fn run_blueprint_cli(
     operation: &str,
     input: serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
+    let span = tracing::info_span!("blueprint.cli.operation", operation = operation);
+    let _entered = span.enter();
+    let started = Instant::now();
+    tracing::info!("blueprint.cli.start");
     let text = |key: &str| {
         input
             .get(key)
@@ -173,6 +178,10 @@ pub fn run_blueprint_cli(
         }
         _ => anyhow::bail!("unknown Blueprint CLI operation: {operation}"),
     };
+    tracing::info!(
+        duration_ms = started.elapsed().as_millis() as u64,
+        "blueprint.cli.ok"
+    );
     Ok(value)
 }
 

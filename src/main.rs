@@ -800,6 +800,9 @@ pub(crate) fn telemetry_preview(value: &impl std::fmt::Debug) -> (String, bool) 
     const TRUNCATION_MARKER: &str = "…";
 
     let mut preview = format!("{value:?}");
+    if preview.contains("BlueprintJsonInput") {
+        return ("Blueprint CLI input omitted".to_string(), true);
+    }
     if preview.len() <= MAX_TELEMETRY_INPUT_BYTES {
         return (preview, false);
     }

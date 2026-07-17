@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use rmcp::{
     ServerHandler, ServiceExt,
@@ -216,10 +217,22 @@ fn active_state() -> String {
     "active".to_string()
 }
 fn json<T: Serialize>(result: anyhow::Result<T>) -> Result<Json<ToolResponse>, String> {
-    result
+    let started = Instant::now();
+    tracing::info!("blueprint.mcp.result.start");
+    let result = result
         .and_then(|value| serde_json::to_value(value).map_err(Into::into))
         .map(|data| Json(ToolResponse { data }))
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string());
+    match &result {
+        Ok(_) => tracing::info!(
+            duration_ms = started.elapsed().as_millis() as u64,
+            "blueprint.mcp.result.ok"
+        ),
+        Err(error) => {
+            tracing::warn!(duration_ms = started.elapsed().as_millis() as u64, error = %error, "blueprint.mcp.result.error")
+        }
+    }
+    result
 }
 
 #[tool_router]
