@@ -12,11 +12,13 @@
 
 ## 架构
 
-### 保留源文本的文档模型
+### 基于现有 AST 的保留源文本编辑
 
-`src/blueprint/document.rs` 扫描 Markdown 标题与列表结构，建立保留源文本位置的文档模型。它定位固定 H2 章节、任务、Block ID、Todo 字段块以及 `Children` 嵌套关系。模型记录精确的字节范围与缩进；写入时仅替换被修改的节点或章节。
+`src/blueprint/document.rs` 复用项目既有的 `markdown` 依赖，以 Obsidian 模式解析原始 Markdown。该 AST 已提供 H1/H2 标题、列表、Task List Item、Block ID、节点父子关系和起止行列；因此 Blueprint 不实现第二个 Markdown 解析器。
 
-这不是“解析后重新格式化”的管线。未知章节和字段、HTML 注释、Wiki Link、Callout、普通文本和既有排版都会保留。扫描器只识别 Blueprint 所需的 Markdown 结构，其他源文本一律保持不透明。
+文档层只执行三件事：从 AST 映射固定 H2 章节、任务与 `Children` 关系为 Blueprint 领域节点；将 AST 行列位置转换为原始文本字节范围；基于这些范围进行局部替换或插入。它使用有限的字段文本解释 `Created By`、`Depends On` 等 Blueprint 专用内容，但不重新识别 Markdown 语法。
+
+这不是“解析后重新格式化”的管线。未知章节和字段、HTML 注释、Wiki Link、Callout、普通文本和既有排版都会保留。修改只应用于已经由 AST 精确定位的目标节点或章节。
 
 ### 领域模型与校验
 
