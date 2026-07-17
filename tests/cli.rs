@@ -33,6 +33,80 @@ fn observability_docs_cover_lifecycle_and_loki_query() {
     }
 }
 
+#[test]
+fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
+    let dir = tempdir().expect("tempdir");
+    let create = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "create",
+            "--title",
+            "CLI Blueprint",
+            "--created-by",
+            "tester",
+            "--intent",
+            "exercise named Blueprint arguments",
+            "--definition-of-done",
+            "the command succeeds",
+            "--plan",
+            "run it",
+        ],
+    );
+    assert!(
+        create.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&create.stderr)
+    );
+    let created: Value = serde_json::from_slice(&create.stdout).expect("typed create JSON");
+    let blueprint_id = created["id"].as_str().expect("created blueprint id");
+    assert!(
+        created.get("data").is_none(),
+        "MCP wrapper leaked into CLI output"
+    );
+    let dod_id = created["source"]
+        .as_str()
+        .expect("created source")
+        .lines()
+        .find_map(|line| line.split_once(" ^dod-").map(|(_, id)| format!("dod-{id}")))
+        .expect("definition of done id");
+
+    let dod_update = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "dod-update",
+            "--blueprint-id",
+            blueprint_id,
+            "--dod-id",
+            &dod_id,
+            "--completed",
+            "true",
+        ],
+    );
+    assert!(
+        dod_update.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&dod_update.stderr)
+    );
+
+    let status = run_cli(
+        &dir,
+        &["blueprint", "status", "--blueprint-id", blueprint_id],
+    );
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status: Value = serde_json::from_slice(&status.stdout).expect("typed status JSON");
+    assert_eq!(status["state"], "active");
+    assert!(
+        status.get("data").is_none(),
+        "generic response wrapper leaked"
+    );
+}
+
 fn write_note(dir: &TempDir, path: &str, content: &str) {
     let full_path = dir.path().join(path);
     if let Some(parent) = full_path.parent() {

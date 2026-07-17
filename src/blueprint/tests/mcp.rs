@@ -34,3 +34,32 @@ fn exposes_only_the_seventeen_blueprint_protocol_tools() {
             .any(|name| name == "blueprint_init" || name == "blueprint_discover")
     );
 }
+
+#[test]
+fn tool_schemas_expose_concrete_inputs_and_outputs() {
+    let tools = BlueprintMcp::tool_definitions();
+    let create = tools
+        .iter()
+        .find(|tool| tool.name == "blueprint_create")
+        .expect("blueprint_create schema");
+    assert!(
+        create
+            .input_schema
+            .get("properties")
+            .is_some_and(|properties| {
+                properties
+                    .as_object()
+                    .is_some_and(|properties| properties.contains_key("created_by"))
+            }),
+        "create schema must expose named request fields"
+    );
+    let output = create.output_schema.as_ref().expect("create output schema");
+    assert!(
+        output.get("properties").is_some_and(|properties| {
+            properties.as_object().is_some_and(|properties| {
+                properties.contains_key("id") && !properties.contains_key("data")
+            })
+        }),
+        "create output schema must be concrete instead of a generic data wrapper"
+    );
+}

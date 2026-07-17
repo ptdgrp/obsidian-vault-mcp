@@ -10,7 +10,7 @@ use fs2::FileExt;
 
 const MANIFEST: &str = "---\nschema: blueprint/v1\n---\n\n# Blueprint Workspace\n";
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
 pub struct StoredBlueprint {
     pub id: String,
     pub state: String,

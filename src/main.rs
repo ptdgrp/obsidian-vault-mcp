@@ -25,7 +25,9 @@ use tracing_subscriber::{
 
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig};
 use crate::{
-    blueprint::{run_blueprint_cli, run_blueprint_mcp_server},
+    blueprint::{
+        BlueprintCreateInput, BlueprintService, CheckUpdate, TodoStatus, run_blueprint_mcp_server,
+    },
     server::{run_mcp_server, section_parts},
 };
 
@@ -419,74 +421,414 @@ enum Command {
 
 #[derive(Debug, clap::Subcommand)]
 enum BlueprintCommand {
-    Create(BlueprintJsonInput),
-    Get(BlueprintJsonInput),
-    List(BlueprintJsonInput),
-    Update(BlueprintJsonInput),
-    Status(BlueprintJsonInput),
-    Close(BlueprintJsonInput),
-    Cancel(BlueprintJsonInput),
-    DodUpdate(BlueprintJsonInput),
-    TodoCreate(BlueprintJsonInput),
-    TodoGet(BlueprintJsonInput),
-    TodoList(BlueprintJsonInput),
-    TodoUpdate(BlueprintJsonInput),
-    TodoAssign(BlueprintJsonInput),
-    TodoStart(BlueprintJsonInput),
-    TodoComplete(BlueprintJsonInput),
-    TodoBlock(BlueprintJsonInput),
-    TodoCancel(BlueprintJsonInput),
+    Create(BlueprintCreateArgs),
+    Get(BlueprintGetArgs),
+    List(BlueprintListArgs),
+    Update(BlueprintUpdateArgs),
+    Status(BlueprintIdArgs),
+    Close(BlueprintCloseArgs),
+    Cancel(BlueprintCancelArgs),
+    DodUpdate(DodUpdateArgs),
+    TodoCreate(TodoCreateArgs),
+    TodoGet(TodoIdArgs),
+    TodoList(TodoListArgs),
+    TodoUpdate(TodoUpdateArgs),
+    TodoAssign(TodoAssignArgs),
+    TodoStart(TodoIdArgs),
+    TodoComplete(TodoCompleteArgs),
+    TodoBlock(TodoBlockArgs),
+    TodoCancel(TodoCancelArgs),
 }
 
 #[derive(Debug, clap::Args)]
-struct BlueprintJsonInput {
-    /// JSON object matching the corresponding Blueprint MCP tool input schema.
+struct BlueprintCreateArgs {
     #[arg(long)]
-    json: String,
+    title: String,
+    #[arg(long)]
+    created_by: String,
+    #[arg(long)]
+    intent: String,
+    #[arg(long)]
+    constraints: Vec<String>,
+    #[arg(long, required = true)]
+    definition_of_done: Vec<String>,
+    #[arg(long)]
+    plan: String,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintGetArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    view: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintListArgs {
+    #[arg(long, default_value = "active")]
+    state: String,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintIdArgs {
+    #[arg(long)]
+    blueprint_id: String,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintUpdateArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long)]
+    intent: Option<String>,
+    #[arg(long)]
+    constraints: Option<Vec<String>>,
+    #[arg(long)]
+    plan: Option<String>,
+    #[arg(long)]
+    results: Option<String>,
+    #[arg(long)]
+    notes: Option<String>,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintCloseArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    closed_by: String,
+    #[arg(long)]
+    reason: Option<String>,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct BlueprintCancelArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    cancelled_by: String,
+    #[arg(long)]
+    reason: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct DodUpdateArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    dod_id: String,
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    completed: bool,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoCreateArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    title: String,
+    #[arg(long)]
+    created_by: String,
+    #[arg(long)]
+    parent_id: Option<String>,
+    #[arg(long)]
+    owner: Option<String>,
+    #[arg(long)]
+    depends_on: Vec<String>,
+    #[arg(long)]
+    completion_criteria: Vec<String>,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoIdArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoListArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long, value_parser = parse_todo_status)]
+    status: Option<TodoStatus>,
+    #[arg(long)]
+    owner: Option<String>,
+    #[arg(long)]
+    ready: Option<bool>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoUpdateArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    title: Option<String>,
+    #[arg(long)]
+    depends_on: Option<Vec<String>>,
+    #[arg(long)]
+    completion_criterion: Vec<String>,
+    #[arg(long)]
+    completed_criterion: Vec<String>,
+    #[arg(long)]
+    handoff: Option<Vec<String>>,
+    #[arg(long)]
+    result_summary: Option<String>,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoAssignArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    owner: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoCompleteArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    completed_by: String,
+    #[arg(long)]
+    summary: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoBlockArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    reason: String,
+    #[arg(long)]
+    handoff: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
+}
+#[derive(Debug, clap::Args)]
+struct TodoCancelArgs {
+    #[arg(long)]
+    blueprint_id: String,
+    #[arg(long)]
+    todo_id: String,
+    #[arg(long)]
+    reason: String,
+    #[arg(long)]
+    expected_etag: Option<String>,
 }
 
-impl BlueprintCommand {
-    fn operation(&self) -> &'static str {
-        match self {
-            Self::Create(_) => "blueprint_create",
-            Self::Get(_) => "blueprint_get",
-            Self::List(_) => "blueprint_list",
-            Self::Update(_) => "blueprint_update",
-            Self::Status(_) => "blueprint_status",
-            Self::Close(_) => "blueprint_close",
-            Self::Cancel(_) => "blueprint_cancel",
-            Self::DodUpdate(_) => "dod_update",
-            Self::TodoCreate(_) => "todo_create",
-            Self::TodoGet(_) => "todo_get",
-            Self::TodoList(_) => "todo_list",
-            Self::TodoUpdate(_) => "todo_update",
-            Self::TodoAssign(_) => "todo_assign",
-            Self::TodoStart(_) => "todo_start",
-            Self::TodoComplete(_) => "todo_complete",
-            Self::TodoBlock(_) => "todo_block",
-            Self::TodoCancel(_) => "todo_cancel",
+fn parse_todo_status(value: &str) -> Result<TodoStatus, String> {
+    match value {
+        "pending" => Ok(TodoStatus::Pending),
+        "in_progress" => Ok(TodoStatus::InProgress),
+        "completed" => Ok(TodoStatus::Completed),
+        "blocked" => Ok(TodoStatus::Blocked),
+        "cancelled" => Ok(TodoStatus::Cancelled),
+        _ => {
+            Err("status must be pending, in_progress, completed, blocked, or cancelled".to_string())
         }
     }
-    fn input(&self) -> &str {
-        match self {
-            Self::Create(v)
-            | Self::Get(v)
-            | Self::List(v)
-            | Self::Update(v)
-            | Self::Status(v)
-            | Self::Close(v)
-            | Self::Cancel(v)
-            | Self::DodUpdate(v)
-            | Self::TodoCreate(v)
-            | Self::TodoGet(v)
-            | Self::TodoList(v)
-            | Self::TodoUpdate(v)
-            | Self::TodoAssign(v)
-            | Self::TodoStart(v)
-            | Self::TodoComplete(v)
-            | Self::TodoBlock(v)
-            | Self::TodoCancel(v) => &v.json,
+}
+
+fn run_blueprint_operation<T: serde::Serialize>(
+    operation: &'static str,
+    action: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<()> {
+    let span = tracing::info_span!("blueprint.cli.operation", operation = operation);
+    let _entered = span.enter();
+    let started = Instant::now();
+    tracing::info!("blueprint.cli.start");
+    let result = action();
+    match result {
+        Ok(value) => {
+            print_value(&value)?;
+            tracing::info!(
+                duration_ms = started.elapsed().as_millis() as u64,
+                "blueprint.cli.ok"
+            );
+            Ok(())
         }
+        Err(error) => {
+            tracing::warn!(duration_ms = started.elapsed().as_millis() as u64, error = %error, "blueprint.cli.error");
+            Err(error)
+        }
+    }
+}
+
+fn run_blueprint_command(
+    service: &BlueprintService,
+    command: BlueprintCommand,
+) -> anyhow::Result<()> {
+    match command {
+        BlueprintCommand::Create(args) => run_blueprint_operation("blueprint_create", || {
+            service.blueprint_create(BlueprintCreateInput {
+                title: args.title,
+                created_by: args.created_by,
+                intent: args.intent,
+                constraints: args.constraints,
+                definition_of_done: args.definition_of_done,
+                plan: args.plan,
+            })
+        }),
+        BlueprintCommand::Get(args) => run_blueprint_operation("blueprint_get", || {
+            service.blueprint_view(&args.blueprint_id, args.view.as_deref())
+        }),
+        BlueprintCommand::List(args) => run_blueprint_operation("blueprint_list", || {
+            service
+                .blueprint_list_in(&args.state)
+                .map(|blueprint_ids| crate::blueprint::BlueprintListOutput { blueprint_ids })
+        }),
+        BlueprintCommand::Update(args) => run_blueprint_operation("blueprint_update", || {
+            service.blueprint_update(
+                &args.blueprint_id,
+                args.title.as_deref(),
+                args.intent.as_deref(),
+                args.constraints.as_deref(),
+                args.plan.as_deref(),
+                args.results.as_deref(),
+                args.notes.as_deref(),
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::Status(args) => run_blueprint_operation("blueprint_status", || {
+            service.blueprint_status(&args.blueprint_id)
+        }),
+        BlueprintCommand::Close(args) => run_blueprint_operation("blueprint_close", || {
+            service.blueprint_close(
+                &args.blueprint_id,
+                &args.closed_by,
+                args.reason.as_deref(),
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::Cancel(args) => run_blueprint_operation("blueprint_cancel", || {
+            service.blueprint_cancel(
+                &args.blueprint_id,
+                &args.cancelled_by,
+                &args.reason,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::DodUpdate(args) => run_blueprint_operation("dod_update", || {
+            service.dod_update_with_note(
+                &args.blueprint_id,
+                &args.dod_id,
+                args.completed,
+                args.note.as_deref(),
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoCreate(args) => run_blueprint_operation("todo_create", || {
+            service.todo_create_full(
+                &args.blueprint_id,
+                &args.title,
+                &args.created_by,
+                args.parent_id.as_deref(),
+                args.owner.as_deref(),
+                &args.depends_on,
+                &args.completion_criteria,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoGet(args) => run_blueprint_operation("todo_get", || {
+            service.todo_get(&args.blueprint_id, &args.todo_id)
+        }),
+        BlueprintCommand::TodoList(args) => run_blueprint_operation("todo_list", || {
+            service
+                .todo_list_filtered(
+                    &args.blueprint_id,
+                    args.status,
+                    args.owner.as_deref(),
+                    args.ready,
+                )
+                .map(|todos| crate::blueprint::TodoListOutput { todos })
+        }),
+        BlueprintCommand::TodoUpdate(args) => run_blueprint_operation("todo_update", || {
+            let criteria = (!args.completion_criterion.is_empty()
+                || !args.completed_criterion.is_empty())
+            .then(|| {
+                args.completion_criterion
+                    .iter()
+                    .map(|text| CheckUpdate {
+                        text: text.clone(),
+                        completed: false,
+                    })
+                    .chain(args.completed_criterion.iter().map(|text| CheckUpdate {
+                        text: text.clone(),
+                        completed: true,
+                    }))
+                    .collect::<Vec<_>>()
+            });
+            service.todo_update(
+                &args.blueprint_id,
+                &args.todo_id,
+                args.title.as_deref(),
+                args.depends_on.as_deref(),
+                criteria.as_deref(),
+                args.handoff.as_deref(),
+                args.result_summary.as_deref(),
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoAssign(args) => run_blueprint_operation("todo_assign", || {
+            service.todo_assign(
+                &args.blueprint_id,
+                &args.todo_id,
+                &args.owner,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoStart(args) => run_blueprint_operation("todo_start", || {
+            service.todo_start(
+                &args.blueprint_id,
+                &args.todo_id,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoComplete(args) => run_blueprint_operation("todo_complete", || {
+            service.todo_complete(
+                &args.blueprint_id,
+                &args.todo_id,
+                &args.completed_by,
+                &args.summary,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoBlock(args) => run_blueprint_operation("todo_block", || {
+            service.todo_block(
+                &args.blueprint_id,
+                &args.todo_id,
+                &args.reason,
+                &args.handoff,
+                args.expected_etag.as_deref(),
+            )
+        }),
+        BlueprintCommand::TodoCancel(args) => run_blueprint_operation("todo_cancel", || {
+            service.todo_cancel(
+                &args.blueprint_id,
+                &args.todo_id,
+                &args.reason,
+                args.expected_etag.as_deref(),
+            )
+        }),
     }
 }
 
@@ -576,9 +918,8 @@ async fn main() -> anyhow::Result<()> {
             Command::Serve => run_mcp_server(vault).await?,
             Command::Blueprint { command } => {
                 if let Some(command) = command {
-                    let service = crate::blueprint::BlueprintService::new(vault.root);
-                    let input = serde_json::from_str(command.input())?;
-                    print_value(&run_blueprint_cli(&service, command.operation(), input)?)?;
+                    let service = BlueprintService::new(vault.root);
+                    run_blueprint_command(&service, command)?;
                 } else {
                     run_blueprint_mcp_server(vault).await?
                 }
@@ -800,7 +1141,7 @@ pub(crate) fn telemetry_preview(value: &impl std::fmt::Debug) -> (String, bool) 
     const TRUNCATION_MARKER: &str = "…";
 
     let mut preview = format!("{value:?}");
-    if preview.contains("BlueprintJsonInput") {
+    if preview.contains("Blueprint { command: Some(") {
         return ("Blueprint CLI input omitted".to_string(), true);
     }
     if preview.len() <= MAX_TELEMETRY_INPUT_BYTES {

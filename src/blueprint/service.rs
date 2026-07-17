@@ -1,215 +1,25 @@
 use camino::Utf8PathBuf;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 use ulid::Ulid;
 
-pub fn run_blueprint_cli(
-    service: &BlueprintService,
-    operation: &str,
-    input: serde_json::Value,
-) -> anyhow::Result<serde_json::Value> {
-    let span = tracing::info_span!("blueprint.cli.operation", operation = operation);
-    let _entered = span.enter();
-    let started = Instant::now();
-    tracing::info!("blueprint.cli.start");
-    let text = |key: &str| {
-        input
-            .get(key)
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("missing string field: {key}"))
-    };
-    let optional = |key: &str| input.get(key).and_then(serde_json::Value::as_str);
-    let strings = |key: &str| {
-        input
-            .get(key)
-            .and_then(serde_json::Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_str().map(ToOwned::to_owned))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
-    };
-    let etag = optional("expected_etag");
-    let value = match operation {
-        "blueprint_create" => {
-            serde_json::to_value(service.blueprint_create(BlueprintCreateRequest {
-                title: text("title")?.to_string(),
-                created_by: text("created_by")?.to_string(),
-                intent: text("intent")?.to_string(),
-                constraints: strings("constraints"),
-                definition_of_done: strings("definition_of_done"),
-                plan: text("plan")?.to_string(),
-            })?)?
-        }
-        "blueprint_get" => serde_json::to_value(service.blueprint_get(text("blueprint_id")?)?)?,
-        "blueprint_list" => {
-            serde_json::to_value(service.blueprint_list_in(optional("state").unwrap_or("active"))?)?
-        }
-        "blueprint_status" => {
-            serde_json::to_value(service.blueprint_status(text("blueprint_id")?)?)?
-        }
-        "blueprint_update" => serde_json::to_value(
-            service.blueprint_update(
-                text("blueprint_id")?,
-                optional("title"),
-                optional("intent"),
-                input
-                    .get("constraints")
-                    .and_then(serde_json::Value::as_array)
-                    .map(|_| strings("constraints"))
-                    .as_deref(),
-                optional("plan"),
-                optional("results"),
-                optional("notes"),
-                etag,
-            )?,
-        )?,
-        "blueprint_close" => serde_json::to_value(service.blueprint_close(
-            text("blueprint_id")?,
-            text("closed_by")?,
-            optional("reason"),
-            etag,
-        )?)?,
-        "blueprint_cancel" => serde_json::to_value(service.blueprint_cancel(
-            text("blueprint_id")?,
-            text("cancelled_by")?,
-            text("reason")?,
-            etag,
-        )?)?,
-        "dod_update" => serde_json::to_value(
-            service.dod_update_with_note(
-                text("blueprint_id")?,
-                text("dod_id")?,
-                input
-                    .get("completed")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false),
-                optional("note"),
-                etag,
-            )?,
-        )?,
-        "todo_get" => {
-            serde_json::to_value(service.todo_get(text("blueprint_id")?, text("todo_id")?)?)?
-        }
-        "todo_list" => serde_json::to_value(service.todo_list(text("blueprint_id")?)?)?,
-        "todo_create" => serde_json::to_value(service.todo_create_full(
-            text("blueprint_id")?,
-            text("title")?,
-            text("created_by")?,
-            optional("parent_id"),
-            optional("owner"),
-            &strings("depends_on"),
-            &strings("completion_criteria"),
-            etag,
-        )?)?,
-        "todo_assign" => serde_json::to_value(service.todo_assign(
-            text("blueprint_id")?,
-            text("todo_id")?,
-            text("owner")?,
-            etag,
-        )?)?,
-        "todo_start" => serde_json::to_value(service.todo_start(
-            text("blueprint_id")?,
-            text("todo_id")?,
-            etag,
-        )?)?,
-        "todo_complete" => serde_json::to_value(service.todo_complete(
-            text("blueprint_id")?,
-            text("todo_id")?,
-            text("completed_by")?,
-            text("summary")?,
-            etag,
-        )?)?,
-        "todo_block" => serde_json::to_value(service.todo_block(
-            text("blueprint_id")?,
-            text("todo_id")?,
-            text("reason")?,
-            text("handoff")?,
-            etag,
-        )?)?,
-        "todo_cancel" => serde_json::to_value(service.todo_cancel(
-            text("blueprint_id")?,
-            text("todo_id")?,
-            text("reason")?,
-            etag,
-        )?)?,
-        "todo_update" => {
-            let criteria = input
-                .get("completion_criteria")
-                .and_then(serde_json::Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| {
-                            item.get("text")
-                                .and_then(serde_json::Value::as_str)
-                                .map(|text| CheckUpdate {
-                                    text: text.to_string(),
-                                    completed: item
-                                        .get("completed")
-                                        .and_then(serde_json::Value::as_bool)
-                                        .unwrap_or(false),
-                                })
-                        })
-                        .collect::<Vec<_>>()
-                });
-            serde_json::to_value(
-                service.todo_update(
-                    text("blueprint_id")?,
-                    text("todo_id")?,
-                    optional("title"),
-                    input
-                        .get("depends_on")
-                        .and_then(serde_json::Value::as_array)
-                        .map(|_| strings("depends_on"))
-                        .as_deref(),
-                    criteria.as_deref(),
-                    input
-                        .get("handoff")
-                        .and_then(serde_json::Value::as_array)
-                        .map(|_| strings("handoff"))
-                        .as_deref(),
-                    optional("result_summary"),
-                    etag,
-                )?,
-            )?
-        }
-        _ => anyhow::bail!("unknown Blueprint CLI operation: {operation}"),
-    };
-    tracing::info!(
-        duration_ms = started.elapsed().as_millis() as u64,
-        "blueprint.cli.ok"
-    );
-    Ok(value)
-}
-
 use crate::blueprint::{
-    model::{NotReadyTodo, Todo, TodoStatus},
+    model::{BlueprintGetOutput, BlueprintResumeOutput, NotReadyTodo, Todo, TodoStatus},
     source::ParsedBlueprintSource,
     store::{BlueprintStore, StoredBlueprint},
     validate::derive_readiness,
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BlueprintCreateRequest {
-    pub title: String,
-    pub created_by: String,
-    pub intent: String,
-    pub constraints: Vec<String>,
-    pub definition_of_done: Vec<String>,
-    pub plan: String,
-}
+pub use crate::blueprint::model::BlueprintCreateInput as BlueprintCreateRequest;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct BlueprintCreated {
     pub id: String,
     pub etag: String,
     pub source: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct BlueprintStatus {
     pub state: String,
     pub ready_todos: Vec<String>,
@@ -275,6 +85,52 @@ impl BlueprintService {
 
     pub fn blueprint_get(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
         self.store.read(id)
+    }
+
+    pub fn blueprint_view(
+        &self,
+        id: &str,
+        view: Option<&str>,
+    ) -> anyhow::Result<BlueprintGetOutput> {
+        let stored = self.blueprint_get(id)?;
+        match view.unwrap_or("full") {
+            "full" => Ok(BlueprintGetOutput {
+                id: stored.id,
+                state: stored.state,
+                etag: stored.etag,
+                source: Some(stored.source),
+                resume: None,
+            }),
+            "resume" => {
+                let status = self.blueprint_status(id)?;
+                let active_todos = status
+                    .todos
+                    .iter()
+                    .filter(|todo| {
+                        matches!(todo.status, TodoStatus::InProgress | TodoStatus::Blocked)
+                            || status.ready_todos.iter().any(|ready| ready == &todo.id)
+                    })
+                    .cloned()
+                    .collect();
+                Ok(BlueprintGetOutput {
+                    id: stored.id,
+                    state: stored.state,
+                    etag: stored.etag,
+                    source: None,
+                    resume: Some(BlueprintResumeOutput {
+                        intent: section_body(&stored.source, "Intent"),
+                        constraints: section_body(&stored.source, "Constraints"),
+                        plan: section_body(&stored.source, "Plan"),
+                        results: section_body(&stored.source, "Results"),
+                        open_definition_of_done: status.open_definition_of_done,
+                        active_todos,
+                        ready_todos: status.ready_todos,
+                        not_ready_todos: status.not_ready_todos,
+                    }),
+                })
+            }
+            other => anyhow::bail!("view must be full or resume, got: {other}"),
+        }
     }
 
     pub fn blueprint_status(&self, id: &str) -> anyhow::Result<BlueprintStatus> {
@@ -512,6 +368,23 @@ impl BlueprintService {
             .into_iter()
             .cloned()
             .collect())
+    }
+
+    pub fn todo_list_filtered(
+        &self,
+        blueprint_id: &str,
+        status: Option<TodoStatus>,
+        owner: Option<&str>,
+        ready: Option<bool>,
+    ) -> anyhow::Result<Vec<Todo>> {
+        let ready_todos = self.blueprint_status(blueprint_id)?.ready_todos;
+        let mut todos = self.todo_list(blueprint_id)?;
+        todos.retain(|todo| {
+            status.is_none_or(|value| todo.status == value)
+                && owner.is_none_or(|value| todo.owner.as_deref() == Some(value))
+                && ready.is_none_or(|value| ready_todos.iter().any(|id| id == &todo.id) == value)
+        });
+        Ok(todos)
     }
 
     pub fn todo_assign(
@@ -874,6 +747,26 @@ fn open_dod_ids(source: &str) -> Vec<String> {
                 .flatten()
         })
         .collect()
+}
+
+fn section_body(source: &str, section: &str) -> String {
+    let heading = format!("## {section}");
+    let Some(heading_start) = source
+        .lines()
+        .find(|line| **line == heading)
+        .map(|line| line.as_ptr() as usize - source.as_ptr() as usize)
+    else {
+        return String::new();
+    };
+    let start = source[heading_start + heading.len()..]
+        .find('\n')
+        .map(|offset| heading_start + heading.len() + offset + 1)
+        .unwrap_or(source.len());
+    let end = source[start..]
+        .find("\n## ")
+        .map(|offset| start + offset)
+        .unwrap_or(source.len());
+    source[start..end].trim().to_string()
 }
 
 fn section_bounds(source: &str, section: &str) -> anyhow::Result<(usize, usize)> {
