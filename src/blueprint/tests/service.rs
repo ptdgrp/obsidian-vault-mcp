@@ -133,7 +133,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
     let closed = service
         .blueprint_close(&blueprint.id, "agent", Some("DoD 尚未更新"), None)
         .unwrap();
-    assert_eq!(closed.state, "active");
+    assert_eq!(closed.state, "closed");
     assert_eq!(
         service.blueprint_list_in("closed").unwrap(),
         vec![blueprint.id]

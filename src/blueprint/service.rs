@@ -500,6 +500,12 @@ impl BlueprintService {
         expected_etag: Option<&str>,
     ) -> anyhow::Result<StoredBlueprint> {
         self.store.write(blueprint_id, expected_etag, |source| {
+            let is_dod = source
+                .lines()
+                .any(|line| line.contains(&format!("^{dod_id}")) && line.contains("^dod-"));
+            if !is_dod {
+                anyhow::bail!("unknown Definition of Done: {dod_id}");
+            }
             let next = replace_task_marker(source, dod_id, if completed { 'x' } else { ' ' })?;
             match note.filter(|value| !value.trim().is_empty()) {
                 Some(note) => replace_or_insert_todo_field(&next, dod_id, "Note", note.trim()),
@@ -529,36 +535,38 @@ impl BlueprintService {
         {
             anyhow::bail!("reason is required when closing incomplete Blueprint");
         }
-        let stored = self.store.write(blueprint_id, expected_etag, |source| {
-            let outcome = if !open_todos.is_empty() || !open_dod.is_empty() {
-                "incomplete"
-            } else {
-                "complete"
-            };
-            let mut next = replace_or_insert_record_field(source, "Closed By", closed_by.trim())?;
-            let mut closure = format!(
-                "### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n",
-                closed_by.trim()
-            );
-            if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
-                closure.push_str(&format!("- Reason: {}\n", reason.trim()));
-            }
-            if !open_dod.is_empty() {
-                closure.push_str("- Open Definition of Done:\n");
-                for id in &open_dod {
-                    closure.push_str(&format!("  - {id}\n"));
-                }
-            }
-            if !open_todos.is_empty() {
-                closure.push_str("- Open Todos:\n");
-                for id in &open_todos {
-                    closure.push_str(&format!("  - {id}\n"));
-                }
-            }
-            next = append_to_section(&next, "Results", &closure)?;
-            Ok(next)
-        })?;
-        self.store.move_to(blueprint_id, "closed")?;
+        let stored =
+            self.store
+                .write_and_move(blueprint_id, "closed", expected_etag, |source| {
+                    let outcome = if !open_todos.is_empty() || !open_dod.is_empty() {
+                        "incomplete"
+                    } else {
+                        "complete"
+                    };
+                    let mut next =
+                        replace_or_insert_record_field(source, "Closed By", closed_by.trim())?;
+                    let mut closure = format!(
+                        "### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n",
+                        closed_by.trim()
+                    );
+                    if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
+                        closure.push_str(&format!("- Reason: {}\n", reason.trim()));
+                    }
+                    if !open_dod.is_empty() {
+                        closure.push_str("- Open Definition of Done:\n");
+                        for id in &open_dod {
+                            closure.push_str(&format!("  - {id}\n"));
+                        }
+                    }
+                    if !open_todos.is_empty() {
+                        closure.push_str("- Open Todos:\n");
+                        for id in &open_todos {
+                            closure.push_str(&format!("  - {id}\n"));
+                        }
+                    }
+                    next = append_to_section(&next, "Results", &closure)?;
+                    Ok(next)
+                })?;
         Ok(stored)
     }
 
@@ -571,19 +579,24 @@ impl BlueprintService {
     ) -> anyhow::Result<StoredBlueprint> {
         require_text("cancelled_by", cancelled_by)?;
         require_text("reason", reason)?;
-        let stored = self.store.write(blueprint_id, expected_etag, |source| {
-            let next = replace_or_insert_record_field(source, "Cancelled By", cancelled_by.trim())?;
-            append_to_section(
-                &next,
-                "Results",
-                &format!(
-                    "### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
-                    cancelled_by.trim(),
-                    reason.trim()
-                ),
-            )
-        })?;
-        self.store.move_to(blueprint_id, "cancelled")?;
+        let stored =
+            self.store
+                .write_and_move(blueprint_id, "cancelled", expected_etag, |source| {
+                    let next = replace_or_insert_record_field(
+                        source,
+                        "Cancelled By",
+                        cancelled_by.trim(),
+                    )?;
+                    append_to_section(
+                        &next,
+                        "Results",
+                        &format!(
+                            "### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
+                            cancelled_by.trim(),
+                            reason.trim()
+                        ),
+                    )
+                })?;
         Ok(stored)
     }
 }
@@ -627,7 +640,9 @@ fn open_dod_ids(source: &str) -> Vec<String> {
 fn section_bounds(source: &str, section: &str) -> anyhow::Result<(usize, usize)> {
     let heading = format!("## {section}");
     let start = source
-        .find(&heading)
+        .lines()
+        .find(|line| **line == heading)
+        .map(|line| line.as_ptr() as usize - source.as_ptr() as usize)
         .ok_or_else(|| anyhow::anyhow!("missing required section: {section}"))?;
     let body = source[start + heading.len()..]
         .find('\n')

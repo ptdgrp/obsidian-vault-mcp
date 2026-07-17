@@ -471,6 +471,7 @@ fn get_view(
                 "id": stored.id, "state": stored.state, "etag": stored.etag,
                 "intent": section_body(&stored.source, "Intent"), "constraints": section_body(&stored.source, "Constraints"),
                 "plan": section_body(&stored.source, "Plan"), "results": section_body(&stored.source, "Results"),
+                "open_definition_of_done": status.open_definition_of_done,
                 "active_todos": active_todos, "ready_todos": status.ready_todos, "not_ready_todos": status.not_ready_todos,
             }))
         }
@@ -480,7 +481,11 @@ fn get_view(
 
 fn section_body(source: &str, section: &str) -> String {
     let heading = format!("## {section}");
-    let Some(heading_start) = source.find(&heading) else {
+    let Some(heading_start) = source
+        .lines()
+        .find(|line| **line == heading)
+        .map(|line| line.as_ptr() as usize - source.as_ptr() as usize)
+    else {
         return String::new();
     };
     let start = source[heading_start + heading.len()..]

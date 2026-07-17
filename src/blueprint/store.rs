@@ -109,6 +109,7 @@ impl BlueprintStore {
         Ok(ids)
     }
 
+    #[allow(dead_code)]
     pub fn move_to(&self, id: &str, destination: &str) -> anyhow::Result<()> {
         validate_state(destination)?;
         if destination == "active" {
@@ -122,6 +123,41 @@ impl BlueprintStore {
             .join(format!("{id}.md"));
         fs::rename(from, to)?;
         Ok(())
+    }
+
+    pub fn write_and_move(
+        &self,
+        id: &str,
+        destination: &str,
+        expected_etag: Option<&str>,
+        mutate: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        validate_state(destination)?;
+        if destination == "active" {
+            anyhow::bail!("cannot move Blueprint to active");
+        }
+        self.ensure_workspace()?;
+        let lock = self.lock(id)?;
+        let result = (|| {
+            let current = self.read_active(id)?;
+            if let Some(expected) = expected_etag
+                && expected != current.etag
+            {
+                anyhow::bail!("Blueprint etag does not match; re-read before writing");
+            }
+            let source = mutate(&current.source)?;
+            let active = self.path_in(id, "active");
+            self.write_file_atomic(&active, &source)?;
+            fs::rename(active, self.path_in(id, destination))?;
+            Ok(StoredBlueprint {
+                id: current.id,
+                state: destination.to_string(),
+                etag: etag(&source),
+                source,
+            })
+        })();
+        FileExt::unlock(&lock)?;
+        result
     }
 
     pub fn write(
