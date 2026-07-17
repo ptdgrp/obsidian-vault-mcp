@@ -1,3 +1,4 @@
+mod blueprint;
 mod docs;
 mod mutation;
 mod parser;
