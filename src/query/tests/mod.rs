@@ -840,7 +840,7 @@ fn parse_cache_reuses_entries_and_invalidates_on_file_change() {
 }
 
 #[test]
-fn parse_with_content_does_not_pair_cached_ast_with_changed_source() {
+fn parse_note_does_not_pair_cached_ast_with_changed_source() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("note.md");
     fs::write(&path, "# Alpha\n").expect("write original note");

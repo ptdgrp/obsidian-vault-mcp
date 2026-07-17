@@ -68,7 +68,7 @@ impl VaultMutations {
     )> {
         let path = self.queries.resolve_note_path(note)?;
         let relative_path = self.queries.vault.relative_path(&path);
-        let (parsed, content) = self.queries.parse_note_3(&path, &relative_path)?;
+        let (parsed, content) = self.queries.parse_note_from_path(&path, &relative_path)?;
         let source = section_source(&relative_path, &content, &parsed, selector)?;
         Ok((path, relative_path, content, source))
     }

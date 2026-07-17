@@ -31,7 +31,6 @@ impl ParseCache {
         path: &Utf8Path,
         relative_path: &str,
         max_note_bytes: usize,
-        with_content: bool,
     ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
         let metadata = fs::metadata(path)?;
         let fingerprint = FileFingerprint {
@@ -44,19 +43,12 @@ impl ParseCache {
         };
 
         let now = Instant::now();
-        if !with_content && let Some(parsed) = self.get_fresh(relative_path, fingerprint, None, now)
-        {
-            return Ok((parsed, String::new()));
-        }
-
         let content = fs::read_to_string(path)?;
         let content_hash = hash_content(&content);
-        if with_content
-            && let Some(parsed) =
-                self.get_fresh(relative_path, fingerprint, Some(content_hash), now)
-        {
+        if let Some(parsed) = self.get_fresh(relative_path, fingerprint, content_hash, now) {
             return Ok((parsed, content));
         }
+
         let parsed = Arc::new(NoteParser::parse(relative_path, &content, max_note_bytes)?);
         self.store(
             relative_path.to_owned(),
@@ -73,18 +65,8 @@ impl ParseCache {
         path: &Utf8Path,
         relative_path: &str,
         max_note_bytes: usize,
-    ) -> anyhow::Result<Arc<ParsedNote>> {
-        self.parse_note_impl(path, relative_path, max_note_bytes, false)
-            .map(|it| it.0)
-    }
-
-    pub fn parse_note_with_content(
-        &self,
-        path: &Utf8Path,
-        relative_path: &str,
-        max_note_bytes: usize,
     ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
-        self.parse_note_impl(path, relative_path, max_note_bytes, true)
+        self.parse_note_impl(path, relative_path, max_note_bytes)
     }
 
     pub fn invalidate(&self, relative_path: &str) {
@@ -117,13 +99,13 @@ impl ParseCache {
         &self,
         key: &str,
         fingerprint: FileFingerprint,
-        expected_content_hash: Option<u64>,
+        expected_content_hash: u64,
         now: Instant,
     ) -> Option<Arc<ParsedNote>> {
         let mut entries = self.entries.write().ok()?;
         let entry = entries.get_mut(key)?;
         if entry.fingerprint != fingerprint
-            || expected_content_hash.is_some_and(|hash| hash != entry.content_hash)
+            || expected_content_hash != entry.content_hash
             || now.duration_since(entry.last_access) > self.ttl
         {
             return None;

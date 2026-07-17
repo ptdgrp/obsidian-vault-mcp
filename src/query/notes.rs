@@ -71,7 +71,7 @@ impl VaultQueries {
         let selector = explicit_selector.or(selector_from_reference(&reference.reference)?);
         let path = self.resolve_reference_note_path(&reference)?;
         let relative_path = self.vault.relative_path(&path);
-        let (parsed, content) = self.parse_note_3(&path, &relative_path)?;
+        let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
         let total_lines = content.lines().count().max(1) as u64;
         let source = match selector.as_ref() {
             Some(selector) => section_source(&relative_path, &content, &parsed, selector)?,
@@ -115,7 +115,7 @@ impl VaultQueries {
         }
         let path = self.resolve_reference_note_path(&reference)?;
         let relative_path = self.vault.relative_path(&path);
-        let (parsed, content) = self.parse_note_3(&path, &relative_path)?;
+        let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
         let source = selector
             .as_ref()
             .map(|selector| section_source(&relative_path, &content, &parsed, selector))
