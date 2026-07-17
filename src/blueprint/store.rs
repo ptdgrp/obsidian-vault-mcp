@@ -69,6 +69,20 @@ impl BlueprintStore {
         })
     }
 
+    pub fn list_active(&self) -> anyhow::Result<Vec<String>> {
+        self.ensure_workspace()?;
+        let mut ids = fs::read_dir(self.workspace_root().join("active"))?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let path = Utf8PathBuf::from_path_buf(entry.path()).ok()?;
+                let name = path.file_name()?.strip_suffix(".md")?;
+                name.starts_with("bp-").then(|| name.to_string())
+            })
+            .collect::<Vec<_>>();
+        ids.sort();
+        Ok(ids)
+    }
+
     pub fn write(
         &self,
         id: &str,

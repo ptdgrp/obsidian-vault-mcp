@@ -21,7 +21,7 @@ const REQUIRED_SECTIONS: [&str; 8] = [
     "Notes",
 ];
 
-pub struct ParsedBlueprintSource {
+pub(crate) struct ParsedBlueprintSource {
     pub todos: Vec<Todo>,
     sections: HashMap<String, Range<usize>>,
 }
@@ -43,7 +43,7 @@ impl SourcePatch {
 }
 
 impl ParsedBlueprintSource {
-    pub fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
+    pub(crate) fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
         if !path.ends_with(".md") {
             anyhow::bail!("Blueprint path must end with .md");
         }

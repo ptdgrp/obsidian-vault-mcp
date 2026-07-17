@@ -2,7 +2,12 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::blueprint::store::{BlueprintStore, StoredBlueprint};
+use crate::blueprint::{
+    model::{NotReadyTodo, Todo},
+    source::ParsedBlueprintSource,
+    store::{BlueprintStore, StoredBlueprint},
+    validate::derive_readiness,
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BlueprintCreateRequest {
@@ -19,6 +24,13 @@ pub struct BlueprintCreated {
     pub id: String,
     pub etag: String,
     pub source: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlueprintStatus {
+    pub ready_todos: Vec<String>,
+    pub not_ready_todos: Vec<NotReadyTodo>,
+    pub todos: Vec<Todo>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +64,25 @@ impl BlueprintService {
         let source = render_blueprint(&request);
         let StoredBlueprint { id, etag, source } = self.store.create(&id, &source)?;
         Ok(BlueprintCreated { id, etag, source })
+    }
+
+    pub fn blueprint_list(&self) -> anyhow::Result<Vec<String>> {
+        self.store.list_active()
+    }
+
+    pub fn blueprint_get(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
+        self.store.read(id)
+    }
+
+    pub fn blueprint_status(&self, id: &str) -> anyhow::Result<BlueprintStatus> {
+        let stored = self.store.read(id)?;
+        let parsed = ParsedBlueprintSource::parse(&format!("{id}.md"), &stored.source)?;
+        let readiness = derive_readiness(&parsed.todos)?;
+        Ok(BlueprintStatus {
+            ready_todos: readiness.ready,
+            not_ready_todos: readiness.not_ready,
+            todos: parsed.todos,
+        })
     }
 }
 
