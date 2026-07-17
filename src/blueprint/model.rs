@@ -58,3 +58,21 @@ pub struct Todo {
     pub cancel_reason: Option<String>,
     pub children: Vec<Todo>,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DependencyStatus {
+    pub id: String,
+    pub status: TodoStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct NotReadyTodo {
+    pub id: String,
+    pub unsatisfied_dependencies: Vec<DependencyStatus>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Readiness {
+    pub ready: Vec<String>,
+    pub not_ready: Vec<NotReadyTodo>,
+}
