@@ -11,6 +11,7 @@ pub enum TodoStatus {
 }
 
 impl TodoStatus {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub const fn marker(self) -> &'static str {
         match self {
             Self::Pending => " ",

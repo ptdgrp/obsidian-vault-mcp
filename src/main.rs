@@ -23,8 +23,11 @@ use tracing_subscriber::{
     EnvFilter, Layer as _, Registry, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::server::{run_mcp_server, section_parts};
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig};
+use crate::{
+    blueprint::run_blueprint_mcp_server,
+    server::{run_mcp_server, section_parts},
+};
 
 #[derive(Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
@@ -86,7 +89,7 @@ enum Command {
     /// Run MCP server over stdio
     Serve,
 
-    /// Blurprint tools
+    /// Run the independent Blueprint MCP service over stdio
     Blueprint,
 
     /// Generate docs from the MCP tool schemas
@@ -496,7 +499,7 @@ async fn main() -> anyhow::Result<()> {
         match command {
             Command::Serve => run_mcp_server(vault).await?,
             Command::Blueprint => {
-                todo!("")
+                run_blueprint_mcp_server(vault).await?
             }
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
             Command::Doctor => {

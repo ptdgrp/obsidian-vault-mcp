@@ -245,6 +245,7 @@ pub struct NoteFile {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum VaultError {
     #[error("vault root is not a directory: {0}")]
     RootIsNotDirectory(String),

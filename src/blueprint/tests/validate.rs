@@ -48,10 +48,9 @@ fn rejects_dependency_cycles_and_derives_cancelled_dependency_as_not_ready() {
             .contains("cycle")
     );
 
-    let todos = vec![
-        todo("todo-a", TodoStatus::Cancelled, &[]),
-        todo("todo-b", TodoStatus::Pending, &["todo-a"]),
-    ];
+    let mut cancelled = todo("todo-a", TodoStatus::Cancelled, &[]);
+    cancelled.cancel_reason = Some("不再需要".to_string());
+    let todos = vec![cancelled, todo("todo-b", TodoStatus::Pending, &["todo-a"])];
     let readiness = derive_readiness(&todos).unwrap();
     assert!(readiness.ready.is_empty());
     assert_eq!(readiness.not_ready[0].id, "todo-b");

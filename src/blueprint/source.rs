@@ -21,16 +21,19 @@ const REQUIRED_SECTIONS: [&str; 8] = [
     "Notes",
 ];
 
+#[allow(dead_code)]
 pub(crate) struct ParsedBlueprintSource {
     pub todos: Vec<Todo>,
     sections: HashMap<String, Range<usize>>,
 }
 
+#[allow(dead_code)]
 pub struct SourcePatch {
     range: Range<usize>,
     replacement: String,
 }
 
+#[allow(dead_code)]
 impl SourcePatch {
     pub fn apply(self, source: &str) -> String {
         format!(
@@ -103,9 +106,9 @@ impl ParsedBlueprintSource {
                     .map(|value| split_csv(&value))
                     .unwrap_or_default(),
                 completion_criteria: Vec::new(),
-                handoff: Vec::new(),
-                result_summary: None,
-                references: Vec::new(),
+                handoff: field_values(source, task.line, "Handoff"),
+                result_summary: field_value(source, task.line, "Result Summary"),
+                references: field_values(source, task.line, "Reference"),
                 block_reason: field_value(source, task.line, "Block Reason"),
                 cancel_reason: field_value(source, task.line, "Cancel Reason"),
                 children: Vec::new(),
@@ -164,6 +167,7 @@ impl ParsedBlueprintSource {
         Ok(Self { todos, sections })
     }
 
+    #[allow(dead_code)]
     pub fn replace_results(&self, source: &str, replacement: &str) -> anyhow::Result<SourcePatch> {
         let range = self
             .sections
@@ -308,6 +312,18 @@ fn field_value(source: &str, task_start_line: u64, field: &str) -> Option<String
         .find_map(|line| line.trim().strip_prefix(&format!("- {field}:")))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn field_values(source: &str, task_start_line: u64, field: &str) -> Vec<String> {
+    source
+        .lines()
+        .skip(task_start_line as usize)
+        .take_while(|line| !line.trim_start().starts_with("- [") && !line.starts_with("## "))
+        .filter_map(|line| line.trim().strip_prefix(&format!("- {field}:")))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn split_csv(value: &str) -> Vec<String> {
