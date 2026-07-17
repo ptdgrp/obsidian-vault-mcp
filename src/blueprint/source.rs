@@ -74,6 +74,14 @@ impl ParsedBlueprintSource {
             if !headings.contains(section) {
                 anyhow::bail!("missing required section: {section}");
             }
+            if h2_headings
+                .iter()
+                .filter(|(name, _)| name == section)
+                .count()
+                != 1
+            {
+                anyhow::bail!("required section must occur exactly once: {section}");
+            }
         }
         let sections = h2_headings
             .iter()

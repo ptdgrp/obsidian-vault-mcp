@@ -302,6 +302,18 @@ impl BlueprintService {
             anyhow::bail!("Todo is not ready to start");
         }
         let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
+            let todo = find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+            if todo.status != TodoStatus::Pending
+                || todo.owner.as_deref().is_none_or(str::is_empty)
+                || !derive_readiness(&parsed.todos)?
+                    .ready
+                    .iter()
+                    .any(|id| id == todo_id)
+            {
+                anyhow::bail!("Todo is not eligible to start");
+            }
             replace_task_marker(source, todo_id, '/')
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
@@ -345,6 +357,18 @@ impl BlueprintService {
             anyhow::bail!("in_progress or blocked Todo requires Handoff before reassignment");
         }
         let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
+            let current = find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+            if matches!(
+                current.status,
+                TodoStatus::Completed | TodoStatus::Cancelled
+            ) || (matches!(current.status, TodoStatus::InProgress | TodoStatus::Blocked)
+                && current.owner.as_deref() != Some(owner.trim())
+                && current.handoff.is_empty())
+            {
+                anyhow::bail!("Todo cannot be assigned in its current state");
+            }
             replace_or_insert_todo_field(source, todo_id, "Owner", owner.trim())
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
@@ -365,6 +389,14 @@ impl BlueprintService {
             anyhow::bail!("only in_progress Todo can be blocked");
         }
         let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
+            if find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?
+                .status
+                != TodoStatus::InProgress
+            {
+                anyhow::bail!("only in_progress Todo can be blocked");
+            }
             let source = replace_task_marker(source, todo_id, '?')?;
             let source =
                 replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())?;
@@ -391,6 +423,16 @@ impl BlueprintService {
             anyhow::bail!("Todo cannot be cancelled from its current status");
         }
         let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
+            let status = find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?
+                .status;
+            if !matches!(
+                status,
+                TodoStatus::Pending | TodoStatus::InProgress | TodoStatus::Blocked
+            ) {
+                anyhow::bail!("Todo cannot be cancelled from its current status");
+            }
             let source = replace_task_marker(source, todo_id, '-')?;
             replace_or_insert_todo_field(&source, todo_id, "Cancel Reason", reason.trim())
         })?;
@@ -425,6 +467,20 @@ impl BlueprintService {
             anyhow::bail!("all non-cancelled child Todos must be completed");
         }
         let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
+            let current = find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+            if current.status != TodoStatus::InProgress
+                || current
+                    .completion_criteria
+                    .iter()
+                    .any(|item| !item.completed)
+                || current.children.iter().any(|child| {
+                    !matches!(child.status, TodoStatus::Completed | TodoStatus::Cancelled)
+                })
+            {
+                anyhow::bail!("Todo is not eligible to complete");
+            }
             let source = replace_task_marker(source, todo_id, 'x')?;
             let source = replace_or_insert_todo_field(
                 &source,
