@@ -6,9 +6,9 @@
 
 ## 范围
 
-本次实现涵盖工作区目录、Blueprint 生命周期、完成定义（Definition of Done，以下简称 DoD）更新、Todo 图生命周期、派生执行状态、结构校验、ETag 并发控制、单文件锁、原子写入，以及设计稿列出的全部 21 个工具。
+本次实现涵盖工作区目录、Blueprint 生命周期、完成定义（Definition of Done，以下简称 DoD）更新、Todo 图生命周期、派生执行状态、结构校验、ETag 并发控制、单文件锁、原子写入，以及 17 个 Blueprint/DoD/Todo MCP 工具。
 
-所有 Blueprint 生产代码均放在 `src/blueprint`。既有 MCP 服务仅定义请求结构并将调用委托给 Blueprint 服务。现有的 `blueprint` CLI 占位命令改为安全的工作区初始化入口。
+所有 Blueprint 生产代码均放在 `src/blueprint`。既有 MCP 服务仅定义请求结构并将调用委托给 Blueprint 服务。所有 Blueprint 操作均以当前 Obsidian Vault 根目录为工作区根目录，并在首次使用时自动创建 `.blueprint` 目录；不提供初始化、发现或单独的 CLI 子命令。
 
 ## 架构
 
@@ -30,7 +30,7 @@
 
 ### 存储与并发
 
-`src/blueprint/store.rs` 负责全部文件系统行为：创建和发现 `.blueprint` 工作区、读取 Blueprint 文件、计算文件内容 ETag、通过 `.blueprint/.locks` 中每个 Blueprint 独立的锁串行化写入、在锁内重新读取、可选的 `expected_etag` 校验、通过 `.blueprint/.tmp` 写入临时文件，以及对目标文件进行原子替换。
+`src/blueprint/store.rs` 负责全部文件系统行为：在当前 Vault 根目录自动创建 `.blueprint` 工作区、读取 Blueprint 文件、计算文件内容 ETag、通过 `.blueprint/.locks` 中每个 Blueprint 独立的锁串行化写入、在锁内重新读取、可选的 `expected_etag` 校验、通过 `.blueprint/.tmp` 写入临时文件，以及对目标文件进行原子替换。
 
 生命周期变更会先完成文档更新和校验，再通过 `active`、`closed`、`cancelled` 目录之间的原子重命名移动文件。不同 Blueprint ID 使用不同锁，可并发写入。
 
@@ -38,12 +38,12 @@
 
 `src/blueprint/service.rs` 提供全部工具的领域操作：
 
-- 工作区：`blueprint_init`、`blueprint_discover`。
+- 工作区在每次操作前自动确保存在，不公开工作区工具。
 - Blueprint：`blueprint_create`、`blueprint_get`、`blueprint_list`、`blueprint_update`、`blueprint_status`、`blueprint_close`、`blueprint_cancel`。
 - DoD：`dod_update`。
 - Todo：`todo_create`、`todo_get`、`todo_list`、`todo_update`、`todo_assign`、`todo_start`、`todo_complete`、`todo_block`、`todo_cancel`。
 
-`src/server.rs` 新增 `schemars` 请求类型和薄工具处理器，不包含 Markdown 编辑或图逻辑。`src/main.rs` 创建服务，并让现有 `blueprint` 命令调用 `blueprint_init`。
+`src/server.rs` 新增 `schemars` 请求类型和薄工具处理器，不包含 Markdown 编辑或图逻辑。`src/main.rs` 创建服务，并删除未实现且不再需要的 `blueprint` 子命令。
 
 ## 行为细节
 
@@ -51,7 +51,7 @@
 
 新生成的 Blueprint、Todo 和 DoD ID 使用可按时间排序的 ULID 兼容标识符，前缀分别为 `bp-`、`todo-`、`dod-`。ID 在同一 `.blueprint` 工作区内唯一。Blueprint 只能存放在 `.blueprint/{active,closed,cancelled}/bp-<id>.md`；所在目录即其生命周期状态。
 
-`blueprint_init` 创建 `manifest.md`、`active`、`closed`、`cancelled`、`.locks` 与 `.tmp`。manifest 只含设计稿规定的 `blueprint/v1` frontmatter 和工作区 H1。`blueprint_discover` 从给定的 vault 相对目录向上查找，直到发现有效工作区。
+每个 Blueprint 操作均先确保 Vault 根目录下的 `.blueprint` 含有 `manifest.md`、`active`、`closed`、`cancelled`、`.locks` 与 `.tmp`。manifest 只含设计稿规定的 `blueprint/v1` frontmatter 和工作区 H1。Blueprint 不向上查找其他工作区。
 
 ### 修改规则
 
@@ -73,13 +73,13 @@ Todo 修改严格遵守设计稿中的状态机。开始时必须已分配 Owner
 
 `src/blueprint/tests/` 下的测试覆盖：
 
-- 初始化、发现、manifest 校验和 Blueprint 创建；
+- 自动工作区创建、manifest 校验和 Blueprint 创建；
 - 完整解析，以及保留未知 Markdown 的定点修改；
 - 所有结构和状态不变量、重复 ID、非法 Block ID 位置、父子环、依赖环与缺失引用；
 - readiness、恢复/状态派生，包含 blocked 和 cancelled 依赖；
 - 每个生命周期工具及其必需的 Record/Results 输出；
 - 乐观 ETag 冲突、独立 Blueprint 锁路径和原子存储行为；
-- MCP schema/分发与 CLI 初始化命令。
+- MCP schema/分发，以及不存在初始化/发现工具的公开工具集断言。
 
 文档生成测试还会确保 `docs/tools.md` 与新增工具集合一致。
 
