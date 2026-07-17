@@ -83,6 +83,20 @@ impl BlueprintStore {
         Ok(ids)
     }
 
+    pub fn move_to(&self, id: &str, destination: &str) -> anyhow::Result<()> {
+        if !matches!(destination, "closed" | "cancelled") {
+            anyhow::bail!("invalid Blueprint destination: {destination}");
+        }
+        self.ensure_workspace()?;
+        let from = self.path(id);
+        let to = self
+            .workspace_root()
+            .join(destination)
+            .join(format!("{id}.md"));
+        fs::rename(from, to)?;
+        Ok(())
+    }
+
     pub fn write(
         &self,
         id: &str,

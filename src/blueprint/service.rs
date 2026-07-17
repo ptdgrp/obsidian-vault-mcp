@@ -150,6 +150,149 @@ impl BlueprintService {
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
+
+    pub fn todo_get(&self, blueprint_id: &str, todo_id: &str) -> anyhow::Result<Todo> {
+        let stored = self.store.read(blueprint_id)?;
+        todo_from_source(blueprint_id, &stored.source, todo_id)
+    }
+
+    pub fn todo_list(&self, blueprint_id: &str) -> anyhow::Result<Vec<Todo>> {
+        Ok(self.blueprint_status(blueprint_id)?.todos)
+    }
+
+    pub fn todo_assign(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        owner: &str,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<Todo> {
+        require_text("owner", owner)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            replace_or_insert_todo_field(source, todo_id, "Owner", owner.trim())
+        })?;
+        todo_from_source(blueprint_id, &stored.source, todo_id)
+    }
+
+    pub fn todo_block(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        reason: &str,
+        handoff: &str,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<Todo> {
+        require_text("reason", reason)?;
+        require_text("handoff", handoff)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let source = replace_task_marker(source, todo_id, '?')?;
+            let source =
+                replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())?;
+            replace_or_insert_todo_field(&source, todo_id, "Handoff", handoff.trim())
+        })?;
+        todo_from_source(blueprint_id, &stored.source, todo_id)
+    }
+
+    pub fn todo_cancel(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        reason: &str,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<Todo> {
+        require_text("reason", reason)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let source = replace_task_marker(source, todo_id, '-')?;
+            replace_or_insert_todo_field(&source, todo_id, "Cancel Reason", reason.trim())
+        })?;
+        todo_from_source(blueprint_id, &stored.source, todo_id)
+    }
+
+    pub fn todo_complete(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        completed_by: &str,
+        summary: &str,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<Todo> {
+        require_text("completed_by", completed_by)?;
+        require_text("summary", summary)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let source = replace_task_marker(source, todo_id, 'x')?;
+            let source = replace_or_insert_todo_field(
+                &source,
+                todo_id,
+                "Completed By",
+                completed_by.trim(),
+            )?;
+            replace_or_insert_todo_field(
+                &source,
+                todo_id,
+                "Result",
+                &format!("Summary: {}", summary.trim()),
+            )
+        })?;
+        todo_from_source(blueprint_id, &stored.source, todo_id)
+    }
+
+    pub fn dod_update(
+        &self,
+        blueprint_id: &str,
+        dod_id: &str,
+        completed: bool,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        self.store.write(blueprint_id, expected_etag, |source| {
+            replace_task_marker(source, dod_id, if completed { 'x' } else { ' ' })
+        })
+    }
+
+    pub fn blueprint_close(
+        &self,
+        blueprint_id: &str,
+        closed_by: &str,
+        reason: Option<&str>,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        require_text("closed_by", closed_by)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            let outcome = if reason.is_some() {
+                "incomplete"
+            } else {
+                "complete"
+            };
+            let reason = reason
+                .map(|value| format!("- Reason: {}\n", value.trim()))
+                .unwrap_or_default();
+            Ok(format!(
+                "{source}\n### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n{reason}",
+                closed_by.trim()
+            ))
+        })?;
+        self.store.move_to(blueprint_id, "closed")?;
+        Ok(stored)
+    }
+
+    pub fn blueprint_cancel(
+        &self,
+        blueprint_id: &str,
+        cancelled_by: &str,
+        reason: &str,
+        expected_etag: Option<&str>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        require_text("cancelled_by", cancelled_by)?;
+        require_text("reason", reason)?;
+        let stored = self.store.write(blueprint_id, expected_etag, |source| {
+            Ok(format!(
+                "{source}\n### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
+                cancelled_by.trim(),
+                reason.trim()
+            ))
+        })?;
+        self.store.move_to(blueprint_id, "cancelled")?;
+        Ok(stored)
+    }
 }
 
 fn todo_from_source(blueprint_id: &str, source: &str, todo_id: &str) -> anyhow::Result<Todo> {
@@ -189,6 +332,45 @@ fn replace_task_marker(source: &str, todo_id: &str, marker: char) -> anyhow::Res
     let mut next = source.to_string();
     next.replace_range(absolute..absolute + 1, &marker.to_string());
     Ok(next)
+}
+
+fn replace_or_insert_todo_field(
+    source: &str,
+    todo_id: &str,
+    field: &str,
+    value: &str,
+) -> anyhow::Result<String> {
+    let task_line = source
+        .lines()
+        .find(|line| line.contains(&format!("^{todo_id}")))
+        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+    let task_offset = task_line.as_ptr() as usize - source.as_ptr() as usize;
+    let task_indent = task_line.len() - task_line.trim_start().len();
+    let field_prefix = format!("{}- {field}:", " ".repeat(task_indent + 2));
+    let after = &source[task_offset + task_line.len()..];
+    let mut offset = task_offset + task_line.len();
+    for line in after.lines() {
+        offset += 1;
+        if line.trim_start().starts_with("- [")
+            || (line.starts_with("## ") && !line.starts_with("### "))
+        {
+            break;
+        }
+        if line.trim_start().starts_with(&format!("- {field}:")) {
+            let start = offset;
+            let end = offset + line.len();
+            let mut result = source.to_string();
+            result.replace_range(start..end, &format!("{field_prefix} {value}"));
+            return Ok(result);
+        }
+        offset += line.len();
+    }
+    let insert = task_offset + task_line.len();
+    Ok(format!(
+        "{}\n{field_prefix} {value}{}",
+        &source[..insert],
+        &source[insert..]
+    ))
 }
 
 fn render_blueprint(request: &BlueprintCreateRequest) -> String {
