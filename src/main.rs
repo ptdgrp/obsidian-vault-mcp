@@ -25,7 +25,7 @@ use tracing_subscriber::{
 
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig};
 use crate::{
-    blueprint::run_blueprint_mcp_server,
+    blueprint::{run_blueprint_cli, run_blueprint_mcp_server},
     server::{run_mcp_server, section_parts},
 };
 
@@ -89,8 +89,11 @@ enum Command {
     /// Run MCP server over stdio
     Serve,
 
-    /// Run the independent Blueprint MCP service over stdio
-    Blueprint,
+    /// Run the independent Blueprint MCP service, or execute a Blueprint operation directly
+    Blueprint {
+        #[command(subcommand)]
+        command: Option<BlueprintCommand>,
+    },
 
     /// Generate docs from the MCP tool schemas
     GenerateDocs {
@@ -414,11 +417,84 @@ enum Command {
     },
 }
 
+#[derive(Debug, clap::Subcommand)]
+enum BlueprintCommand {
+    Create(BlueprintJsonInput),
+    Get(BlueprintJsonInput),
+    List(BlueprintJsonInput),
+    Update(BlueprintJsonInput),
+    Status(BlueprintJsonInput),
+    Close(BlueprintJsonInput),
+    Cancel(BlueprintJsonInput),
+    DodUpdate(BlueprintJsonInput),
+    TodoCreate(BlueprintJsonInput),
+    TodoGet(BlueprintJsonInput),
+    TodoList(BlueprintJsonInput),
+    TodoUpdate(BlueprintJsonInput),
+    TodoAssign(BlueprintJsonInput),
+    TodoStart(BlueprintJsonInput),
+    TodoComplete(BlueprintJsonInput),
+    TodoBlock(BlueprintJsonInput),
+    TodoCancel(BlueprintJsonInput),
+}
+
+#[derive(Debug, clap::Args)]
+struct BlueprintJsonInput {
+    /// JSON object matching the corresponding Blueprint MCP tool input schema.
+    #[arg(long)]
+    json: String,
+}
+
+impl BlueprintCommand {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Create(_) => "blueprint_create",
+            Self::Get(_) => "blueprint_get",
+            Self::List(_) => "blueprint_list",
+            Self::Update(_) => "blueprint_update",
+            Self::Status(_) => "blueprint_status",
+            Self::Close(_) => "blueprint_close",
+            Self::Cancel(_) => "blueprint_cancel",
+            Self::DodUpdate(_) => "dod_update",
+            Self::TodoCreate(_) => "todo_create",
+            Self::TodoGet(_) => "todo_get",
+            Self::TodoList(_) => "todo_list",
+            Self::TodoUpdate(_) => "todo_update",
+            Self::TodoAssign(_) => "todo_assign",
+            Self::TodoStart(_) => "todo_start",
+            Self::TodoComplete(_) => "todo_complete",
+            Self::TodoBlock(_) => "todo_block",
+            Self::TodoCancel(_) => "todo_cancel",
+        }
+    }
+    fn input(&self) -> &str {
+        match self {
+            Self::Create(v)
+            | Self::Get(v)
+            | Self::List(v)
+            | Self::Update(v)
+            | Self::Status(v)
+            | Self::Close(v)
+            | Self::Cancel(v)
+            | Self::DodUpdate(v)
+            | Self::TodoCreate(v)
+            | Self::TodoGet(v)
+            | Self::TodoList(v)
+            | Self::TodoUpdate(v)
+            | Self::TodoAssign(v)
+            | Self::TodoStart(v)
+            | Self::TodoComplete(v)
+            | Self::TodoBlock(v)
+            | Self::TodoCancel(v) => &v.json,
+        }
+    }
+}
+
 impl Command {
     fn telemetry_name(&self) -> &'static str {
         match self {
             Self::Serve => "serve",
-            Self::Blueprint => "blueprint",
+            Self::Blueprint { .. } => "blueprint",
             Self::GenerateDocs { .. } => "generate_docs",
             Self::Doctor => "doctor",
             Self::ListNotes { .. } => "list_notes",
@@ -498,8 +574,14 @@ async fn main() -> anyhow::Result<()> {
 
         match command {
             Command::Serve => run_mcp_server(vault).await?,
-            Command::Blueprint => {
-                run_blueprint_mcp_server(vault).await?
+            Command::Blueprint { command } => {
+                if let Some(command) = command {
+                    let service = crate::blueprint::BlueprintService::new(vault.root);
+                    let input = serde_json::from_str(command.input())?;
+                    print_value(&run_blueprint_cli(&service, command.operation(), input)?)?;
+                } else {
+                    run_blueprint_mcp_server(vault).await?
+                }
             }
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
             Command::Doctor => {

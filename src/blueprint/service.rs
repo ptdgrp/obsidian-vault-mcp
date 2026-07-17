@@ -2,6 +2,180 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
+pub fn run_blueprint_cli(
+    service: &BlueprintService,
+    operation: &str,
+    input: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let text = |key: &str| {
+        input
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("missing string field: {key}"))
+    };
+    let optional = |key: &str| input.get(key).and_then(serde_json::Value::as_str);
+    let strings = |key: &str| {
+        input
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let etag = optional("expected_etag");
+    let value = match operation {
+        "blueprint_create" => {
+            serde_json::to_value(service.blueprint_create(BlueprintCreateRequest {
+                title: text("title")?.to_string(),
+                created_by: text("created_by")?.to_string(),
+                intent: text("intent")?.to_string(),
+                constraints: strings("constraints"),
+                definition_of_done: strings("definition_of_done"),
+                plan: text("plan")?.to_string(),
+            })?)?
+        }
+        "blueprint_get" => serde_json::to_value(service.blueprint_get(text("blueprint_id")?)?)?,
+        "blueprint_list" => {
+            serde_json::to_value(service.blueprint_list_in(optional("state").unwrap_or("active"))?)?
+        }
+        "blueprint_status" => {
+            serde_json::to_value(service.blueprint_status(text("blueprint_id")?)?)?
+        }
+        "blueprint_update" => serde_json::to_value(
+            service.blueprint_update(
+                text("blueprint_id")?,
+                optional("title"),
+                optional("intent"),
+                input
+                    .get("constraints")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|_| strings("constraints"))
+                    .as_deref(),
+                optional("plan"),
+                optional("results"),
+                optional("notes"),
+                etag,
+            )?,
+        )?,
+        "blueprint_close" => serde_json::to_value(service.blueprint_close(
+            text("blueprint_id")?,
+            text("closed_by")?,
+            optional("reason"),
+            etag,
+        )?)?,
+        "blueprint_cancel" => serde_json::to_value(service.blueprint_cancel(
+            text("blueprint_id")?,
+            text("cancelled_by")?,
+            text("reason")?,
+            etag,
+        )?)?,
+        "dod_update" => serde_json::to_value(
+            service.dod_update_with_note(
+                text("blueprint_id")?,
+                text("dod_id")?,
+                input
+                    .get("completed")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+                optional("note"),
+                etag,
+            )?,
+        )?,
+        "todo_get" => {
+            serde_json::to_value(service.todo_get(text("blueprint_id")?, text("todo_id")?)?)?
+        }
+        "todo_list" => serde_json::to_value(service.todo_list(text("blueprint_id")?)?)?,
+        "todo_create" => serde_json::to_value(service.todo_create_full(
+            text("blueprint_id")?,
+            text("title")?,
+            text("created_by")?,
+            optional("parent_id"),
+            optional("owner"),
+            &strings("depends_on"),
+            &strings("completion_criteria"),
+            etag,
+        )?)?,
+        "todo_assign" => serde_json::to_value(service.todo_assign(
+            text("blueprint_id")?,
+            text("todo_id")?,
+            text("owner")?,
+            etag,
+        )?)?,
+        "todo_start" => serde_json::to_value(service.todo_start(
+            text("blueprint_id")?,
+            text("todo_id")?,
+            etag,
+        )?)?,
+        "todo_complete" => serde_json::to_value(service.todo_complete(
+            text("blueprint_id")?,
+            text("todo_id")?,
+            text("completed_by")?,
+            text("summary")?,
+            etag,
+        )?)?,
+        "todo_block" => serde_json::to_value(service.todo_block(
+            text("blueprint_id")?,
+            text("todo_id")?,
+            text("reason")?,
+            text("handoff")?,
+            etag,
+        )?)?,
+        "todo_cancel" => serde_json::to_value(service.todo_cancel(
+            text("blueprint_id")?,
+            text("todo_id")?,
+            text("reason")?,
+            etag,
+        )?)?,
+        "todo_update" => {
+            let criteria = input
+                .get("completion_criteria")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.get("text")
+                                .and_then(serde_json::Value::as_str)
+                                .map(|text| CheckUpdate {
+                                    text: text.to_string(),
+                                    completed: item
+                                        .get("completed")
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false),
+                                })
+                        })
+                        .collect::<Vec<_>>()
+                });
+            serde_json::to_value(
+                service.todo_update(
+                    text("blueprint_id")?,
+                    text("todo_id")?,
+                    optional("title"),
+                    input
+                        .get("depends_on")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|_| strings("depends_on"))
+                        .as_deref(),
+                    criteria.as_deref(),
+                    input
+                        .get("handoff")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|_| strings("handoff"))
+                        .as_deref(),
+                    optional("result_summary"),
+                    etag,
+                )?,
+            )?
+        }
+        _ => anyhow::bail!("unknown Blueprint CLI operation: {operation}"),
+    };
+    Ok(value)
+}
+
 use crate::blueprint::{
     model::{NotReadyTodo, Todo, TodoStatus},
     source::ParsedBlueprintSource,
