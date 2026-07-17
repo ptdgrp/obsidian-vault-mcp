@@ -8,7 +8,7 @@
 
 本次实现涵盖工作区目录、Blueprint 生命周期、完成定义（Definition of Done，以下简称 DoD）更新、Todo 图生命周期、派生执行状态、结构校验、ETag 并发控制、单文件锁、原子写入，以及 17 个 Blueprint/DoD/Todo MCP 工具。
 
-所有 Blueprint 生产代码均放在 `src/blueprint`。既有 MCP 服务仅定义请求结构并将调用委托给 Blueprint 服务。所有 Blueprint 操作均以当前 Obsidian Vault 根目录为工作区根目录，并在首次使用时自动创建 `.blueprint` 目录；不提供初始化、发现或单独的 CLI 子命令。
+所有 Blueprint 生产代码均放在 `src/blueprint`。Blueprint 是独立 MCP 服务，不向既有 `ObsidianVaultMcp` 注册工具；`blueprint` CLI 子命令通过 stdio 启动该独立服务。所有 Blueprint 操作均以当前 Obsidian Vault 根目录为工作区根目录，并在首次使用时自动创建 `.blueprint` 目录；不提供初始化或发现工具。
 
 ## 架构
 
@@ -43,7 +43,7 @@
 - DoD：`dod_update`。
 - Todo：`todo_create`、`todo_get`、`todo_list`、`todo_update`、`todo_assign`、`todo_start`、`todo_complete`、`todo_block`、`todo_cancel`。
 
-`src/server.rs` 新增 `schemars` 请求类型和薄工具处理器，不包含 Markdown 编辑或图逻辑。`src/main.rs` 创建服务，并删除未实现且不再需要的 `blueprint` 子命令。
+`src/blueprint/mcp.rs` 定义独立的 `schemars` 请求类型和薄工具处理器，不包含 Markdown 编辑或图逻辑。`src/main.rs` 的 `blueprint` 子命令创建独立服务；既有 MCP 服务保持不变。
 
 ## 行为细节
 

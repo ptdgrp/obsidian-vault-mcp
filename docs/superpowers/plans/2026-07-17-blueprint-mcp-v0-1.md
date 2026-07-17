@@ -4,7 +4,7 @@
 
 **Goal:** 在当前 Obsidian Vault 根目录中实现完整的 Blueprint v0.1 MCP 协议，并在首次使用时自动建立工作区。
 
-**Architecture:** `src/blueprint` 封装协议的所有领域模型、AST 映射、校验、存储和用例。`source.rs` 复用现有 Obsidian Markdown AST 定位节点及其源范围，不实现第二个解析器；`store.rs` 在当前 Vault 根目录自动确保工作区存在，并负责锁、ETag、原子写入和生命周期路径；`service.rs` 负责全部状态机与图规则。`server.rs` 只承载 MCP schema 和委托调用。
+**Architecture:** `src/blueprint` 封装协议的所有领域模型、AST 映射、校验、存储、用例和独立 MCP 路由。`source.rs` 复用现有 Obsidian Markdown AST 定位节点及其源范围，不实现第二个解析器；`store.rs` 在当前 Vault 根目录自动确保工作区存在，并负责锁、ETag、原子写入和生命周期路径；`service.rs` 负责全部状态机与图规则；`mcp.rs` 仅承载独立服务的 schema 和委托调用。既有 `server.rs` 不改动。
 
 **Tech Stack:** Rust 2024、现有 `markdown` AST、rmcp 2.2、serde/schemars、`fs2` 文件锁、`ulid` ID、tempfile。
 
@@ -34,9 +34,9 @@
 - Create: `src/blueprint/tests/service.rs` — 生命周期、Todo 状态机、ETag 和并发语义测试。
 - Modify: `Cargo.toml` — 添加 `fs2` 与 `ulid`。
 - Modify: `src/main.rs` — 注册模块，并删除不再需要的 `blueprint` 占位命令。
-- Modify: `src/server.rs` — 定义 17 个请求 schema 与薄路由。
-- Modify: `src/server/tests.rs` — 扩展公开工具列表和调用测试。
-- Modify: `docs/tools.md` — 由工具生成器重新生成。
+- Create: `src/blueprint/mcp.rs` — 定义独立服务的 17 个请求 schema 与薄路由。
+- Create: `src/blueprint/tests/mcp.rs` — 断言独立公开工具列表和调用契约。
+- Modify: `src/main.rs` — `blueprint` 子命令启动独立服务。
 
 ## Task 1: 建立 Blueprint 类型、依赖与测试夹具
 
@@ -353,25 +353,23 @@ git add src/blueprint/service.rs src/blueprint/mod.rs src/blueprint/tests/servic
 git commit -m "feat: add blueprint lifecycle services"
 ```
 
-## Task 6: 接入 MCP、移除 CLI 占位和生成文档
+## Task 6: 建立独立 Blueprint MCP 服务并移除 CLI 占位
 
 **Files:**
 - Modify: `src/main.rs`
-- Modify: `src/server.rs`
-- Modify: `src/server/tests.rs`
-- Modify: `docs/tools.md`
-- Test: `tests/cli.rs`
+- Create: `src/blueprint/mcp.rs`
+- Create: `src/blueprint/tests/mcp.rs`
 
 **Consumes:** `BlueprintService` 的请求/响应类型。
 
-**Produces:** 17 个具有对象 schema 的 MCP 工具，以及更新的工具文档。
+**Produces:** 独立服务中的 17 个具有对象 schema 的 MCP 工具；既有 MCP 工具和 `docs/tools.md` 不变。
 
 - [ ] **Step 1: 写失败测试，锁定所有 Blueprint MCP 工具已注册**
 
 ```rust
 #[test]
 fn public_tools_include_all_blueprint_v1_operations() {
-    let names = ObsidianVaultMcp::tool_definitions().into_iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>();
+    let names = BlueprintMcp::tool_definitions().into_iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>();
     for expected in ["blueprint_create", "blueprint_get", "blueprint_list", "blueprint_update", "blueprint_status", "blueprint_close", "blueprint_cancel", "dod_update", "todo_create", "todo_get", "todo_list", "todo_update", "todo_assign", "todo_start", "todo_complete", "todo_block", "todo_cancel"] {
         assert!(names.contains(&expected.to_string()), "missing {expected}");
     }
@@ -382,34 +380,28 @@ fn public_tools_include_all_blueprint_v1_operations() {
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-运行：`cargo test server::tests::public_tools_include_all_blueprint_v1_operations -- --exact`
+运行：`cargo test blueprint::tests::mcp::public_tools_include_all_blueprint_v1_operations -- --exact`
 
 预期：失败，报告缺失 `blueprint_create`。
 
 - [ ] **Step 3: 定义请求 schema 与薄路由**
 
-在 `server.rs` 为每个工具增加 `Deserialize + JsonSchema` 请求类型。`ObsidianVaultMcp` 在 `AppState` 中保存 `BlueprintService::new(vault.clone())`，每个 `#[tool]` 方法调用 `run_tool` 后仅解构请求并委托服务。工具描述写明 vault 相对路径、ETag 可选性与状态前置条件。
+在 `src/blueprint/mcp.rs` 为每个工具增加 `Deserialize + JsonSchema` 请求类型。`BlueprintMcp` 保存 `BlueprintService::new(vault.root)`，每个 `#[tool]` 方法仅解构请求并委托服务。工具描述写明 ETag 可选性与状态前置条件；不修改既有 `ObsidianVaultMcp`。
 
 - [ ] **Step 4: 实现 CLI 初始化与端到端测试**
 
-删除 `Command::Blueprint` 变体、其 telemetry 分支和 `todo!("")` 占位实现。新增 MCP 服务测试：首次 `blueprint_create` 后，断言当前 Vault 根目录的 manifest 及五个目录存在；第二次创建保持 manifest 不变。
+保留 `Command::Blueprint`，以它启动独立 stdio MCP 服务并替换 `todo!("")` 占位实现。新增 MCP 服务测试：断言独立工具集合恰为 17 项，且没有初始化/发现工具。
 
 - [ ] **Step 5: 重新生成文档并验证**
 
-运行：
+运行：`cargo test blueprint::tests -- --nocapture`
 
-```bash
-cargo run -- generate-docs
-cargo run -- generate-docs --check
-cargo test server::tests blueprint::tests::service -- --nocapture
-```
-
-预期：工具文档更新，所有指定测试通过。
+预期：独立工具集合和所有指定服务测试通过。
 
 - [ ] **Step 6: 提交集成**
 
 ```bash
-git add src/main.rs src/server.rs src/server/tests.rs tests/cli.rs docs/tools.md
+git add src/main.rs src/blueprint/mcp.rs src/blueprint/tests/mcp.rs
 git commit -m "feat: expose blueprint mcp tools"
 ```
 
@@ -452,6 +444,6 @@ cargo run -- generate-docs --check
 - [ ] **Step 4: 提交最终修正**
 
 ```bash
-git add Cargo.lock src/blueprint src/main.rs src/server.rs src/server/tests.rs tests/cli.rs docs/tools.md
+git add Cargo.lock src/blueprint src/main.rs docs/superpowers
 git commit -m "test: verify blueprint v0.1 protocol"
 ```
