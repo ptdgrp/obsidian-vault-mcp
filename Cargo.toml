@@ -33,6 +33,7 @@ tracing = "0.1.44"
 tracing-opentelemetry = "0.33.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
+ulid = "1.2.1"
 url = "2.5.8"
 walkdir = "2.5.0"
 
