@@ -89,11 +89,6 @@ impl BlueprintStore {
         })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn list_active(&self) -> anyhow::Result<Vec<String>> {
-        self.list("active")
-    }
-
     pub fn list(&self, state: &str) -> anyhow::Result<Vec<String>> {
         validate_state(state)?;
         self.ensure_workspace()?;
@@ -109,23 +104,7 @@ impl BlueprintStore {
         Ok(ids)
     }
 
-    #[allow(dead_code)]
-    pub fn move_to(&self, id: &str, destination: &str) -> anyhow::Result<()> {
-        validate_state(destination)?;
-        if destination == "active" {
-            anyhow::bail!("cannot move Blueprint to active");
-        }
-        self.ensure_workspace()?;
-        let from = self.path_in(id, "active");
-        let to = self
-            .workspace_root()
-            .join(destination)
-            .join(format!("{id}.md"));
-        fs::rename(from, to)?;
-        Ok(())
-    }
-
-    pub fn write_and_move(
+    pub fn move_to(
         &self,
         id: &str,
         destination: &str,

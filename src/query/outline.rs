@@ -11,7 +11,7 @@ impl VaultQueries {
         err
     )]
     pub fn get_note_outline(&self, note: &str, page: usize) -> anyhow::Result<NoteOutlineResult> {
-        let parsed = self.parse_note(note)?;
+        let (parsed, _) = self.parse_note(note)?;
         let headings = parsed
             .headings
             .iter()
@@ -25,7 +25,7 @@ impl VaultQueries {
         let slice = PageSlice::new(headings, page, NOTE_OUTLINE_PAGE_SIZE)?;
         let pagination = slice.pagination();
         Ok(NoteOutlineResult {
-            note: parsed.path,
+            note: parsed.path.to_owned(),
             headings: slice.into_items(),
             pagination: NoteOutlinePagination {
                 page: pagination.page,

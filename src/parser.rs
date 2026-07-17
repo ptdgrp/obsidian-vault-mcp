@@ -167,7 +167,7 @@ pub struct NoteParser {}
 
 impl NoteParser {
     #[tracing::instrument(name = "parse_markdown")]
-    pub fn parse(path: String, text: &str, max_input_bytes: usize) -> anyhow::Result<ParsedNote> {
+    pub fn parse(path_str: &str, text: &str, max_input_bytes: usize) -> anyhow::Result<ParsedNote> {
         let options = ParserOptions::default()
             .enabled_gfm()
             .enabled_ofm()
@@ -176,13 +176,13 @@ impl NoteParser {
         let document = Parser::new_with_options(text, options)
             .parse_checked()
             .map_err(|err| anyhow::anyhow!("{err:?}"))?;
-        Ok(extract(path, text, &document))
+        Ok(extract(path_str, text, &document))
     }
 }
 
-pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
+pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
     let mut parsed = ParsedNote {
-        path: path.clone(),
+        path: path_str.to_owned(),
         frontmatter: None,
         headings: Vec::new(),
         links: Vec::new(),
@@ -215,7 +215,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 if level != 1 {
                     path_parts.push(text_value.clone());
                 }
-                let source = source_for_node(&path, text, document, index, &heading_stack);
+                let source = source_for_node(path_str, text, document, index, &heading_stack);
                 let info = HeadingInfo {
                     text: text_value.clone(),
                     level,
@@ -232,7 +232,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 };
             }
             MarkdownNode::Link(link) => {
-                let source = source_for_node(&path, text, document, index, &heading_stack);
+                let source = source_for_node(path_str, text, document, index, &heading_stack);
                 match link.as_ref() {
                     Link::Wikilink(wikilink) => {
                         let (target, reference) =
@@ -240,7 +240,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                         let expected_raw =
                             inline_raw("[[", &target, reference.as_ref(), wikilink.text.as_ref());
                         let source = recover_inline_source_span(
-                            &path,
+                            path_str,
                             text,
                             source,
                             &expected_raw,
@@ -257,7 +257,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                     }
                     Link::Default(default_link) => {
                         if let Some((target, reference)) =
-                            local_markdown_link_target(&path, &default_link.url)
+                            local_markdown_link_target(path_str, &default_link.url)
                         {
                             let alias = collect_text(document, index);
                             parsed.links.push(LinkInfo {
@@ -275,9 +275,9 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
             }
             MarkdownNode::Embed(embed) => {
                 let source = recover_inline_source_span(
-                    &path,
+                    path_str,
                     text,
-                    source_for_node(&path, text, document, index, &heading_stack),
+                    source_for_node(path_str, text, document, index, &heading_stack),
                     &inline_raw("![[", &embed.path, embed.reference.as_ref(), None),
                     &mut inline_search_start,
                 );
@@ -289,7 +289,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
                 });
             }
             MarkdownNode::Tag(tag) => {
-                let source = source_for_node(&path, text, document, index, &heading_stack);
+                let source = source_for_node(path_str, text, document, index, &heading_stack);
                 let scope = if is_inside_heading(document, index) {
                     TagScope::Section
                 } else if !body_scope_seen {
@@ -327,7 +327,7 @@ pub fn extract(path: String, text: &str, document: &Document) -> ParsedNote {
             _ => {}
         }
         if let Some(id) = node.id.as_ref() {
-            let source = source_for_node(&path, text, document, index, &heading_stack);
+            let source = source_for_node(path_str, text, document, index, &heading_stack);
             parsed.blocks.push(BlockInfo {
                 id: id.to_string(),
                 source,

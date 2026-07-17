@@ -9,7 +9,7 @@ use markdown::reference::Reference;
 #[test]
 fn parse_relative_markdown_links_support_current_note_and_percent_decoding() {
     let parsed = NoteParser::parse(
-        "正文/001.md".to_string(),
+        "正文/001.md",
         "[当前](#身体)\n[编码](../%E5%8F%91%E5%8A%A8%E6%9C%BA.md#%E5%8E%9F%E7%90%86)\n[外链](mailto:test@example.com)\n",
         4096,
     )
@@ -37,7 +37,7 @@ fn parse_relative_markdown_links_support_current_note_and_percent_decoding() {
 #[test]
 fn parse_tags_distinguishes_section_and_line_scope() {
     let parsed = NoteParser::parse(
-        "note.md".to_string(),
+        "note.md",
         "# 标题\n\n首行 #节标签\n继续内容 #行标签\n",
         4096,
     )
@@ -51,7 +51,7 @@ fn parse_tags_distinguishes_section_and_line_scope() {
 #[test]
 fn parse_headings_preserves_visible_inline_text() {
     let parsed = NoteParser::parse(
-        "note.md".to_string(),
+        "note.md",
         "# **Bold** and *emphasis* and [Link](other.md) and ==mark==\n",
         4096,
     )
@@ -169,8 +169,8 @@ fn parser_helpers_build_and_recover_inline_ranges() {
 
 #[test]
 fn parse_self_referential_wikilinks_normalizes_heading_and_block_targets() {
-    let parsed = NoteParser::parse("note.md".to_string(), "[[#原理]]\n[[#^state]]\n", 4096)
-        .expect("parse note");
+    let parsed =
+        NoteParser::parse("note.md", "[[#原理]]\n[[#^state]]\n", 4096).expect("parse note");
 
     assert_eq!(parsed.links[0].target, "");
     assert_eq!(

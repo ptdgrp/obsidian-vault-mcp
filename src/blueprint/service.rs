@@ -50,11 +50,12 @@ impl BlueprintService {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn workspace_root(&self) -> Utf8PathBuf {
-        self.store.workspace_root()
-    }
-
+    #[tracing::instrument(
+        name = "blueprint.create",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "create"),
+        err
+    )]
     pub fn blueprint_create(
         &self,
         request: BlueprintCreateRequest,
@@ -74,19 +75,25 @@ impl BlueprintService {
         Ok(BlueprintCreated { id, etag, source })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn blueprint_list(&self) -> anyhow::Result<Vec<String>> {
-        self.store.list_active()
-    }
-
-    pub fn blueprint_list_in(&self, state: &str) -> anyhow::Result<Vec<String>> {
+    #[tracing::instrument(
+        name = "blueprint.list",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "list"),
+        err
+    )]
+    pub fn blueprint_list(&self, state: &str) -> anyhow::Result<Vec<String>> {
         self.store.list(state)
     }
 
     pub fn blueprint_get(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
         self.store.read(id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.view",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "view"),
+        err
+    )]
     pub fn blueprint_view(
         &self,
         id: &str,
@@ -132,7 +139,12 @@ impl BlueprintService {
             other => anyhow::bail!("view must be full or resume, got: {other}"),
         }
     }
-
+    #[tracing::instrument(
+        name = "blueprint.status",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "status"),
+        err
+    )]
     pub fn blueprint_status(&self, id: &str) -> anyhow::Result<BlueprintStatus> {
         let stored = self.store.read(id)?;
         let parsed = ParsedBlueprintSource::parse(&format!("{id}.md"), &stored.source)?;
@@ -168,6 +180,12 @@ impl BlueprintService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        name = "blueprint.update",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "update"),
+        err
+    )]
     pub fn blueprint_update(
         &self,
         id: &str,
@@ -215,49 +233,14 @@ impl BlueprintService {
         })
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn todo_create(
-        &self,
-        blueprint_id: &str,
-        title: &str,
-        created_by: &str,
-        owner: Option<&str>,
-        depends_on: &[String],
-        expected_etag: Option<&str>,
-    ) -> anyhow::Result<Todo> {
-        require_text("title", title)?;
-        require_text("created_by", created_by)?;
-        let todo_id = format!("todo-{}", Ulid::new());
-        let mut block = format!(
-            "- [ ] {} ^{}\n  - Created By: {}\n",
-            title.trim(),
-            todo_id,
-            created_by.trim()
-        );
-        if let Some(owner) = owner.filter(|owner| !owner.trim().is_empty()) {
-            block.push_str(&format!("  - Owner: {}\n", owner.trim()));
-        }
-        if !depends_on.is_empty() {
-            block.push_str(&format!("  - Depends On: {}\n", depends_on.join(", ")));
-        }
-        let stored = self.store.write(blueprint_id, expected_etag, |source| {
-            let marker = "## Todos\n\n";
-            let offset = source
-                .find(marker)
-                .ok_or_else(|| anyhow::anyhow!("missing required section: Todos"))?
-                + marker.len();
-            Ok(format!(
-                "{}{}{}",
-                &source[..offset],
-                block,
-                &source[offset..]
-            ))
-        })?;
-        todo_from_source(blueprint_id, &stored.source, &todo_id)
-    }
-
     #[allow(clippy::too_many_arguments)]
-    pub fn todo_create_full(
+    #[tracing::instrument(
+        name = "blueprint.todo_create",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_create"),
+        err
+    )]
+    pub fn todo_create(
         &self,
         blueprint_id: &str,
         title: &str,
@@ -316,7 +299,12 @@ impl BlueprintService {
         })?;
         todo_from_active_source(&self.store, blueprint_id, &todo_id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_start",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_start"),
+        err
+    )]
     pub fn todo_start(
         &self,
         blueprint_id: &str,
@@ -353,24 +341,28 @@ impl BlueprintService {
             {
                 anyhow::bail!("Todo is not eligible to start");
             }
-            replace_task_marker(source, todo_id, '/')
+            replace_task_status(source, todo_id, TodoStatus::InProgress)
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_get",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "todo_get"),
+        err
+    )]
     pub fn todo_get(&self, blueprint_id: &str, todo_id: &str) -> anyhow::Result<Todo> {
         let stored = self.store.read(blueprint_id)?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
 
-    pub fn todo_list(&self, blueprint_id: &str) -> anyhow::Result<Vec<Todo>> {
-        Ok(flatten_todos(&self.blueprint_status(blueprint_id)?.todos)
-            .into_iter()
-            .cloned()
-            .collect())
-    }
-
-    pub fn todo_list_filtered(
+    #[tracing::instrument(
+        name = "blueprint.todo_list",
+        skip_all,
+        fields(operation.kind = "query", operation.name = "todo_list"),
+        err
+    )]
+    pub fn todo_list(
         &self,
         blueprint_id: &str,
         status: Option<TodoStatus>,
@@ -378,7 +370,10 @@ impl BlueprintService {
         ready: Option<bool>,
     ) -> anyhow::Result<Vec<Todo>> {
         let ready_todos = self.blueprint_status(blueprint_id)?.ready_todos;
-        let mut todos = self.todo_list(blueprint_id)?;
+        let mut todos = flatten_todos(&self.blueprint_status(blueprint_id)?.todos)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
         todos.retain(|todo| {
             status.is_none_or(|value| todo.status == value)
                 && owner.is_none_or(|value| todo.owner.as_deref() == Some(value))
@@ -386,7 +381,12 @@ impl BlueprintService {
         });
         Ok(todos)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_assign",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_assign"),
+        err
+    )]
     pub fn todo_assign(
         &self,
         blueprint_id: &str,
@@ -429,7 +429,12 @@ impl BlueprintService {
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_block",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_block"),
+        err
+    )]
     pub fn todo_block(
         &self,
         blueprint_id: &str,
@@ -453,14 +458,19 @@ impl BlueprintService {
             {
                 anyhow::bail!("only in_progress Todo can be blocked");
             }
-            let source = replace_task_marker(source, todo_id, '?')?;
+            let source = replace_task_status(source, todo_id, TodoStatus::Blocked)?;
             let source =
                 replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())?;
             replace_or_insert_todo_field(&source, todo_id, "Handoff", handoff.trim())
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_cancel",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_cancel"),
+        err
+    )]
     pub fn todo_cancel(
         &self,
         blueprint_id: &str,
@@ -489,12 +499,17 @@ impl BlueprintService {
             ) {
                 anyhow::bail!("Todo cannot be cancelled from its current status");
             }
-            let source = replace_task_marker(source, todo_id, '-')?;
+            let source = replace_task_status(source, todo_id, TodoStatus::Cancelled)?;
             replace_or_insert_todo_field(&source, todo_id, "Cancel Reason", reason.trim())
         })?;
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.todo_complete",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_complete"),
+        err
+    )]
     pub fn todo_complete(
         &self,
         blueprint_id: &str,
@@ -537,7 +552,7 @@ impl BlueprintService {
             {
                 anyhow::bail!("Todo is not eligible to complete");
             }
-            let source = replace_task_marker(source, todo_id, 'x')?;
+            let source = replace_task_status(source, todo_id, TodoStatus::Completed)?;
             let source = replace_or_insert_todo_field(
                 &source,
                 todo_id,
@@ -550,6 +565,12 @@ impl BlueprintService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        name = "blueprint.todo_update",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "todo_update"),
+        err
+    )]
     pub fn todo_update(
         &self,
         blueprint_id: &str,
@@ -592,18 +613,13 @@ impl BlueprintService {
         todo_from_source(blueprint_id, &stored.source, todo_id)
     }
 
-    #[allow(dead_code)]
+    #[tracing::instrument(
+        name = "blueprint.dod_update",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "dod_update"),
+        err
+    )]
     pub fn dod_update(
-        &self,
-        blueprint_id: &str,
-        dod_id: &str,
-        completed: bool,
-        expected_etag: Option<&str>,
-    ) -> anyhow::Result<StoredBlueprint> {
-        self.dod_update_with_note(blueprint_id, dod_id, completed, None, expected_etag)
-    }
-
-    pub fn dod_update_with_note(
         &self,
         blueprint_id: &str,
         dod_id: &str,
@@ -618,14 +634,27 @@ impl BlueprintService {
             if !is_dod {
                 anyhow::bail!("unknown Definition of Done: {dod_id}");
             }
-            let next = replace_task_marker(source, dod_id, if completed { 'x' } else { ' ' })?;
+            let next = replace_task_status(
+                source,
+                dod_id,
+                if completed {
+                    TodoStatus::Completed
+                } else {
+                    TodoStatus::Pending
+                },
+            )?;
             match note.filter(|value| !value.trim().is_empty()) {
                 Some(note) => replace_or_insert_todo_field(&next, dod_id, "Note", note.trim()),
                 None => Ok(next),
             }
         })
     }
-
+    #[tracing::instrument(
+        name = "blueprint.close",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "close"),
+        err
+    )]
     pub fn blueprint_close(
         &self,
         blueprint_id: &str,
@@ -647,41 +676,46 @@ impl BlueprintService {
         {
             anyhow::bail!("reason is required when closing incomplete Blueprint");
         }
-        let stored =
-            self.store
-                .write_and_move(blueprint_id, "closed", expected_etag, |source| {
-                    let outcome = if !open_todos.is_empty() || !open_dod.is_empty() {
-                        "incomplete"
-                    } else {
-                        "complete"
-                    };
-                    let mut next =
-                        replace_or_insert_record_field(source, "Closed By", closed_by.trim())?;
-                    let mut closure = format!(
-                        "### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n",
-                        closed_by.trim()
-                    );
-                    if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
-                        closure.push_str(&format!("- Reason: {}\n", reason.trim()));
+        let stored = self
+            .store
+            .move_to(blueprint_id, "closed", expected_etag, |source| {
+                let outcome = if !open_todos.is_empty() || !open_dod.is_empty() {
+                    "incomplete"
+                } else {
+                    "complete"
+                };
+                let mut next =
+                    replace_or_insert_record_field(source, "Closed By", closed_by.trim())?;
+                let mut closure = format!(
+                    "### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n",
+                    closed_by.trim()
+                );
+                if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
+                    closure.push_str(&format!("- Reason: {}\n", reason.trim()));
+                }
+                if !open_dod.is_empty() {
+                    closure.push_str("- Open Definition of Done:\n");
+                    for id in &open_dod {
+                        closure.push_str(&format!("  - {id}\n"));
                     }
-                    if !open_dod.is_empty() {
-                        closure.push_str("- Open Definition of Done:\n");
-                        for id in &open_dod {
-                            closure.push_str(&format!("  - {id}\n"));
-                        }
+                }
+                if !open_todos.is_empty() {
+                    closure.push_str("- Open Todos:\n");
+                    for id in &open_todos {
+                        closure.push_str(&format!("  - {id}\n"));
                     }
-                    if !open_todos.is_empty() {
-                        closure.push_str("- Open Todos:\n");
-                        for id in &open_todos {
-                            closure.push_str(&format!("  - {id}\n"));
-                        }
-                    }
-                    next = append_to_section(&next, "Results", &closure)?;
-                    Ok(next)
-                })?;
+                }
+                next = append_to_section(&next, "Results", &closure)?;
+                Ok(next)
+            })?;
         Ok(stored)
     }
-
+    #[tracing::instrument(
+        name = "blueprint.cancel",
+        skip_all,
+        fields(operation.kind = "mutation", operation.name = "cancel"),
+        err
+    )]
     pub fn blueprint_cancel(
         &self,
         blueprint_id: &str,
@@ -691,24 +725,21 @@ impl BlueprintService {
     ) -> anyhow::Result<StoredBlueprint> {
         require_text("cancelled_by", cancelled_by)?;
         require_text("reason", reason)?;
-        let stored =
-            self.store
-                .write_and_move(blueprint_id, "cancelled", expected_etag, |source| {
-                    let next = replace_or_insert_record_field(
-                        source,
-                        "Cancelled By",
+        let stored = self
+            .store
+            .move_to(blueprint_id, "cancelled", expected_etag, |source| {
+                let next =
+                    replace_or_insert_record_field(source, "Cancelled By", cancelled_by.trim())?;
+                append_to_section(
+                    &next,
+                    "Results",
+                    &format!(
+                        "### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
                         cancelled_by.trim(),
-                    )?;
-                    append_to_section(
-                        &next,
-                        "Results",
-                        &format!(
-                            "### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
-                            cancelled_by.trim(),
-                            reason.trim()
-                        ),
-                    )
-                })?;
+                        reason.trim()
+                    ),
+                )
+            })?;
         Ok(stored)
     }
 }
@@ -1014,7 +1045,7 @@ fn find_todo<'a>(todos: &'a [Todo], id: &str) -> Option<&'a Todo> {
     None
 }
 
-fn replace_task_marker(source: &str, todo_id: &str, marker: char) -> anyhow::Result<String> {
+fn replace_task_status(source: &str, todo_id: &str, status: TodoStatus) -> anyhow::Result<String> {
     let line = source
         .lines()
         .find(|line| line.contains(&format!("^{todo_id}")))
@@ -1030,7 +1061,7 @@ fn replace_task_marker(source: &str, todo_id: &str, marker: char) -> anyhow::Res
         + 1;
     let absolute = offset + marker_offset;
     let mut next = source.to_string();
-    next.replace_range(absolute..absolute + 1, &marker.to_string());
+    next.replace_range(absolute..absolute + 1, status.marker());
     Ok(next)
 }
 

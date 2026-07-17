@@ -1,5 +1,3 @@
-use std::fs;
-
 use rayon::prelude::*;
 
 use crate::parser::{ParsedNote, slice_text, source_for_line};
@@ -72,9 +70,8 @@ impl VaultQueries {
         }
         let selector = explicit_selector.or(selector_from_reference(&reference.reference)?);
         let path = self.resolve_reference_note_path(&reference)?;
-        let content = fs::read_to_string(&path)?;
         let relative_path = self.vault.relative_path(&path);
-        let parsed = self.parse_file_cached(&path, relative_path.clone())?;
+        let (parsed, content) = self.parse_note_3(&path, &relative_path)?;
         let total_lines = content.lines().count().max(1) as u64;
         let source = match selector.as_ref() {
             Some(selector) => section_source(&relative_path, &content, &parsed, selector)?,
@@ -117,12 +114,11 @@ impl VaultQueries {
             anyhow::bail!("get_note_stats supports heading and block references only");
         }
         let path = self.resolve_reference_note_path(&reference)?;
-        let content = fs::read_to_string(&path)?;
-        let note = self.vault.relative_path(&path);
-        let parsed = self.parse_file_cached(&path, note.clone())?;
+        let relative_path = self.vault.relative_path(&path);
+        let (parsed, content) = self.parse_note_3(&path, &relative_path)?;
         let source = selector
             .as_ref()
-            .map(|selector| section_source(&note, &content, &parsed, selector))
+            .map(|selector| section_source(&relative_path, &content, &parsed, selector))
             .transpose()?;
         let selected = source
             .as_ref()
@@ -131,13 +127,13 @@ impl VaultQueries {
         let word_count = count_words(&selected);
         let backlink_count = match (&selector, &source) {
             (Some(selector), Some(source)) => {
-                self.backlink_count_for_scope(&note, &parsed, selector, source)?
+                self.backlink_count_for_scope(&relative_path, &parsed, selector, source)?
             }
-            _ => self.backlink_count_for_path(&note)?,
+            _ => self.backlink_count_for_path(&relative_path)?,
         };
         let scope = match (&selector, &source) {
             (Some(SectionSelector::Heading { .. }), Some(source)) => ResolvedReference::heading(
-                note.clone(),
+                relative_path.clone(),
                 source
                     .section
                     .as_ref()
@@ -146,9 +142,9 @@ impl VaultQueries {
             )
             .format(),
             (Some(SectionSelector::Block { block_id }), Some(_)) => {
-                ResolvedReference::block(note.clone(), block_id.clone()).format()
+                ResolvedReference::block(relative_path.clone(), block_id.clone()).format()
             }
-            _ => note.clone(),
+            _ => relative_path.clone(),
         };
         Ok(NoteStatsResult {
             scope,
@@ -159,21 +155,13 @@ impl VaultQueries {
         })
     }
 
-    pub(crate) fn parse_note(&self, note: &str) -> anyhow::Result<ParsedNote> {
-        let path = self.resolve_note_path(note)?;
-        Ok(self
-            .parse_file_cached(&path, self.vault.relative_path(&path))?
-            .as_ref()
-            .clone())
-    }
-
     #[tracing::instrument(
         name = "vault.query.get_note_structure",
         fields(operation.kind = "query", operation.name = "get_note_structure"),
         err
     )]
     pub fn get_note_structure(&self, note: &str) -> anyhow::Result<NoteStructureResult> {
-        Ok(compact_note_structure(self.parse_note(note)?))
+        Ok(compact_note_structure(&self.parse_note(note)?.0))
     }
 
     pub(crate) fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
@@ -235,7 +223,7 @@ fn selector_kind(selector: Option<&SectionSelector>) -> &'static str {
     }
 }
 
-fn compact_note_structure(note: ParsedNote) -> NoteStructureResult {
+fn compact_note_structure(note: &ParsedNote) -> NoteStructureResult {
     const LIMIT: usize = 50;
     let frontmatter_fields = note.frontmatter.as_ref().and_then(frontmatter_fields);
     let mut headings = note
@@ -270,7 +258,7 @@ fn compact_note_structure(note: ParsedNote) -> NoteStructureResult {
     let blocks = limit_group("blocks", blocks, &mut omitted, LIMIT);
 
     NoteStructureResult {
-        note: note.path,
+        note: note.path.to_owned(),
         link_count: note.links.len(),
         frontmatter_fields,
         headings,

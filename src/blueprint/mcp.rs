@@ -7,7 +7,7 @@ use rmcp::{
         router::tool::ToolRouter,
         wrapper::{Json, Parameters},
     },
-    model::{ServerCapabilities, ServerInfo, Tool},
+    model::{ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
@@ -47,8 +47,8 @@ impl BlueprintMcp {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn tool_definitions() -> Vec<Tool> {
+    #[cfg(test)]
+    pub fn tool_definitions() -> Vec<rmcp::model::Tool> {
         Self::tool_router().list_all()
     }
 }
@@ -72,7 +72,6 @@ fn json<T: Serialize + JsonSchema>(result: anyhow::Result<T>) -> Result<Json<T>,
 #[tool_router]
 impl BlueprintMcp {
     #[tool(description = "Create a Blueprint in this vault's automatic .blueprint workspace.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_create"))]
     fn blueprint_create(
         &self,
         Parameters(r): Parameters<BlueprintCreateInput>,
@@ -82,7 +81,6 @@ impl BlueprintMcp {
     #[tool(
         description = "Read one Blueprint. The optional resume view is a focused recovery view."
     )]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_get"))]
     fn blueprint_get(
         &self,
         Parameters(r): Parameters<BlueprintGetInput>,
@@ -93,21 +91,19 @@ impl BlueprintMcp {
         )
     }
     #[tool(description = "List Blueprint IDs in one lifecycle state.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_list"))]
     fn blueprint_list(
         &self,
         Parameters(r): Parameters<BlueprintListInput>,
     ) -> Result<Json<BlueprintListOutput>, String> {
         json(
             self.service
-                .blueprint_list_in(&r.state)
+                .blueprint_list(&r.state)
                 .map(|blueprint_ids| BlueprintListOutput { blueprint_ids }),
         )
     }
     #[tool(
         description = "Update title, Intent, Constraints, Plan, Results, or Notes of an active Blueprint."
     )]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_update"))]
     fn blueprint_update(
         &self,
         Parameters(r): Parameters<BlueprintUpdateInput>,
@@ -124,7 +120,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Return derived Todo readiness for one Blueprint.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_status"))]
     fn blueprint_status(
         &self,
         Parameters(r): Parameters<BlueprintIdInput>,
@@ -132,7 +127,6 @@ impl BlueprintMcp {
         json(self.service.blueprint_status(&r.blueprint_id))
     }
     #[tool(description = "Close an active Blueprint, recording incomplete work when applicable.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_close"))]
     fn blueprint_close(
         &self,
         Parameters(r): Parameters<BlueprintCloseInput>,
@@ -145,7 +139,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Cancel an active Blueprint and record why its intent was abandoned.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "blueprint_cancel"))]
     fn blueprint_cancel(
         &self,
         Parameters(r): Parameters<BlueprintCancelInput>,
@@ -158,12 +151,11 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Explicitly mark a Definition of Done item complete or incomplete.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "dod_update"))]
     fn dod_update(
         &self,
         Parameters(r): Parameters<DodUpdateInput>,
     ) -> Result<Json<StoredBlueprint>, String> {
-        json(self.service.dod_update_with_note(
+        json(self.service.dod_update(
             &r.blueprint_id,
             &r.dod_id,
             r.completed,
@@ -172,12 +164,11 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Create a root or child Todo in an active Blueprint.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_create"))]
     fn todo_create(
         &self,
         Parameters(r): Parameters<TodoCreateInput>,
     ) -> Result<Json<Todo>, String> {
-        json(self.service.todo_create_full(
+        json(self.service.todo_create(
             &r.blueprint_id,
             &r.title,
             &r.created_by,
@@ -189,24 +180,21 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Read one Todo.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_get"))]
     fn todo_get(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<Todo>, String> {
         json(self.service.todo_get(&r.blueprint_id, &r.todo_id))
     }
     #[tool(description = "List Todos with optional status, owner, and readiness filters.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_list"))]
     fn todo_list(
         &self,
         Parameters(r): Parameters<TodoListInput>,
     ) -> Result<Json<TodoListOutput>, String> {
         json(
             self.service
-                .todo_list_filtered(&r.blueprint_id, r.status, r.owner.as_deref(), r.ready)
+                .todo_list(&r.blueprint_id, r.status, r.owner.as_deref(), r.ready)
                 .map(|todos| TodoListOutput { todos }),
         )
     }
     #[tool(description = "Update non-lifecycle Todo fields.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_update"))]
     fn todo_update(
         &self,
         Parameters(r): Parameters<TodoUpdateInput>,
@@ -232,7 +220,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Assign or reassign a Todo owner.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_assign"))]
     fn todo_assign(
         &self,
         Parameters(r): Parameters<TodoAssignInput>,
@@ -245,7 +232,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Start a pending Todo once it has an owner and completed dependencies.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_start"))]
     fn todo_start(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<Todo>, String> {
         json(
             self.service
@@ -255,7 +241,6 @@ impl BlueprintMcp {
     #[tool(
         description = "Complete an in-progress Todo after its completion criteria and child work are done."
     )]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_complete"))]
     fn todo_complete(
         &self,
         Parameters(r): Parameters<TodoCompleteInput>,
@@ -269,7 +254,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Block an in-progress Todo with a reason and handoff.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_block"))]
     fn todo_block(&self, Parameters(r): Parameters<TodoBlockInput>) -> Result<Json<Todo>, String> {
         json(self.service.todo_block(
             &r.blueprint_id,
@@ -280,7 +264,6 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Cancel a pending, in-progress, or blocked Todo with a reason.")]
-    #[tracing::instrument(name = "blueprint.mcp.tool", skip(self, r), fields(tool.name = "todo_cancel"))]
     fn todo_cancel(
         &self,
         Parameters(r): Parameters<TodoCancelInput>,

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, sync::Arc};
 
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
@@ -27,7 +27,7 @@ fn fixture() -> (tempfile::TempDir, Vec<IndexedNote>) {
         .map(|file| {
             let content = fs::read_to_string(&file.path).expect("read note");
             let parsed =
-                NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+                Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
             IndexedNote { file, parsed }
         })
         .collect::<Vec<_>>();
@@ -67,7 +67,7 @@ fn resolve_treats_missing_heading_selector_as_unresolved() {
         .find(|file| file.relative_path == "Target.md")
         .expect("target file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     let notes = vec![IndexedNote { file, parsed }];
 
     let result = RefResolver::resolve("Target#Missing", &notes);
@@ -93,7 +93,7 @@ fn resolve_treats_missing_block_selector_as_unresolved() {
         .find(|file| file.relative_path == "Target.md")
         .expect("target file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     let notes = vec![IndexedNote { file, parsed }];
 
     let result = RefResolver::resolve("Target#^missing", &notes);
@@ -123,7 +123,7 @@ fn resolve_canonicalizes_slash_separated_heading_path_selector() {
         .find(|file| file.relative_path == "Target.md")
         .expect("target file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     let notes = vec![IndexedNote { file, parsed }];
 
     let result = RefResolver::resolve("Target#Parent/Child", &notes);
@@ -191,7 +191,7 @@ fn resolve_matches_numeric_prefix_stems_after_exact_stem() {
     .find(|file| file.relative_path == "001-排序标题.md")
     .expect("numbered file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     notes.push(IndexedNote { file, parsed });
 
     let result = RefResolver::resolve("排序标题", &notes);
@@ -222,7 +222,8 @@ fn resolve_matches_named_numeric_sort_prefix_stems() {
         })
     {
         let content = fs::read_to_string(&file.path).expect("read note");
-        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        let parsed =
+            Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
         notes.push(IndexedNote { file, parsed });
     }
 
@@ -254,7 +255,7 @@ fn resolve_does_not_strip_letter_only_prefix_stems() {
     .find(|file| file.relative_path == "unit-排序标题.md")
     .expect("letter-only prefixed file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     notes.push(IndexedNote { file, parsed });
 
     let result = RefResolver::resolve("排序标题", &notes);
@@ -283,7 +284,8 @@ fn resolve_reports_ambiguous_numeric_prefix_stems() {
         .filter(|file| file.relative_path.ends_with("-排序标题.md"))
     {
         let content = fs::read_to_string(&file.path).expect("read note");
-        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        let parsed =
+            Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
         notes.push(IndexedNote { file, parsed });
     }
 
@@ -322,7 +324,8 @@ fn resolve_prefers_exact_stem_over_numeric_prefix_stem() {
         })
     {
         let content = fs::read_to_string(&file.path).expect("read note");
-        let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+        let parsed =
+            Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
         notes.push(IndexedNote { file, parsed });
     }
 
@@ -350,7 +353,7 @@ fn resolve_does_not_apply_numeric_prefix_fallback_to_explicit_markdown_path() {
         .find(|file| file.relative_path == "001-排序标题.md")
         .expect("numbered file");
     let content = fs::read_to_string(&file.path).expect("read note");
-    let parsed = NoteParser::parse(file.relative_path.clone(), &content, 1024).expect("parse");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
     notes.push(IndexedNote { file, parsed });
 
     let result = RefResolver::resolve("排序标题.md", &notes);

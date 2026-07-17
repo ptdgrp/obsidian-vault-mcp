@@ -169,7 +169,7 @@ fn list_notes_filters_before_fixed_page_and_omits_non_navigation_fields() {
 #[test]
 fn parse_note_extracts_obsidian_structures_and_sections() {
     let (_dir, queries) = fixture();
-    let parsed = queries.parse_note("林动").expect("parse");
+    let (parsed, _) = queries.parse_note("林动").expect("parse");
     assert_eq!(parsed.headings[0].text, "林动");
     let link = parsed
         .links
@@ -326,7 +326,7 @@ fn note_lookup_ignores_numeric_sort_prefix_when_no_exact_note_exists() {
 #[test]
 fn parse_note_extracts_safe_relative_markdown_links() {
     let (_dir, queries) = fixture();
-    let parsed = queries.parse_note("正文/001").expect("parse");
+    let (parsed, _) = queries.parse_note("正文/001").expect("parse");
     let link = parsed
         .links
         .iter()
@@ -829,14 +829,43 @@ fn query_frontmatter_returns_paged_paths_and_validates_mode_values() {
 #[test]
 fn parse_cache_reuses_entries_and_invalidates_on_file_change() {
     let (dir, queries) = fixture();
-    let parsed = queries.parse_note("林动").expect("parse");
+    let (parsed, _) = queries.parse_note("林动").expect("parse");
     assert_eq!(parsed.headings[0].text, "林动");
     assert_eq!(queries.parse_cache.len(), 1);
 
     fs::write(dir.path().join("林动.md"), "# 林动新版\n\n内容变长。\n").expect("rewrite");
-    let reparsed = queries.parse_note("林动").expect("reparse");
+    let (reparsed, _) = queries.parse_note("林动").expect("reparse");
     assert_eq!(reparsed.headings[0].text, "林动新版");
     assert_eq!(queries.parse_cache.len(), 1);
+}
+
+#[test]
+fn parse_with_content_does_not_pair_cached_ast_with_changed_source() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("note.md");
+    fs::write(&path, "# Alpha\n").expect("write original note");
+    let original_modified = fs::metadata(&path)
+        .expect("original metadata")
+        .modified()
+        .expect("original modified time");
+    let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+    let queries = VaultQueries::new(Vault::open(root, VaultConfig::default()).expect("vault"));
+
+    let (original, original_content) = queries.parse_note("note").expect("parse original note");
+    assert_eq!(original.headings[0].text, "Alpha");
+    assert_eq!(original_content, "# Alpha\n");
+
+    fs::write(&path, "# Bravo\n").expect("rewrite note with equal length");
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open rewritten note")
+        .set_times(fs::FileTimes::new().set_modified(original_modified))
+        .expect("restore modified time");
+
+    let (reparsed, content) = queries.parse_note("note").expect("parse rewritten note");
+    assert_eq!(content, "# Bravo\n");
+    assert_eq!(reparsed.headings[0].text, "Bravo");
 }
 
 #[test]

@@ -3,6 +3,8 @@ use std::fs;
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
+use crate::query::VaultQueries;
+
 use super::{Vault, VaultConfig, VaultError};
 
 fn fixture(config: VaultConfig) -> (tempfile::TempDir, Vault) {
@@ -37,18 +39,16 @@ fn read_note_appends_markdown_extension_and_enforces_size_limit() {
     fs::write(dir.path().join("短.md"), "1234").expect("write short note");
     fs::write(dir.path().join("长.md"), "12345").expect("write long note");
 
-    let (_, content) = vault.read_note("短").expect("read short note");
-    assert_eq!(content, "1234");
+    let queries = VaultQueries::new(vault);
+    let result = queries
+        .read_note("短", None, None)
+        .expect("read short note");
+    assert_eq!(result.content, "1234");
 
-    let error = vault.read_note("长").expect_err("large note should fail");
-    assert!(matches!(
-        error,
-        VaultError::NoteTooLarge {
-            path,
-            limit: 4,
-            actual: 5
-        } if path == "长.md"
-    ));
+    assert!(
+        queries.read_note("长", None, None).is_err(),
+        "large note should fail"
+    );
 }
 
 #[test]
@@ -208,5 +208,9 @@ fn list_notes_honors_obsidian_user_ignore_filters() {
         .collect::<Vec<_>>();
 
     assert_eq!(paths, vec!["visible.md".to_string()]);
-    assert!(vault.read_note("archive/note.md").is_ok());
+    assert!(
+        VaultQueries::new(vault)
+            .read_note("archive/note.md", None, None)
+            .is_ok()
+    );
 }

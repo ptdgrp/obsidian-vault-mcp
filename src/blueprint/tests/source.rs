@@ -17,15 +17,3 @@ fn parses_todos_but_excludes_completion_criteria_from_graph() {
     assert_eq!(parsed.todos[0].children[0].id, "todo-child");
     assert_eq!(parsed.todos[0].completion_criteria.len(), 1);
 }
-
-#[test]
-fn replacing_results_preserves_unknown_markdown() {
-    let source = blueprint("<!-- keep -->\n\n## Extra\n\n> [!note] keep\n");
-    let parsed = ParsedBlueprintSource::parse("bp-01.md", &source).unwrap();
-    let updated = parsed
-        .replace_results(&source, "### Current Outcome\n\n完成。\n")
-        .unwrap()
-        .apply(&source);
-    assert!(updated.contains("<!-- keep -->\n\n## Extra\n\n> [!note] keep"));
-    assert!(updated.contains("## Results\n\n### Current Outcome\n\n完成。\n## Notes"));
-}

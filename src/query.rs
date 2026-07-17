@@ -540,14 +540,40 @@ impl VaultQueries {
         Self { vault, parse_cache }
     }
 
-    #[tracing::instrument(name = "vault.parse_note")]
-    pub(crate) fn parse_file_cached(
+    #[tracing::instrument(name = "vault.parse_note_2")]
+    /// parse note without content from path.
+    pub(crate) fn parse_note_2(
         &self,
         path: &Utf8Path,
-        relative_path: String,
+        relative_path: &str,
     ) -> anyhow::Result<Arc<ParsedNote>> {
         self.parse_cache
             .parse_note(path, relative_path, self.vault.config.max_note_bytes)
+    }
+
+    #[tracing::instrument(name = "vault.parse_note")]
+    pub(crate) fn parse_note(&self, note: &str) -> anyhow::Result<(Arc<ParsedNote>, String)> {
+        let path = self.resolve_note_path(note)?;
+        let relative_path = self.vault.relative_path(&path);
+        self.parse_cache.parse_note_with_content(
+            &path,
+            &relative_path,
+            self.vault.config.max_note_bytes,
+        )
+    }
+
+    #[tracing::instrument(name = "vault.parse_note_3")]
+    /// parse note with content from path.
+    pub(crate) fn parse_note_3(
+        &self,
+        path: &Utf8Path,
+        relative_path: &str,
+    ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
+        self.parse_cache.parse_note_with_content(
+            path,
+            relative_path,
+            self.vault.config.max_note_bytes,
+        )
     }
 
     #[tracing::instrument(
@@ -573,10 +599,7 @@ impl VaultQueries {
 }
 
 fn read_and_parse(queries: &VaultQueries, file: &NoteFile) -> anyhow::Result<IndexedNote> {
-    let parsed = queries
-        .parse_file_cached(&file.path, file.relative_path.clone())?
-        .as_ref()
-        .clone();
+    let parsed = queries.parse_note_2(&file.path, &file.relative_path)?;
     Ok(IndexedNote {
         file: file.clone(),
         parsed,

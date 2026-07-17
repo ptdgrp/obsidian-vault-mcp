@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
@@ -39,7 +41,7 @@ pub struct ResolveCandidate {
 #[derive(Clone, Debug)]
 pub struct IndexedNote {
     pub file: NoteFile,
-    pub parsed: ParsedNote,
+    pub parsed: Arc<ParsedNote>,
 }
 
 #[derive(Clone, Debug, Default)]

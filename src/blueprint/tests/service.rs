@@ -1,3 +1,5 @@
+use std::fs;
+
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
@@ -7,7 +9,7 @@ use super::super::service::{BlueprintCreateRequest, BlueprintService};
 fn creating_a_blueprint_automatically_creates_workspace_and_generates_protocol_document() {
     let directory = tempdir().unwrap();
     let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
-    let service = BlueprintService::new(root);
+    let service = BlueprintService::new(root.clone());
     let created = service
         .blueprint_create(BlueprintCreateRequest {
             title: "实现 Blueprint".to_string(),
@@ -22,8 +24,7 @@ fn creating_a_blueprint_automatically_creates_workspace_and_generates_protocol_d
     assert!(created.source.contains("- Created By: agent"));
     assert!(created.source.contains("^dod-"));
     assert!(
-        service
-            .workspace_root()
+        root.join(".blueprint")
             .join("active")
             .join(format!("{}.md", created.id))
             .is_file()
@@ -45,7 +46,10 @@ fn get_list_and_status_return_the_active_blueprint_and_derived_empty_todo_state(
             plan: "逐步完成".to_string(),
         })
         .unwrap();
-    assert_eq!(service.blueprint_list().unwrap(), vec![created.id.clone()]);
+    assert_eq!(
+        service.blueprint_list("active").unwrap(),
+        vec![created.id.clone()]
+    );
     assert_eq!(
         service.blueprint_get(&created.id).unwrap().etag,
         created.etag
@@ -53,6 +57,50 @@ fn get_list_and_status_return_the_active_blueprint_and_derived_empty_todo_state(
     let status = service.blueprint_status(&created.id).unwrap();
     assert!(status.ready_todos.is_empty());
     assert!(status.not_ready_todos.is_empty());
+}
+
+#[test]
+fn blueprint_update_preserves_unknown_markdown() {
+    let directory = tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let service = BlueprintService::new(root.clone());
+    let created = service
+        .blueprint_create(BlueprintCreateRequest {
+            title: "实现 Blueprint".to_string(),
+            created_by: "agent".to_string(),
+            intent: "完成协议".to_string(),
+            constraints: vec![],
+            definition_of_done: vec!["完成实现".to_string()],
+            plan: "逐步完成".to_string(),
+        })
+        .unwrap();
+    let path = root
+        .join(".blueprint/active")
+        .join(format!("{}.md", created.id));
+    let source = created
+        .source
+        .replace("## Notes", "## Extra\n\n> [!note] keep\n\n## Notes");
+    fs::write(path, source).unwrap();
+
+    let updated = service
+        .blueprint_update(
+            &created.id,
+            None,
+            None,
+            None,
+            None,
+            Some("### Current Outcome\n\n完成。"),
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert!(updated.source.contains("## Extra\n\n> [!note] keep"));
+    assert!(
+        updated
+            .source
+            .contains("## Results\n\n### Current Outcome\n\n完成。\n## Extra")
+    );
 }
 
 #[test]
@@ -71,7 +119,16 @@ fn todo_create_and_start_write_protocol_state_after_owner_assignment() {
         })
         .unwrap();
     let todo = service
-        .todo_create(&blueprint.id, "实现存储", "agent", Some("agent"), &[], None)
+        .todo_create(
+            &blueprint.id,
+            "实现存储",
+            "agent",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
         .unwrap();
     assert_eq!(todo.status, super::super::model::TodoStatus::Pending);
     let started = service.todo_start(&blueprint.id, &todo.id, None).unwrap();
@@ -94,7 +151,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
         })
         .unwrap();
     let todo = service
-        .todo_create_full(
+        .todo_create(
             &blueprint.id,
             "实现存储",
             "agent",
@@ -135,7 +192,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
         .unwrap();
     assert_eq!(closed.state, "closed");
     assert_eq!(
-        service.blueprint_list_in("closed").unwrap(),
+        service.blueprint_list("closed").unwrap(),
         vec![blueprint.id]
     );
 }
@@ -156,10 +213,10 @@ fn creates_child_todos_in_the_parent_children_list() {
         })
         .unwrap();
     let parent = service
-        .todo_create_full(&blueprint.id, "父任务", "agent", None, None, &[], &[], None)
+        .todo_create(&blueprint.id, "父任务", "agent", None, None, &[], &[], None)
         .unwrap();
     let child = service
-        .todo_create_full(
+        .todo_create(
             &blueprint.id,
             "子任务",
             "agent",

@@ -693,7 +693,7 @@ fn run_blueprint_command(
         }),
         BlueprintCommand::List(args) => run_blueprint_operation("blueprint_list", || {
             service
-                .blueprint_list_in(&args.state)
+                .blueprint_list(&args.state)
                 .map(|blueprint_ids| crate::blueprint::BlueprintListOutput { blueprint_ids })
         }),
         BlueprintCommand::Update(args) => run_blueprint_operation("blueprint_update", || {
@@ -728,7 +728,7 @@ fn run_blueprint_command(
             )
         }),
         BlueprintCommand::DodUpdate(args) => run_blueprint_operation("dod_update", || {
-            service.dod_update_with_note(
+            service.dod_update(
                 &args.blueprint_id,
                 &args.dod_id,
                 args.completed,
@@ -737,7 +737,7 @@ fn run_blueprint_command(
             )
         }),
         BlueprintCommand::TodoCreate(args) => run_blueprint_operation("todo_create", || {
-            service.todo_create_full(
+            service.todo_create(
                 &args.blueprint_id,
                 &args.title,
                 &args.created_by,
@@ -753,7 +753,7 @@ fn run_blueprint_command(
         }),
         BlueprintCommand::TodoList(args) => run_blueprint_operation("todo_list", || {
             service
-                .todo_list_filtered(
+                .todo_list(
                     &args.blueprint_id,
                     args.status,
                     args.owner.as_deref(),

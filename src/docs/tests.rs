@@ -13,7 +13,6 @@ struct ExampleInput {
     mode: Mode,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize, JsonSchema)]
 struct Detail {
     label: String,
@@ -35,7 +34,6 @@ enum Outcome {
     Skipped { reason: String },
 }
 
-#[allow(dead_code)]
 #[derive(Serialize, JsonSchema)]
 struct ExampleOutput {
     result: Outcome,

@@ -1,5 +1,3 @@
-use std::fs;
-
 use super::{EditSectionResult, VaultMutations};
 
 use crate::query::{SectionSelector, public::Locator, section::section_source};
@@ -70,12 +68,9 @@ impl VaultMutations {
     )> {
         let path = self.queries.resolve_note_path(note)?;
         let relative_path = self.queries.vault.relative_path(&path);
-        let document = fs::read_to_string(&path)?;
-        let parsed = self
-            .queries
-            .parse_file_cached(&path, relative_path.clone())?;
-        let source = section_source(&relative_path, &document, &parsed, selector)?;
-        Ok((path, relative_path, document, source))
+        let (parsed, content) = self.queries.parse_note_3(&path, &relative_path)?;
+        let source = section_source(&relative_path, &content, &parsed, selector)?;
+        Ok((path, relative_path, content, source))
     }
 
     fn write_section_edit(

@@ -56,24 +56,6 @@ impl Vault {
             .replace('\\', "/")
     }
 
-    #[cfg(test)]
-    pub fn read_note(&self, note: &str) -> Result<(Utf8PathBuf, String), VaultError> {
-        let path = self.resolve_path(note)?;
-        if !path.is_file() {
-            return Err(VaultError::NoteNotFound(note.to_string()));
-        }
-        let metadata = fs::metadata(&path).map_err(|err| VaultError::Io(err.to_string()))?;
-        if metadata.len() as usize > self.config.max_note_bytes {
-            return Err(VaultError::NoteTooLarge {
-                path: self.relative_path(&path),
-                limit: self.config.max_note_bytes,
-                actual: metadata.len() as usize,
-            });
-        }
-        let content = fs::read_to_string(&path).map_err(|err| VaultError::Io(err.to_string()))?;
-        Ok((path, content))
-    }
-
     pub fn write_note_atomic(&self, path: &Utf8Path, content: &str) -> Result<(), VaultError> {
         if !path.starts_with(&self.root) {
             return Err(VaultError::PathEscapesVault);
@@ -245,7 +227,6 @@ pub struct NoteFile {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
 pub enum VaultError {
     #[error("vault root is not a directory: {0}")]
     RootIsNotDirectory(String),
@@ -255,14 +236,6 @@ pub enum VaultError {
     PathEscapesVault,
     #[error("exact note path must end with .md: {0}")]
     ExactNotePathRequiresMarkdownExtension(String),
-    #[error("note not found: {0}")]
-    NoteNotFound(String),
-    #[error("note is too large: {path} ({actual} > {limit} bytes)")]
-    NoteTooLarge {
-        path: String,
-        limit: usize,
-        actual: usize,
-    },
     #[error("non-utf8 path: {0}")]
     NonUtf8Path(String),
     #[error("invalid glob: {0}")]

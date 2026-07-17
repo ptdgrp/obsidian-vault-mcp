@@ -36,7 +36,6 @@ pub async fn run_mcp_server(vault: Vault) -> anyhow::Result<()> {
 #[derive(Clone)]
 pub struct ObsidianVaultMcp {
     state: Arc<AppState>,
-    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 

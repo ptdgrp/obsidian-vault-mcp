@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
@@ -25,12 +26,13 @@ impl ParseCache {
         }
     }
 
-    pub fn parse_note(
+    fn parse_note_impl(
         &self,
         path: &Utf8Path,
-        relative_path: String,
+        relative_path: &str,
         max_note_bytes: usize,
-    ) -> anyhow::Result<Arc<ParsedNote>> {
+        with_content: bool,
+    ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
         let metadata = fs::metadata(path)?;
         let fingerprint = FileFingerprint {
             size_bytes: metadata.len(),
@@ -42,18 +44,47 @@ impl ParseCache {
         };
 
         let now = Instant::now();
-        if let Some(parsed) = self.get_fresh(&relative_path, fingerprint, now) {
-            return Ok(parsed);
+        if !with_content && let Some(parsed) = self.get_fresh(relative_path, fingerprint, None, now)
+        {
+            return Ok((parsed, String::new()));
         }
 
         let content = fs::read_to_string(path)?;
-        let parsed = Arc::new(NoteParser::parse(
-            relative_path.clone(),
-            &content,
-            max_note_bytes,
-        )?);
-        self.store(relative_path, fingerprint, parsed.clone(), now);
-        Ok(parsed)
+        let content_hash = hash_content(&content);
+        if with_content
+            && let Some(parsed) =
+                self.get_fresh(relative_path, fingerprint, Some(content_hash), now)
+        {
+            return Ok((parsed, content));
+        }
+        let parsed = Arc::new(NoteParser::parse(relative_path, &content, max_note_bytes)?);
+        self.store(
+            relative_path.to_owned(),
+            fingerprint,
+            content_hash,
+            parsed.clone(),
+            now,
+        );
+        Ok((parsed, content))
+    }
+
+    pub fn parse_note(
+        &self,
+        path: &Utf8Path,
+        relative_path: &str,
+        max_note_bytes: usize,
+    ) -> anyhow::Result<Arc<ParsedNote>> {
+        self.parse_note_impl(path, relative_path, max_note_bytes, false)
+            .map(|it| it.0)
+    }
+
+    pub fn parse_note_with_content(
+        &self,
+        path: &Utf8Path,
+        relative_path: &str,
+        max_note_bytes: usize,
+    ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
+        self.parse_note_impl(path, relative_path, max_note_bytes, true)
     }
 
     pub fn invalidate(&self, relative_path: &str) {
@@ -86,11 +117,15 @@ impl ParseCache {
         &self,
         key: &str,
         fingerprint: FileFingerprint,
+        expected_content_hash: Option<u64>,
         now: Instant,
     ) -> Option<Arc<ParsedNote>> {
         let mut entries = self.entries.write().ok()?;
         let entry = entries.get_mut(key)?;
-        if entry.fingerprint != fingerprint || now.duration_since(entry.last_access) > self.ttl {
+        if entry.fingerprint != fingerprint
+            || expected_content_hash.is_some_and(|hash| hash != entry.content_hash)
+            || now.duration_since(entry.last_access) > self.ttl
+        {
             return None;
         }
         entry.last_access = now;
@@ -101,6 +136,7 @@ impl ParseCache {
         &self,
         key: String,
         fingerprint: FileFingerprint,
+        content_hash: u64,
         parsed: Arc<ParsedNote>,
         now: Instant,
     ) {
@@ -109,6 +145,7 @@ impl ParseCache {
                 key,
                 CachedParsedNote {
                     fingerprint,
+                    content_hash,
                     parsed,
                     last_access: now,
                 },
@@ -133,8 +170,15 @@ struct FileFingerprint {
 #[derive(Clone, Debug)]
 struct CachedParsedNote {
     fingerprint: FileFingerprint,
+    content_hash: u64,
     parsed: Arc<ParsedNote>,
     last_access: Instant,
+}
+
+fn hash_content(content: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn prune_entries(

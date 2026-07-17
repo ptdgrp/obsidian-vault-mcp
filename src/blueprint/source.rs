@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Range,
-};
+use std::collections::{HashMap, HashSet};
 
 use markdown::{
     Document, MarkdownNode, Parser, ParserOptions,
@@ -21,28 +18,8 @@ const REQUIRED_SECTIONS: [&str; 8] = [
     "Notes",
 ];
 
-#[allow(dead_code)]
 pub(crate) struct ParsedBlueprintSource {
     pub todos: Vec<Todo>,
-    sections: HashMap<String, Range<usize>>,
-}
-
-#[allow(dead_code)]
-pub struct SourcePatch {
-    range: Range<usize>,
-    replacement: String,
-}
-
-#[allow(dead_code)]
-impl SourcePatch {
-    pub fn apply(self, source: &str) -> String {
-        format!(
-            "{}{}{}",
-            &source[..self.range.start],
-            self.replacement,
-            &source[self.range.end..]
-        )
-    }
 }
 
 impl ParsedBlueprintSource {
@@ -83,19 +60,6 @@ impl ParsedBlueprintSource {
                 anyhow::bail!("required section must occur exactly once: {section}");
             }
         }
-        let sections = h2_headings
-            .iter()
-            .enumerate()
-            .map(|(index, (name, line))| {
-                let start = byte_offset_for_line(source, line + 1);
-                let end = h2_headings
-                    .get(index + 1)
-                    .map(|(_, next_line)| byte_offset_for_line(source, *next_line))
-                    .unwrap_or(source.len());
-                (name.clone(), start..end)
-            })
-            .collect::<HashMap<_, _>>();
-
         let tasks = active_node_indices(&document)
             .into_iter()
             .filter_map(|index| task_node(&document, index))
@@ -172,30 +136,7 @@ impl ParsedBlueprintSource {
             .flat_map(|todo| todo.children.iter().map(|child| child.id.clone()))
             .collect::<HashSet<_>>();
         todos.retain(|todo| !child_ids.contains(&todo.id));
-        Ok(Self { todos, sections })
-    }
-
-    #[allow(dead_code)]
-    pub fn replace_results(&self, source: &str, replacement: &str) -> anyhow::Result<SourcePatch> {
-        let range = self
-            .sections
-            .get("Results")
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("missing required section: Results"))?;
-        let replacement = if replacement.is_empty() || replacement.ends_with('\n') {
-            replacement.to_string()
-        } else {
-            format!("{replacement}\n")
-        };
-        let replacement = if replacement.is_empty() {
-            replacement
-        } else {
-            format!("\n{replacement}")
-        };
-        if range.end > source.len() {
-            anyhow::bail!("Results section range is outside source");
-        }
-        Ok(SourcePatch { range, replacement })
+        Ok(Self { todos })
     }
 }
 
@@ -341,20 +282,4 @@ fn split_csv(value: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect()
-}
-
-fn byte_offset_for_line(source: &str, line: u64) -> usize {
-    if line <= 1 {
-        return 0;
-    }
-    let mut current_line = 1;
-    for (index, byte) in source.bytes().enumerate() {
-        if current_line == line {
-            return index;
-        }
-        if byte == b'\n' {
-            current_line += 1;
-        }
-    }
-    source.len()
 }
