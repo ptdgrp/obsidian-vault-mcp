@@ -14,7 +14,7 @@
 
 ### 基于现有 AST 的保留源文本编辑
 
-`src/blueprint/markdown.rs` 复用项目既有的 `markdown` 依赖，以 Obsidian 模式解析原始 Markdown。该 AST 已提供 H1/H2 标题、列表、Task List Item、Block ID、节点父子关系和起止行列；因此 Blueprint 不实现第二个 Markdown 解析器。
+`src/blueprint/source.rs` 复用项目既有的 `markdown` 依赖，以 Obsidian 模式解析原始 Markdown。该 AST 已提供 H1/H2 标题、列表、Task List Item、Block ID、节点父子关系和起止行列；因此 Blueprint 不实现第二个 Markdown 解析器。
 
 文档层只执行三件事：从 AST 映射固定 H2 章节、任务与 `Children` 关系为 Blueprint 领域节点；将 AST 行列位置转换为原始文本字节范围；基于这些范围进行局部替换或插入。它使用有限的字段文本解释 `Created By`、`Depends On` 等 Blueprint 专用内容，但不重新识别 Markdown 语法。
 
