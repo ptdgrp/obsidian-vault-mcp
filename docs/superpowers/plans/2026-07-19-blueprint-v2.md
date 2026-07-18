@@ -324,11 +324,15 @@ pub struct StoredTodo {
 
 路径固定为 `blueprints/{bp}/blueprint.md` 和 `blueprints/{bp}/todos/{todo}.md`。`list(state)` 遍历 Blueprint 目录并读取 frontmatter。`set_state` 只定点修改 frontmatter。`validate_aggregate` 比较中央图链接集合和 `todos/*.md` 集合，分别报告 missing/orphan。
 
-- [ ] **Step 4：运行 Store 与 source 测试**
+- [ ] **Step 4：运行 Store 与 source 聚焦测试，并记录 Service 迁移断点**
 
 Run: `cargo fmt --all && cargo test blueprint::tests -- --nocapture`
 
 Expected: PASS；v1 manifest 测试改为期待 `unsupported Blueprint workspace schema: blueprint/v1`。
+
+Run: `cargo test blueprint::tests -- --nocapture`
+
+Expected: 在 Task 4 完成前，允许旧 Service 因拒绝 v1 写入而失败；必须记录失败测试名称和统一原因，禁止通过恢复 v1 写入使其通过。Task 4 的验收门槛是将这里记录的全部失败恢复为 PASS。
 
 - [ ] **Step 5：提交 Task 3**
 
@@ -344,11 +348,14 @@ git commit -m "feat(blueprint): store v2 document aggregates"
 **Files:**
 - Modify: `src/blueprint/model.rs`
 - Modify: `src/blueprint/service.rs`
+- Modify: `src/blueprint/todo.rs`
+- Modify: `src/blueprint/validate.rs`
 - Modify: `src/blueprint/tests/service.rs`
+- Modify: `src/blueprint/tests/validate.rs`
 
 **Interfaces:**
 - Consumes: Task 1-3 的 Document parser、Blueprint parser 和 aggregate Store。
-- Produces: v2 `BlueprintCreateInput`、`BlueprintUpdateInput`、`BlueprintGetOutput`、`BlueprintService::{blueprint_create, blueprint_view, blueprint_list, blueprint_update, blueprint_status, blueprint_close, blueprint_cancel}`。
+- Produces: v2 `BlueprintCreateInput`、`BlueprintUpdateInput`、`BlueprintGetOutput`，以及全部现有 `BlueprintService` Blueprint/DoD/Todo 方法基于 v2 Store 的可运行基线；Task 3 记录的 18 项 legacy Service 失败必须全部恢复。
 
 - [ ] **Step 1：写 Blueprint v2 service 红灯测试**
 
@@ -401,11 +408,13 @@ pub struct BlueprintCreateInput {
 
 引入 `BlueprintPatch` 收纳可更新 Section，并将创建结果定义为 `BlueprintCreated { id: String, path: Utf8PathBuf, etag: String, source: String }`。Intent、Constraints、Plan、Rubric 变化必须同时追加 Revision；Results/Notes 普通更新不自动追加。close/cancel 在同一稳定路径更新 Record、Results、Revision History 和 frontmatter state。resume 增加 Rubric 和 Todo index，full 不拼接全部 Todo source。
 
+同时迁移所有旧 Service 存储调用：不得继续调用 Store 的 v1 `read_active`、`write` 或 `move_to` 隔离入口。Todo 方法在此任务至少建立 v2 可运行基线：通过中央 `BlueprintSource` 读取状态/依赖，通过独立 Todo 文件读取 Completion Criteria、Handoff 和 Results，并使用 Blueprint 锁内 guard 完成写入。Task 5 再增加新 v2 专属请求模型、双 ETag 和更完整的跨文档更新测试，但不能把任何现有 Service 测试失败留到 Task 5。
+
 - [ ] **Step 4：运行全部 Blueprint service 生命周期测试**
 
 Run: `cargo fmt --all && cargo test blueprint::tests::service -- --nocapture`
 
-Expected: 与 Blueprint 创建、视图、更新、status、close、cancel、DoD 有关的测试 PASS；Todo 相关测试可在后续 Task 完成前用新 fixture 编译但暂不要求全部通过。
+Expected: 全部 Blueprint 测试 PASS，Task 3 记录的 18 项 legacy Service 失败全部恢复；不得把 Todo Service 失败推迟到 Task 5。
 
 - [ ] **Step 5：提交 Task 4**
 
