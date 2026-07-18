@@ -68,8 +68,8 @@ schema: blueprint/v2
 ```
 
 Blueprint and Todo paths never change when lifecycle state changes. Stable
-paths keep Obsidian links, dependency references, and cross-document Evidence
-references valid.
+paths keep standard Markdown links, dependency references, and cross-document
+Evidence references valid.
 
 ## Blueprint Frontmatter and Lifecycle
 
@@ -165,11 +165,11 @@ responsibility metadata.
 ## Central Todo Graph
 
 The `Todos` Section remains the only source of truth for Todo identity, state,
-and graph relationships. Each executable Todo is an Obsidian task linking to a
-detail document:
+and graph relationships. Each executable Todo is an Obsidian task with a
+standard Markdown link to its detail document:
 
 ```markdown
-- [/] [[todos/todo-01K1DRAFT|Complete the draft]] ^todo-01K1DRAFT
+- [/] [Complete the draft](todos/todo-01K1DRAFT.md) ^todo-01K1DRAFT
   - Created By: planner
   - Owner: writer
   - Depends On: todo-01K1RESEARCH
@@ -218,8 +218,8 @@ Revision History
 Notes
 ```
 
-The Todo H1 must match the title alias in the central graph. Title updates
-modify both locations under the Blueprint lock.
+The Todo H1 must match the Markdown link label in the central graph. Title
+updates modify both locations under the Blueprint lock.
 
 Todo document responsibilities are:
 
@@ -288,19 +288,19 @@ Example:
 - Collected By: literary-continuity
 - Observation: Two first-chapter scenes emphasize fear of losing family ties.
 - References:
-  - [[../../story#Family argument]]
-  - [[../../story#Late-night conversation]]
+  - [Family argument](../../story.md#Family-argument)
+  - [Late-night conversation](../../story.md#Late-night-conversation)
 - Limitations:
   - The same passages may indicate suppressed desire to leave.
 ```
 
-Results cite Evidence using normal Obsidian links or same-document block
-references:
+Results cite Evidence using standard Markdown relative links with heading or
+Block ID fragments:
 
 ```markdown
 - Evidence:
-  - [[#^evidence-01K1A]]
-  - [[todo-01K1RESEARCH#^evidence-01K1B]]
+  - [Family attachment](#^evidence-01K1A)
+  - [Background research](todo-01K1RESEARCH.md#^evidence-01K1B)
 ```
 
 Evidence may cite Evidence in another Todo. Evidence references do not affect
@@ -308,9 +308,11 @@ Todo readiness and do not imply support, contradiction, or truth. Those
 relationships remain explicit in prose unless a future protocol proves that a
 typed relation is necessary.
 
-The parser validates Evidence ID uniqueness and that internal Evidence links
-resolve within the Blueprint aggregate. External project References are not
-required to resolve through the Blueprint store.
+Protocol-generated links must use standard Markdown link syntax; Blueprint v2
+does not generate or require Wiki Links. The parser validates Evidence ID
+uniqueness and that internal Evidence links resolve within the Blueprint
+aggregate. External project References are not required to resolve through the
+Blueprint store.
 
 A completed Todo must have non-empty Results and at least one valid Evidence
 item or Evidence reference. This is structural evidence presence, not a claim
