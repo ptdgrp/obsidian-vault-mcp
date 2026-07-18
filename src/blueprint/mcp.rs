@@ -104,14 +104,19 @@ impl BlueprintMcp {
         &self,
         Parameters(r): Parameters<BlueprintUpdateInput>,
     ) -> Result<Json<StoredBlueprint>, String> {
-        json(self.service.blueprint_update(
+        json(self.service.blueprint_update_semantic(
             &r.blueprint_id,
-            r.title.as_deref(),
-            r.intent.as_deref(),
-            r.constraints.as_deref(),
-            r.plan.as_deref(),
-            r.results.as_deref(),
-            r.notes.as_deref(),
+            crate::blueprint::model::BlueprintPatch {
+                title: r.title,
+                intent: r.intent,
+                constraints: r.constraints,
+                plan: r.plan,
+                rubric: r.rubric,
+                results: r.results,
+                notes: r.notes,
+            },
+            r.changed_by.as_deref(),
+            r.change_reason.as_deref(),
             r.expected_etag.as_deref(),
         ))
     }

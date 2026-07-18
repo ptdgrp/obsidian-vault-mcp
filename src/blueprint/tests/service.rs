@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use tempfile::{TempDir, tempdir};
 
 use super::super::{
-    model::TodoStatus,
+    model::{BlueprintPatch, TodoStatus},
     service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate},
 };
 
@@ -20,9 +20,42 @@ fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
             constraints: vec!["保留 Markdown".into()],
             definition_of_done: vec!["完成协议验证".into()],
             plan: "按状态转换验证".into(),
+            rubric: "按目标和约束进行评估".into(),
         })
         .expect("create Blueprint");
     (directory, service, blueprint)
+}
+
+#[test]
+fn semantic_update_requires_and_appends_revision() {
+    let (_directory, service, created) = create_blueprint();
+    let error = service
+        .blueprint_update_semantic(
+            &created.id,
+            BlueprintPatch {
+                intent: Some("新目标".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("changed_by"));
+    let updated = service
+        .blueprint_update_semantic(
+            &created.id,
+            BlueprintPatch {
+                intent: Some("新目标".into()),
+                ..Default::default()
+            },
+            Some("agent"),
+            Some("用户调整方向"),
+            Some(&created.etag),
+        )
+        .unwrap();
+    assert!(updated.source.contains("## Revision History"));
+    assert!(updated.source.contains("- Reason: 用户调整方向"));
 }
 
 fn first_dod_id(source: &str) -> String {
@@ -48,17 +81,13 @@ fn creating_a_blueprint_automatically_creates_workspace_and_generates_protocol_d
             constraints: vec!["保留 Markdown".to_string()],
             definition_of_done: vec!["完成实现".to_string()],
             plan: "逐步完成".to_string(),
+            rubric: "核对完成条件".to_string(),
         })
         .unwrap();
     assert!(created.id.starts_with("bp-"));
     assert!(created.source.contains("- Created By: agent"));
     assert!(created.source.contains("^dod-"));
-    assert!(
-        root.join(".blueprint")
-            .join("active")
-            .join(format!("{}.md", created.id))
-            .is_file()
-    );
+    assert!(created.path.is_file());
 }
 
 #[test]
@@ -74,6 +103,7 @@ fn get_list_and_status_return_the_active_blueprint_and_derived_empty_todo_state(
             constraints: vec![],
             definition_of_done: vec!["完成实现".to_string()],
             plan: "逐步完成".to_string(),
+            rubric: "核对完成条件".to_string(),
         })
         .unwrap();
     assert_eq!(
@@ -102,11 +132,13 @@ fn blueprint_update_preserves_unknown_markdown() {
             constraints: vec![],
             definition_of_done: vec!["完成实现".to_string()],
             plan: "逐步完成".to_string(),
+            rubric: "核对完成条件".to_string(),
         })
         .unwrap();
     let path = root
-        .join(".blueprint/active")
-        .join(format!("{}.md", created.id));
+        .join(".blueprint/blueprints")
+        .join(&created.id)
+        .join("blueprint.md");
     let source = created
         .source
         .replace("## Notes", "## Extra\n\n> [!note] keep\n\n## Notes");
@@ -129,7 +161,7 @@ fn blueprint_update_preserves_unknown_markdown() {
     assert!(
         updated
             .source
-            .contains("## Results\n\n### Current Outcome\n\n完成。\n## Extra")
+            .contains("## Results\n\n### Current Outcome\n\n完成。")
     );
 }
 
@@ -146,6 +178,7 @@ fn blueprint_create_rejects_blank_required_fields_and_empty_definition_of_done()
             constraints: vec![],
             definition_of_done: dod,
             plan: plan.into(),
+            rubric: "核对完成条件".into(),
         }
     };
 
@@ -183,8 +216,9 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
     let (directory, service, blueprint) = create_blueprint();
     let path = Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
         .unwrap()
-        .join(".blueprint/active")
-        .join(format!("{}.md", blueprint.id));
+        .join(".blueprint/blueprints")
+        .join(&blueprint.id)
+        .join("blueprint.md");
     fs::write(
         &path,
         blueprint
@@ -205,7 +239,7 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
             None,
         )
         .expect("update Blueprint sections");
-    assert!(updated.source.starts_with("# renamed\n"));
+    assert!(updated.source.contains("# renamed\n"));
     assert!(updated.source.contains("- Created By: creator"));
     assert!(updated.source.contains("## Intent\n\nrevised intent"));
     assert!(
@@ -263,6 +297,7 @@ fn todo_create_and_start_write_protocol_state_after_owner_assignment() {
             constraints: vec![],
             definition_of_done: vec!["完成".into()],
             plan: "执行".into(),
+            rubric: "核对完成条件".into(),
         })
         .unwrap();
     let todo = service
@@ -295,6 +330,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
             constraints: vec![],
             definition_of_done: vec!["完成".into()],
             plan: "执行".into(),
+            rubric: "核对完成条件".into(),
         })
         .unwrap();
     let todo = service
@@ -357,6 +393,7 @@ fn creates_child_todos_in_the_parent_children_list() {
             constraints: vec![],
             definition_of_done: vec!["完成".into()],
             plan: "执行".into(),
+            rubric: "核对完成条件".into(),
         })
         .unwrap();
     let parent = service

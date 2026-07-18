@@ -13,19 +13,22 @@ use crate::blueprint::{
     },
 };
 
-const REQUIRED_SECTIONS: [&str; 8] = [
+const REQUIRED_SECTIONS: [&str; 11] = [
     "Record",
     "Intent",
     "Constraints",
     "Definition of Done",
     "Plan",
+    "Rubric",
     "Todos",
     "Results",
+    "Evidence",
+    "Revision History",
     "Notes",
 ];
 
 const BLUEPRINT_SOURCE_SCHEMA: DocumentSchema = DocumentSchema {
-    name: "",
+    name: "blueprint/v2",
     required_sections: &REQUIRED_SECTIONS,
 };
 

@@ -228,6 +228,8 @@ pub struct BlueprintCreateInput {
     pub constraints: Vec<String>,
     pub definition_of_done: Vec<String>,
     pub plan: String,
+    /// The evaluation procedure selected for this Blueprint.
+    pub rubric: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -258,11 +260,36 @@ pub struct BlueprintUpdateInput {
     #[serde(default)]
     pub plan: Option<String>,
     #[serde(default)]
+    pub rubric: Option<String>,
+    #[serde(default)]
+    pub changed_by: Option<String>,
+    #[serde(default)]
+    pub change_reason: Option<String>,
+    #[serde(default)]
     pub results: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
     #[serde(default)]
     pub expected_etag: Option<String>,
+}
+
+/// Patchable Blueprint sections. Changes to semantic fields require a revision record.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+pub struct BlueprintPatch {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub intent: Option<String>,
+    #[serde(default)]
+    pub constraints: Option<Vec<String>>,
+    #[serde(default)]
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub rubric: Option<String>,
+    #[serde(default)]
+    pub results: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BlueprintCloseInput {

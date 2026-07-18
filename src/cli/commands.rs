@@ -685,6 +685,9 @@ pub(crate) enum BlueprintCommand {
         /// Blueprint plan.
         #[arg(long)]
         plan: String,
+        /// Evaluation rubric for this Blueprint.
+        #[arg(long)]
+        rubric: String,
     },
     /// Get a Blueprint.
     Get {
@@ -907,6 +910,7 @@ impl BlueprintCommand {
                 constraints,
                 definition_of_done,
                 plan,
+                rubric,
             } => {
                 print_value(&service.blueprint_create(
                     crate::blueprint::BlueprintCreateInput {
@@ -916,6 +920,7 @@ impl BlueprintCommand {
                         constraints,
                         definition_of_done,
                         plan,
+                        rubric,
                     },
                 )?)?;
             }
