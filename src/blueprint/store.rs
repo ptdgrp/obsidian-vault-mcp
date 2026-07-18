@@ -355,6 +355,12 @@ impl BlueprintStore {
 }
 
 impl LockedBlueprintStore<'_> {
+    pub(crate) fn require_active(&self) -> anyhow::Result<()> {
+        if self.read_blueprint()?.state != BlueprintState::Active {
+            anyhow::bail!("Blueprint is not active");
+        }
+        Ok(())
+    }
     pub(crate) fn read_blueprint(&self) -> anyhow::Result<StoredBlueprint> {
         self.store.read_unlocked(self.id)
     }
