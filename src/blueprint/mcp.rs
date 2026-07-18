@@ -17,8 +17,9 @@ use crate::blueprint::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput,
     BlueprintService, BlueprintStatus, BlueprintUpdateInput, CheckUpdate, CompletionCriterionInput,
-    DodUpdateInput, StoredBlueprint, Todo, TodoAssignInput, TodoBlockInput, TodoCancelInput,
-    TodoCompleteInput, TodoCreateInput, TodoInput, TodoListInput, TodoListOutput, TodoUpdateInput,
+    DodUpdateInput, StoredBlueprint, TodoAssignInput, TodoBlockInput, TodoCancelInput,
+    TodoCompleteInput, TodoCreateInput, TodoCreateRequest, TodoInput, TodoListInput,
+    TodoListOutput, TodoPatch, TodoUpdateInput, TodoView,
 };
 
 pub async fn run_blueprint_mcp_server(service: BlueprintService) -> anyhow::Result<()> {
@@ -168,20 +169,22 @@ impl BlueprintMcp {
     fn todo_create(
         &self,
         Parameters(r): Parameters<TodoCreateInput>,
-    ) -> Result<Json<Todo>, String> {
-        json(self.service.todo_create(
-            &r.blueprint_id,
-            &r.title,
-            &r.created_by,
-            r.parent_id.as_deref(),
-            r.owner.as_deref(),
-            &r.depends_on,
-            &r.completion_criteria,
-            r.expected_etag.as_deref(),
-        ))
+    ) -> Result<Json<TodoView>, String> {
+        json(self.service.todo_create(TodoCreateRequest {
+            blueprint_id: r.blueprint_id,
+            title: r.title,
+            created_by: r.created_by,
+            intent: r.intent,
+            plan: r.plan,
+            parent_id: r.parent_id,
+            owner: r.owner,
+            depends_on: r.depends_on,
+            completion_criteria: r.completion_criteria,
+            expected_blueprint_etag: r.expected_blueprint_etag.or(r.expected_etag),
+        }))
     }
     #[tool(description = "Read one Todo.")]
-    fn todo_get(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<Todo>, String> {
+    fn todo_get(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<TodoView>, String> {
         json(self.service.todo_get(&r.blueprint_id, &r.todo_id))
     }
     #[tool(description = "List Todos with optional status, owner, and readiness filters.")]
@@ -199,7 +202,7 @@ impl BlueprintMcp {
     fn todo_update(
         &self,
         Parameters(r): Parameters<TodoUpdateInput>,
-    ) -> Result<Json<Todo>, String> {
+    ) -> Result<Json<TodoView>, String> {
         let criteria = r.completion_criteria.as_ref().map(|values| {
             values
                 .iter()
@@ -209,22 +212,40 @@ impl BlueprintMcp {
                 })
                 .collect::<Vec<_>>()
         });
-        json(self.service.todo_update(
-            &r.blueprint_id,
-            &r.todo_id,
-            r.title.as_deref(),
-            r.depends_on.as_deref(),
-            criteria.as_deref(),
-            r.handoff.as_deref(),
-            r.result_summary.as_deref(),
-            r.expected_etag.as_deref(),
-        ))
+        json(
+            self.service.todo_update(
+                &r.blueprint_id,
+                &r.todo_id,
+                TodoPatch {
+                    title: r.title,
+                    depends_on: r.depends_on,
+                    intent: r.intent,
+                    completion_criteria: criteria,
+                    plan: r.plan,
+                    handoff: r.handoff.map(|items| {
+                        items
+                            .into_iter()
+                            .map(|item| format!("- {}", item.trim()))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }),
+                    results: r.result_summary,
+                    notes: r.notes,
+                },
+                r.changed_by.as_deref(),
+                r.change_reason.as_deref(),
+                r.expected_blueprint_etag
+                    .as_deref()
+                    .or(r.expected_etag.as_deref()),
+                r.expected_todo_etag.as_deref(),
+            ),
+        )
     }
     #[tool(description = "Assign or reassign a Todo owner.")]
     fn todo_assign(
         &self,
         Parameters(r): Parameters<TodoAssignInput>,
-    ) -> Result<Json<Todo>, String> {
+    ) -> Result<Json<TodoView>, String> {
         json(self.service.todo_assign(
             &r.blueprint_id,
             &r.todo_id,
@@ -233,7 +254,7 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Start a pending Todo once it has an owner and completed dependencies.")]
-    fn todo_start(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<Todo>, String> {
+    fn todo_start(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<TodoView>, String> {
         json(
             self.service
                 .todo_start(&r.blueprint_id, &r.todo_id, r.expected_etag.as_deref()),
@@ -245,7 +266,7 @@ impl BlueprintMcp {
     fn todo_complete(
         &self,
         Parameters(r): Parameters<TodoCompleteInput>,
-    ) -> Result<Json<Todo>, String> {
+    ) -> Result<Json<TodoView>, String> {
         json(self.service.todo_complete(
             &r.blueprint_id,
             &r.todo_id,
@@ -255,7 +276,10 @@ impl BlueprintMcp {
         ))
     }
     #[tool(description = "Block an in-progress Todo with a reason and handoff.")]
-    fn todo_block(&self, Parameters(r): Parameters<TodoBlockInput>) -> Result<Json<Todo>, String> {
+    fn todo_block(
+        &self,
+        Parameters(r): Parameters<TodoBlockInput>,
+    ) -> Result<Json<TodoView>, String> {
         json(self.service.todo_block(
             &r.blueprint_id,
             &r.todo_id,
@@ -268,7 +292,7 @@ impl BlueprintMcp {
     fn todo_cancel(
         &self,
         Parameters(r): Parameters<TodoCancelInput>,
-    ) -> Result<Json<Todo>, String> {
+    ) -> Result<Json<TodoView>, String> {
         json(self.service.todo_cancel(
             &r.blueprint_id,
             &r.todo_id,

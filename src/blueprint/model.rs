@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::str::FromStr;
 
 use schemars::JsonSchema;
@@ -145,6 +146,49 @@ pub struct TodoDetail {
     pub notes: String,
 }
 
+/// A Todo aggregate: graph state comes from `blueprint.md`, content from its detail document.
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct TodoView {
+    pub graph: TodoGraphNode,
+    pub detail: TodoDetail,
+    pub blueprint_etag: String,
+    pub todo_etag: String,
+    pub ready: bool,
+    pub unsatisfied_dependencies: Vec<DependencyStatus>,
+    #[serde(skip)]
+    projection: Todo,
+}
+
+impl Deref for TodoView {
+    type Target = Todo;
+
+    fn deref(&self) -> &Self::Target {
+        &self.projection
+    }
+}
+
+impl TodoView {
+    pub(crate) fn new(
+        graph: TodoGraphNode,
+        detail: TodoDetail,
+        blueprint_etag: String,
+        todo_etag: String,
+        ready: bool,
+        unsatisfied_dependencies: Vec<DependencyStatus>,
+        projection: Todo,
+    ) -> Self {
+        Self {
+            graph,
+            detail,
+            blueprint_etag,
+            todo_etag,
+            ready,
+            unsatisfied_dependencies,
+            projection,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct Todo {
     pub id: String,
@@ -161,6 +205,54 @@ pub struct Todo {
     pub block_reason: Option<String>,
     pub cancel_reason: Option<String>,
     pub children: Vec<Todo>,
+}
+
+/// Creation request for a v2 Todo aggregate.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+pub struct TodoCreateRequest {
+    pub blueprint_id: String,
+    pub title: String,
+    pub created_by: String,
+    pub intent: String,
+    pub plan: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub completion_criteria: Vec<String>,
+    #[serde(default)]
+    pub expected_blueprint_etag: Option<String>,
+}
+
+/// A cross-document Todo update. Semantic fields require revision metadata.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
+pub struct TodoPatch {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub depends_on: Option<Vec<String>>,
+    #[serde(default)]
+    pub intent: Option<String>,
+    #[serde(default)]
+    pub completion_criteria: Option<Vec<CheckUpdate>>,
+    #[serde(default)]
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub handoff: Option<String>,
+    #[serde(default)]
+    pub results: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CheckUpdate {
+    pub text: String,
+    #[serde(default)]
+    pub completed: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
@@ -226,7 +318,7 @@ pub struct BlueprintListOutput {
 /// The concrete result of `todo_list`.
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct TodoListOutput {
-    pub todos: Vec<Todo>,
+    pub todos: Vec<TodoView>,
 }
 
 /// Input accepted by `blueprint_create`.
@@ -334,6 +426,8 @@ pub struct TodoCreateInput {
     pub blueprint_id: String,
     pub title: String,
     pub created_by: String,
+    pub intent: String,
+    pub plan: String,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -344,6 +438,8 @@ pub struct TodoCreateInput {
     pub completion_criteria: Vec<String>,
     #[serde(default)]
     pub expected_etag: Option<String>,
+    #[serde(default)]
+    pub expected_blueprint_etag: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TodoInput {
@@ -377,13 +473,27 @@ pub struct TodoUpdateInput {
     #[serde(default)]
     pub depends_on: Option<Vec<String>>,
     #[serde(default)]
+    pub intent: Option<String>,
+    #[serde(default)]
     pub completion_criteria: Option<Vec<CompletionCriterionInput>>,
     #[serde(default)]
     pub handoff: Option<Vec<String>>,
     #[serde(default)]
+    pub plan: Option<String>,
+    #[serde(default)]
     pub result_summary: Option<String>,
     #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub changed_by: Option<String>,
+    #[serde(default)]
+    pub change_reason: Option<String>,
+    #[serde(default)]
     pub expected_etag: Option<String>,
+    #[serde(default)]
+    pub expected_blueprint_etag: Option<String>,
+    #[serde(default)]
+    pub expected_todo_etag: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TodoAssignInput {

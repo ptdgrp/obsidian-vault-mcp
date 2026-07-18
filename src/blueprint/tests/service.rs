@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use tempfile::{TempDir, tempdir};
 
 use super::super::{
-    model::{BlueprintPatch, TodoStatus},
+    model::{BlueprintPatch, TodoCreateRequest, TodoPatch, TodoStatus},
     service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate},
 };
 
@@ -24,6 +24,91 @@ fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
         })
         .expect("create Blueprint");
     (directory, service, blueprint)
+}
+
+#[test]
+fn todo_create_writes_graph_link_and_independent_detail_document() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "检查连续性".into(),
+            created_by: "planner".into(),
+            intent: "检查人物行为变化".into(),
+            plan: "运行连续性评估".into(),
+            completion_criteria: vec!["引用关键段落".into()],
+            ..Default::default()
+        })
+        .unwrap();
+
+    let blueprint_source = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert!(blueprint_source.contains(&format!(
+        "[检查连续性](todos/{}.md) ^{}",
+        todo.graph.id, todo.graph.id
+    )));
+    let fetched = service.todo_get(&blueprint.id, &todo.graph.id).unwrap();
+    assert_eq!(fetched.detail.intent, "检查人物行为变化");
+    assert_eq!(fetched.graph.status, TodoStatus::Pending);
+    assert_eq!(fetched.blueprint_etag, todo.blueprint_etag);
+    assert!(!fetched.todo_etag.is_empty());
+}
+
+#[test]
+fn todo_patch_checks_both_etags_syncs_title_and_records_semantic_revision() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "原始标题".into(),
+            created_by: "planner".into(),
+            intent: "原始目标".into(),
+            plan: "原始计划".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let error = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                intent: Some("新目标".into()),
+                ..Default::default()
+            },
+            Some("planner"),
+            Some("目标调整"),
+            Some("stale"),
+            Some(&todo.todo_etag),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Blueprint ETag"));
+
+    let updated = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                title: Some("更新标题".into()),
+                intent: Some("新目标".into()),
+                plan: Some("新计划".into()),
+                ..Default::default()
+            },
+            Some("planner"),
+            Some("目标调整"),
+            Some(&todo.blueprint_etag),
+            Some(&todo.todo_etag),
+        )
+        .unwrap();
+    assert_eq!(updated.graph.title, "更新标题");
+    assert_eq!(updated.detail.title, "更新标题");
+    assert_eq!(updated.detail.intent, "新目标");
+    assert!(
+        updated
+            .detail
+            .revisions
+            .iter()
+            .any(|entry| entry.markdown.contains("目标调整"))
+    );
 }
 
 #[test]
@@ -62,7 +147,7 @@ fn semantic_update_requires_and_appends_revision() {
 fn todo_details_are_the_source_for_handoff_criteria_and_results() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "detail-backed",
             "creator",
@@ -74,7 +159,7 @@ fn todo_details_are_the_source_for_handoff_criteria_and_results() {
         )
         .unwrap();
     service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             None,
@@ -105,7 +190,7 @@ fn todo_details_are_the_source_for_handoff_criteria_and_results() {
 fn todo_detail_write_failure_does_not_commit_central_graph_change() {
     let (directory, service, blueprint) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "atomic completion",
             "creator",
@@ -118,7 +203,7 @@ fn todo_detail_write_failure_does_not_commit_central_graph_change() {
         .unwrap();
     assert!(
         service
-            .todo_update(
+            .todo_update_legacy(
                 &blueprint.id,
                 &todo.id,
                 Some("renamed only in graph if ordering is wrong"),
@@ -202,7 +287,7 @@ fn mutations_reject_closed_blueprints_and_failed_create_leaves_no_orphan() {
     let stale = "stale";
     assert!(
         service
-            .todo_create(
+            .todo_create_legacy(
                 &blueprint.id,
                 "will fail",
                 "creator",
@@ -230,7 +315,7 @@ fn mutations_reject_closed_blueprints_and_failed_create_leaves_no_orphan() {
     );
     assert!(
         service
-            .todo_create(&blueprint.id, "nope", "creator", None, None, &[], &[], None)
+            .todo_create_legacy(&blueprint.id, "nope", "creator", None, None, &[], &[], None)
             .is_err()
     );
     assert!(
@@ -483,7 +568,7 @@ fn todo_create_and_start_write_protocol_state_after_owner_assignment() {
         })
         .unwrap();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "实现存储",
             "agent",
@@ -516,7 +601,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
         })
         .unwrap();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "实现存储",
             "agent",
@@ -534,7 +619,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
             .is_err()
     );
     service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             None,
@@ -579,10 +664,10 @@ fn creates_child_todos_in_the_parent_children_list() {
         })
         .unwrap();
     let parent = service
-        .todo_create(&blueprint.id, "父任务", "agent", None, None, &[], &[], None)
+        .todo_create_legacy(&blueprint.id, "父任务", "agent", None, None, &[], &[], None)
         .unwrap();
     let child = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "子任务",
             "agent",
@@ -602,7 +687,7 @@ fn creates_child_todos_in_the_parent_children_list() {
 fn blueprint_views_return_full_source_or_resume_context() {
     let (_directory, service, blueprint) = create_blueprint();
     let ready = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "ready",
             "creator",
@@ -614,7 +699,7 @@ fn blueprint_views_return_full_source_or_resume_context() {
         )
         .expect("create ready Todo");
     let running = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "running",
             "creator",
@@ -629,7 +714,7 @@ fn blueprint_views_return_full_source_or_resume_context() {
         .todo_start(&blueprint.id, &running.id, None)
         .expect("start Todo");
     let blocked = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "blocked",
             "creator",
@@ -692,7 +777,7 @@ fn blueprint_views_return_full_source_or_resume_context() {
 fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
     let (_directory, service, blueprint) = create_blueprint();
     let prerequisite = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "prerequisite",
             "creator",
@@ -704,7 +789,7 @@ fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
         )
         .expect("create prerequisite");
     let dependent = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "dependent",
             "creator",
@@ -716,7 +801,7 @@ fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
         )
         .expect("create dependent");
     let blocked = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "blocked",
             "creator",
@@ -740,7 +825,7 @@ fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
         )
         .expect("block Todo");
     let cancelled = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "cancelled",
             "creator",
@@ -781,7 +866,7 @@ fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
 fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
     let (_directory, service, incomplete) = create_blueprint();
     let open = service
-        .todo_create(
+        .todo_create_legacy(
             &incomplete.id,
             "open",
             "creator",
@@ -809,7 +894,7 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
 
     let (directory, service, complete) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &complete.id,
             "finish",
             "creator",
@@ -878,7 +963,7 @@ fn blueprint_cancel_records_actor_and_reason_then_moves_the_document() {
 fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal_work() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "assign",
             "creator",
@@ -902,7 +987,7 @@ fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal
         .expect_err("active reassignment without Handoff must fail");
     assert!(error.to_string().contains("requires Handoff"));
     service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             None,
@@ -926,7 +1011,7 @@ fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal
     assert!(error.to_string().contains("cannot be assigned"));
 
     let cancelled = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "cancel",
             "creator",
@@ -951,7 +1036,7 @@ fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal
 fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
     let (_directory, service, blueprint) = create_blueprint();
     let unowned = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "unowned",
             "creator",
@@ -968,7 +1053,7 @@ fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
     assert!(error.to_string().contains("Owner"));
 
     let prerequisite = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "prerequisite",
             "creator",
@@ -980,7 +1065,7 @@ fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
         )
         .expect("create prerequisite");
     let dependent = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "dependent",
             "creator",
@@ -1015,7 +1100,7 @@ fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
 fn todo_block_and_cancel_enforce_transition_fields_and_states() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "block",
             "creator",
@@ -1078,7 +1163,7 @@ fn todo_block_and_cancel_enforce_transition_fields_and_states() {
 fn todo_completion_requires_checked_criteria_and_terminal_children() {
     let (_directory, service, blueprint) = create_blueprint();
     let parent = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "parent",
             "creator",
@@ -1090,7 +1175,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
         )
         .expect("create parent");
     let child = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "child",
             "creator",
@@ -1119,7 +1204,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
             .contains("Completion Criteria")
     );
     service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &parent.id,
             None,
@@ -1156,7 +1241,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
 fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
     let (_directory, service, blueprint) = create_blueprint();
     let dependency = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "dependency",
             "creator",
@@ -1168,7 +1253,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
         )
         .expect("create dependency");
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "original",
             "creator",
@@ -1180,7 +1265,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
         )
         .expect("create Todo");
     let updated = service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             Some(" renamed "),
@@ -1201,7 +1286,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
         )
         .expect("update Todo");
     assert_eq!(updated.title, "renamed");
-    assert_eq!(updated.depends_on, vec![dependency.id]);
+    assert_eq!(updated.depends_on, vec![dependency.id.clone()]);
     assert_eq!(updated.handoff, vec!["one", "two"]);
     assert_eq!(updated.result_summary.as_deref(), Some("draft result"));
     assert_eq!(updated.completion_criteria.len(), 2);
@@ -1212,7 +1297,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
         .blueprint_get(&blueprint.id)
         .expect("before invalid update");
     let error = service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             None,
@@ -1229,7 +1314,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
         before.etag
     );
     let error = service
-        .todo_update(
+        .todo_update_legacy(
             &blueprint.id,
             &todo.id,
             None,
@@ -1247,7 +1332,7 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
 fn todo_update_invalid_dependency_keeps_detail_and_graph_titles() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "original title",
             "creator",
@@ -1262,7 +1347,7 @@ fn todo_update_invalid_dependency_keeps_detail_and_graph_titles() {
     for dependency in [todo.id.clone(), "todo-missing".into()] {
         assert!(
             service
-                .todo_update(
+                .todo_update_legacy(
                     &blueprint.id,
                     &todo.id,
                     Some("new title"),
@@ -1297,7 +1382,7 @@ fn todo_update_invalid_dependency_keeps_detail_and_graph_titles() {
 fn todo_list_combines_status_owner_and_readiness_filters() {
     let (_directory, service, blueprint) = create_blueprint();
     let ready_a = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "ready a",
             "creator",
@@ -1309,7 +1394,7 @@ fn todo_list_combines_status_owner_and_readiness_filters() {
         )
         .expect("create ready A");
     let prerequisite = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "prerequisite",
             "creator",
@@ -1321,7 +1406,7 @@ fn todo_list_combines_status_owner_and_readiness_filters() {
         )
         .expect("create prerequisite");
     let waiting = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "waiting",
             "creator",
@@ -1333,7 +1418,7 @@ fn todo_list_combines_status_owner_and_readiness_filters() {
         )
         .expect("create waiting Todo");
     let blocked = service
-        .todo_create(
+        .todo_create_legacy(
             &blueprint.id,
             "blocked",
             "creator",

@@ -1021,7 +1021,7 @@ impl BlueprintCommand {
                 completion_criteria,
                 expected_etag,
             } => {
-                print_value(&service.todo_create(
+                print_value(&service.todo_create_legacy(
                     &blueprint_id,
                     &title,
                     &created_by,
@@ -1079,7 +1079,7 @@ impl BlueprintCommand {
                         }))
                         .collect::<Vec<_>>()
                 });
-                print_value(&service.todo_update(
+                print_value(&service.todo_update_legacy(
                     &blueprint_id,
                     &todo_id,
                     title.as_deref(),

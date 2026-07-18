@@ -14,8 +14,8 @@ pub use model::{
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintPatch,
     BlueprintState, BlueprintUpdateInput, CompletionCriterionInput, DodUpdateInput, EvidenceItem,
     RevisionEntry, Todo, TodoAssignInput, TodoBlockInput, TodoCancelInput, TodoCompleteInput,
-    TodoCreateInput, TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput,
-    TodoStatus, TodoUpdateInput,
+    TodoCreateInput, TodoCreateRequest, TodoDetail, TodoGraphNode, TodoInput, TodoListInput,
+    TodoListOutput, TodoPatch, TodoStatus, TodoUpdateInput, TodoView,
 };
 pub use service::{BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate};
 #[allow(unused_imports)]
