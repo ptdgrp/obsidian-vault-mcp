@@ -90,3 +90,22 @@ fn replaces_only_a_quoted_frontmatter_value_and_preserves_its_formatting() {
         "{next}"
     );
 }
+
+#[test]
+fn inserts_empty_frontmatter_values_before_space_and_tab_comments() {
+    for (field, expected) in [
+        ("state: # retained", "state: closed # retained"),
+        ("owner:\t# retained", "owner:\tclosed\t# retained"),
+    ] {
+        let source = format!(
+            "---\nschema: test/v2\n{field}\n---\n\n# T\n\n## Intent\n\nx\n\n## Results\n\nr\n"
+        );
+        let parsed = ParsedDocument::parse("doc.md", &source, SCHEMA).unwrap();
+
+        let next = parsed
+            .replace_frontmatter_field(&source, field.split(':').next().unwrap(), "closed")
+            .unwrap();
+
+        assert!(next.contains(expected), "{next}");
+    }
+}

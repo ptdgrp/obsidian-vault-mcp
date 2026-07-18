@@ -183,10 +183,13 @@ impl ParsedDocument {
             .get(range.clone())
             .ok_or_else(|| anyhow::anyhow!("frontmatter source range is invalid"))?;
         let mut next = source.to_string();
-        if let Some((start, end, quote)) = frontmatter_field_value_range(frontmatter, field) {
-            let replacement = quote
+        if let Some((start, end, quote, comment_separator)) =
+            frontmatter_field_value_range(frontmatter, field)
+        {
+            let mut replacement = quote
                 .map(|quote| format!("{quote}{}{quote}", escape_yaml_string(value, quote)))
                 .unwrap_or_else(|| value.to_string());
+            replacement.push_str(comment_separator);
             next.replace_range(range.start + start..range.start + end, &replacement);
         } else {
             let closing = frontmatter
@@ -286,10 +289,10 @@ fn line_start_after(source: &str, line: u64) -> usize {
     line_start(source, line.saturating_add(1))
 }
 
-fn frontmatter_field_value_range(
-    frontmatter: &str,
+fn frontmatter_field_value_range<'a>(
+    frontmatter: &'a str,
     field: &str,
-) -> Option<(usize, usize, Option<char>)> {
+) -> Option<(usize, usize, Option<char>, &'a str)> {
     let mut offset = 0;
     for line in frontmatter.split_inclusive('\n') {
         let content = line.strip_suffix('\n').unwrap_or(line);
@@ -300,10 +303,14 @@ fn frontmatter_field_value_range(
         if yaml_key(&content[..colon]) == Some(field) {
             let value = &content[colon + 1..];
             let leading_whitespace = value.len() - value.trim_start().len();
+            let comment_separator = (leading_whitespace > 0
+                && value[leading_whitespace..].starts_with('#'))
+            .then_some(&value[..leading_whitespace])
+            .unwrap_or("");
             let start = offset + colon + 1 + leading_whitespace;
             let value = &value[leading_whitespace..];
             let (length, quote) = yaml_value_length(value);
-            return Some((start, start + length, quote));
+            return Some((start, start + length, quote, comment_separator));
         }
         offset += line.len();
     }
@@ -353,10 +360,11 @@ fn yaml_value_length(value: &str) -> (usize, Option<char>) {
             .char_indices()
             .find(|(index, character)| {
                 *character == '#'
-                    && value[..*index]
-                        .chars()
-                        .last()
-                        .is_some_and(char::is_whitespace)
+                    && (*index == 0
+                        || value[..*index]
+                            .chars()
+                            .last()
+                            .is_some_and(char::is_whitespace))
             })
             .map(|(index, _)| index)
             .unwrap_or(value.len());
