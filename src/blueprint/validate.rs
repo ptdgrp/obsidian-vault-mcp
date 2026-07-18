@@ -38,15 +38,6 @@ fn validate_todo_invariants(todos: &[&Todo]) -> anyhow::Result<()> {
                 if todo.completed_by.as_deref().is_none_or(str::is_empty) {
                     anyhow::bail!("completed Todo {} is missing Completed By", todo.id);
                 }
-                if todo.result_summary.as_deref().is_none_or(str::is_empty) {
-                    anyhow::bail!("completed Todo {} is missing Result Summary", todo.id);
-                }
-                if todo.completion_criteria.iter().any(|item| !item.completed) {
-                    anyhow::bail!(
-                        "completed Todo {} has incomplete Completion Criteria",
-                        todo.id
-                    );
-                }
                 if todo.children.iter().any(|child| {
                     !matches!(child.status, TodoStatus::Completed | TodoStatus::Cancelled)
                 }) {
@@ -56,9 +47,6 @@ fn validate_todo_invariants(todos: &[&Todo]) -> anyhow::Result<()> {
             TodoStatus::Blocked => {
                 if todo.block_reason.as_deref().is_none_or(str::is_empty) {
                     anyhow::bail!("blocked Todo {} is missing Block Reason", todo.id);
-                }
-                if todo.handoff.is_empty() {
-                    anyhow::bail!("blocked Todo {} is missing Handoff", todo.id);
                 }
             }
             TodoStatus::Cancelled if todo.cancel_reason.as_deref().is_none_or(str::is_empty) => {

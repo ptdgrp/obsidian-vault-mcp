@@ -1,5 +1,5 @@
 use super::super::{
-    model::{CheckItem, Todo, TodoStatus},
+    model::{Todo, TodoStatus},
     validate::{derive_readiness, validate_dependency_graph},
 };
 
@@ -101,21 +101,13 @@ fn enforces_required_fields_for_each_todo_state() {
     completed.result_summary = Some("result".into());
     assert_invalid(&[completed.clone()], "missing Completed By");
     completed.completed_by = Some("agent".into());
-    completed.result_summary = None;
-    assert_invalid(&[completed.clone()], "missing Result Summary");
-    completed.result_summary = Some("result".into());
-    completed.completion_criteria = vec![CheckItem {
-        text: "verify".into(),
-        completed: false,
-    }];
-    assert_invalid(&[completed], "incomplete Completion Criteria");
+    assert!(validate_dependency_graph(&[completed]).is_ok());
 
     let mut blocked = todo("todo-blocked", TodoStatus::Blocked, &[]);
     blocked.handoff = vec!["resume later".into()];
     assert_invalid(&[blocked.clone()], "missing Block Reason");
     blocked.block_reason = Some("external dependency".into());
-    blocked.handoff.clear();
-    assert_invalid(&[blocked], "missing Handoff");
+    assert!(validate_dependency_graph(&[blocked]).is_ok());
 
     let cancelled = todo("todo-cancelled", TodoStatus::Cancelled, &[]);
     assert_invalid(&[cancelled], "missing Cancel Reason");

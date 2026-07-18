@@ -387,11 +387,6 @@ impl BlueprintService {
         }
         for criterion in completion_criteria {
             require_text("completion criterion", criterion)?;
-            block.push_str("  - Completion Criteria:\n");
-            break;
-        }
-        for criterion in completion_criteria {
-            block.push_str(&format!("    - [ ] {}\n", criterion.trim()));
         }
         self.store.with_lock(blueprint_id, |locked| {
             locked.create_todo(
@@ -551,10 +546,7 @@ impl BlueprintService {
                 if matches!(
                     current.status,
                     TodoStatus::Completed | TodoStatus::Cancelled
-                ) || (matches!(current.status, TodoStatus::InProgress | TodoStatus::Blocked)
-                    && current.owner.as_deref() != Some(owner.trim())
-                    && current.handoff.is_empty())
-                {
+                ) {
                     anyhow::bail!("Todo cannot be assigned in its current state");
                 }
                 replace_or_insert_todo_field(source, todo_id, "Owner", owner.trim())
@@ -694,13 +686,7 @@ impl BlueprintService {
                     anyhow::bail!("Todo is not eligible to complete");
                 }
                 let source = replace_task_status(source, todo_id, TodoStatus::Completed)?;
-                let source = replace_or_insert_todo_field(
-                    &source,
-                    todo_id,
-                    "Completed By",
-                    completed_by.trim(),
-                )?;
-                replace_or_insert_todo_field(&source, todo_id, "Result Summary", summary.trim())
+                replace_or_insert_todo_field(&source, todo_id, "Completed By", completed_by.trim())
             })?;
         self.store
             .write_todo(blueprint_id, todo_id, None, |source| {
@@ -755,20 +741,6 @@ impl BlueprintService {
                         "Depends On",
                         &depends_on.join(", "),
                     )?;
-                }
-                if let Some(handoff) = handoff {
-                    next = replace_repeated_todo_field(&next, todo_id, "Handoff", handoff)?;
-                }
-                if let Some(summary) = result_summary {
-                    next = replace_or_insert_todo_field(
-                        &next,
-                        todo_id,
-                        "Result Summary",
-                        summary.trim(),
-                    )?;
-                }
-                if let Some(criteria) = completion_criteria {
-                    next = replace_completion_criteria(&next, todo_id, criteria)?;
                 }
                 let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &next)?;
                 derive_readiness(&parsed.todos)?;

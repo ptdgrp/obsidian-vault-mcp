@@ -29,3 +29,8 @@
 - Service mutation 在 closed/cancelled Blueprint 上拒绝执行，重复 close/cancel 也被拒绝；完整 close 需要非空 Results 和 Evidence 引用。
 - full view 返回 Todo 文档索引，resume 返回 Rubric 且从详情文件载入活动 Todo 的 Handoff；CLI update 走 BlueprintPatch 语义更新，支持 rubric/changed_by/change_reason。
 - 最终验证：`cargo fmt --all && cargo test blueprint::tests -- --nocapture` 为 50 passed, 0 failed；`cargo check` 和 `git diff --check` 成功。
+
+## 第二轮复审修复
+
+- 中央 Todo 创建和更新不再写入 Completion Criteria、Handoff 或 Result Summary；这些字段由 TodoDetail 读取和写入。Graph validator 也不再把详情字段当作中央图不变量。
+- 更新了详情与 Graph 分层的 validate / Service 回归测试，保持 `cargo test blueprint::tests` 50 个测试通过。
