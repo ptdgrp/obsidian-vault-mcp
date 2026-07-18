@@ -382,6 +382,7 @@ impl LockedBlueprintStore<'_> {
         expected_etag: Option<&str>,
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredBlueprint> {
+        self.require_active()?;
         let current = self.read_blueprint()?;
         check_etag(expected_etag, &current.etag)?;
         let source = mutate(&current.source)?;
@@ -391,6 +392,7 @@ impl LockedBlueprintStore<'_> {
     }
 
     pub(crate) fn create_todo(&self, id: &str, source: &str) -> anyhow::Result<StoredTodo> {
+        self.require_active()?;
         validate_todo_id(id)?;
         validate_todo_source(self.id, id, &self.store.todo_path(self.id, id), source)?;
         self.read_blueprint()?;
@@ -422,6 +424,7 @@ impl LockedBlueprintStore<'_> {
         expected_etag: Option<&str>,
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredTodo> {
+        self.require_active()?;
         validate_todo_id(id)?;
         let current = self.read_todo(id)?;
         check_etag(expected_etag, &current.etag)?;

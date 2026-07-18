@@ -94,7 +94,106 @@ fn todo_details_are_the_source_for_handoff_criteria_and_results() {
     assert_eq!(loaded.result_summary.as_deref(), Some("detail result"));
     let full = service.blueprint_view(&blueprint.id, Some("full")).unwrap();
     assert_eq!(full.todo_index.len(), 1);
-    assert!(full.source.unwrap().contains("todos/"));
+    let graph = full.source.unwrap_or_default();
+    assert!(graph.contains("todos/"));
+    assert!(!graph.contains("Completion Criteria:"));
+    assert!(!graph.contains("Handoff:"));
+    assert!(!graph.contains("Result Summary:"));
+}
+
+#[test]
+fn todo_detail_write_failure_does_not_commit_central_graph_change() {
+    let (directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "atomic completion",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
+        .unwrap();
+    assert!(
+        service
+            .todo_update(
+                &blueprint.id,
+                &todo.id,
+                Some("renamed only in graph if ordering is wrong"),
+                None,
+                Some(&[CheckUpdate {
+                    text: " ".into(),
+                    completed: false,
+                }]),
+                None,
+                None,
+                None,
+            )
+            .is_err()
+    );
+    let graph = fs::read_to_string(
+        Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+            .unwrap()
+            .join(".blueprint/blueprints")
+            .join(&blueprint.id)
+            .join("blueprint.md"),
+    )
+    .unwrap();
+    assert!(graph.contains(&format!(
+        "[atomic completion](todos/{}.md) ^{}",
+        todo.id, todo.id
+    )));
+    assert!(!graph.contains("renamed only in graph if ordering is wrong"));
+}
+
+#[test]
+fn complete_close_rejects_dangling_evidence_reference() {
+    let (directory, service, blueprint) = create_blueprint();
+    service
+        .dod_update(
+            &blueprint.id,
+            &first_dod_id(&blueprint.source),
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    let path = Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+        .unwrap()
+        .join(".blueprint/blueprints")
+        .join(&blueprint.id)
+        .join("blueprint.md");
+    let source = fs::read_to_string(&path).unwrap().replace(
+        "## Results\n\n## Evidence",
+        "## Results\n\n- Evidence: [missing](#^evidence-missing)\n\n## Evidence\n\n### Present ^evidence-present",
+    );
+    fs::write(path, source).unwrap();
+
+    let error = service
+        .blueprint_close(&blueprint.id, "closer", None, None)
+        .unwrap_err();
+    assert!(error.to_string().contains("Evidence"), "{error:#}");
+}
+
+#[test]
+fn close_and_cancel_append_revisions() {
+    let (_directory, service, complete) = create_blueprint();
+    service
+        .blueprint_close(&complete.id, "closer", Some("stopped"), None)
+        .unwrap();
+    let closed = service.blueprint_get(&complete.id).unwrap();
+    assert!(closed.source.contains("^revision-"));
+    assert!(closed.source.contains("- Reason: stopped"));
+
+    let (_directory, service, cancelled) = create_blueprint();
+    service
+        .blueprint_cancel(&cancelled.id, "canceller", "obsolete", None)
+        .unwrap();
+    let cancelled = service.blueprint_get(&cancelled.id).unwrap();
+    assert!(cancelled.source.contains("^revision-"));
+    assert!(cancelled.source.contains("- Reason: obsolete"));
 }
 
 #[test]

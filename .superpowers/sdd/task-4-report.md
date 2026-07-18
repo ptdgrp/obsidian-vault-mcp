@@ -34,3 +34,13 @@
 
 - 中央 Todo 创建和更新不再写入 Completion Criteria、Handoff 或 Result Summary；这些字段由 TodoDetail 读取和写入。Graph validator 也不再把详情字段当作中央图不变量。
 - 更新了详情与 Graph 分层的 validate / Service 回归测试，保持 `cargo test blueprint::tests` 50 个测试通过。
+
+## 原子性收尾修复
+
+- 所有受 Blueprint 锁保护的中央图和 Todo 详情写入现在在锁内重新确认 `active`；Store 的锁内写入口也强制该 guard，避免先读后写的 TOCTOU。
+- `todo_update`、`todo_complete` 与 `todo_block` 在一个锁内先写并验证 TodoDetail，再提交中央图；完成操作永远不会在详情无效时推进中央 marker。
+- `blueprint_close` / `blueprint_cancel` 合并为一次锁内写入，同时更新 Record、Results、Revision History 和 frontmatter state；两者均追加 Revision。
+- 完整关闭严格解析 Results 中的标准 Markdown Evidence 链接，拒绝 malformed、dangling 与重复 Evidence ID。
+- 回归覆盖：详情写失败不提交中央图、锁内 stale active guard、关闭/取消 Revision、dangling Evidence，以及中央图不含详情字段。
+
+验证：`cargo fmt --all`、`cargo test blueprint::tests -- --nocapture`（54 passed）、`cargo check`、`git diff --check`。

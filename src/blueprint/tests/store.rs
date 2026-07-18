@@ -77,6 +77,23 @@ fn creates_v2_aggregate_and_keeps_path_stable_across_state_changes() {
 }
 
 #[test]
+fn locked_active_guard_rejects_a_mutation_after_a_stale_active_read() {
+    let (_dir, store) = store();
+    let active = store.create("bp-01", &blueprint_source()).unwrap();
+    store
+        .set_state("bp-01", BlueprintState::Cancelled, Some(&active.etag))
+        .unwrap();
+
+    let error = store
+        .with_lock("bp-01", |locked| {
+            locked.require_active()?;
+            locked.write_blueprint(None, |source| Ok(source.to_string()))
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("not active"));
+}
+
+#[test]
 fn stores_todo_documents_with_independent_etags_and_detects_orphans() {
     let (_dir, store) = store_with_blueprint();
     let todo = store
