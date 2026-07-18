@@ -1,12 +1,9 @@
-use std::fs;
-
-use camino::Utf8PathBuf;
-use tempfile::tempdir;
-
 use super::*;
 use crate::server::ObsidianVaultMcp;
 use crate::vault::{DEFAULT_MAX_READ_NOTE_CHARS, Vault, VaultConfig, VaultError};
-
+use camino::Utf8PathBuf;
+use std::fs;
+use tempfile::tempdir;
 mod contract_primitives;
 mod edge_cases;
 mod search_and_section;
@@ -62,8 +59,8 @@ fn fixture() -> (tempfile::TempDir, VaultQueries) {
         .expect("gitignored nested note");
 
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
-    (dir, VaultQueries::new(vault))
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    (dir, VaultQueries::new(Arc::new(vault)))
 }
 
 #[test]
@@ -593,7 +590,7 @@ fn get_category_matches_normalized_segment_and_paginates_notes() {
 
 #[test]
 fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
-    let (dir, mut queries) = fixture();
+    let (dir, queries) = fixture();
     for path in ["正文/keep.md", "资料/keep.md", "正文/草稿/drop.md"] {
         if let Some(parent) = dir.path().join(path).parent() {
             fs::create_dir_all(parent).expect("create note directory");
@@ -668,9 +665,7 @@ fn query_path_filters_limit_tags_categories_and_searches_before_aggregation() {
 
     queries
         .vault
-        .config
-        .exclude
-        .push("资料/**/*.md".to_string());
+        .modify_config(|it| it.exclude.push("资料/**/*.md".to_string()));
     let globally_hidden = queries
         .search_text(
             "shared filtered content",
@@ -849,7 +844,9 @@ fn parse_note_does_not_pair_cached_ast_with_changed_source() {
         .modified()
         .expect("original modified time");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let queries = VaultQueries::new(Vault::open(root, VaultConfig::default()).expect("vault"));
+    let queries = VaultQueries::new(Arc::new(
+        Vault::open(&root, VaultConfig::default()).expect("vault"),
+    ));
 
     let (original, original_content) = queries.parse_note("note").expect("parse original note");
     assert_eq!(original.headings[0].text, "Alpha");
@@ -877,7 +874,7 @@ fn parse_cache_prunes_by_ttl_and_entry_limit() {
 
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
     let vault = Vault::open(
-        root,
+        &root,
         VaultConfig {
             parse_cache_ttl_secs: 600,
             parse_cache_max_entries: 2,
@@ -885,7 +882,7 @@ fn parse_cache_prunes_by_ttl_and_entry_limit() {
         },
     )
     .expect("vault");
-    let queries = VaultQueries::new(vault);
+    let queries = VaultQueries::new(Arc::new(vault));
 
     queries.parse_note("a").expect("parse a");
     queries.parse_note("b").expect("parse b");
@@ -1333,8 +1330,10 @@ fn mcp_output_schemas_have_object_roots() {
 
 #[test]
 fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
-    let (_dir, mut queries) = fixture();
-    queries.vault.config.max_read_note_chars = "# 发动机\n".chars().count();
+    let (_dir, queries) = fixture();
+    queries.vault.modify_config(|it| {
+        it.max_read_note_chars = "# 发动机\n".chars().count();
+    });
 
     assert_eq!(DEFAULT_MAX_READ_NOTE_CHARS, 4 * 1024);
 
@@ -1373,8 +1372,10 @@ fn read_note_omits_truncated_field_when_full_content_is_returned() {
 
 #[test]
 fn read_note_allows_per_request_max_chars_override() {
-    let (_dir, mut queries) = fixture();
-    queries.vault.config.max_read_note_chars = "# 发动机\n".chars().count();
+    let (_dir, queries) = fixture();
+    queries
+        .vault
+        .modify_config(|it| it.max_read_note_chars = "# 发动机\n".chars().count());
 
     let result = queries
         .read_note(
@@ -1390,9 +1391,11 @@ fn read_note_allows_per_request_max_chars_override() {
 
 #[test]
 fn read_note_counts_unicode_characters_not_utf8_bytes() {
-    let (dir, mut queries) = fixture();
+    let (dir, queries) = fixture();
     fs::write(dir.path().join("字符.md"), "甲乙丙丁").expect("write unicode note");
-    queries.vault.config.max_read_note_chars = 2;
+    queries.vault.modify_config(|it| {
+        it.max_read_note_chars = 2;
+    });
 
     let result = queries.read_note("字符.md", None, None).expect("read note");
 

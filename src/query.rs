@@ -401,6 +401,21 @@ pub enum FrontmatterMatchMode {
     Regex,
 }
 
+impl TryFrom<&str> for FrontmatterMatchMode {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "exists" => Ok(crate::query::FrontmatterMatchMode::Exists),
+            "equals" => Ok(crate::query::FrontmatterMatchMode::Equals),
+            "regex" => Ok(crate::query::FrontmatterMatchMode::Regex),
+            _ => Err(anyhow::anyhow!(
+                "invalid frontmatter query mode: '{value}'; expected one of: exists, equals, regex"
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct FrontmatterQueryResult {
     pub notes: Vec<String>,
@@ -484,6 +499,20 @@ pub enum NeighborhoodDirection {
     Both,
 }
 
+impl TryFrom<&str> for NeighborhoodDirection {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "out" => Ok(Self::Out),
+            "in" => Ok(Self::In),
+            "both" => Ok(Self::Both),
+            _ => Err(anyhow::anyhow!(
+                "invalid neighborhood direction: '{value}'; expected one of: both, out, in"
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NeighborhoodResult {
     pub center: NeighborhoodCenter,
@@ -527,15 +556,16 @@ pub struct NeighborhoodLink {
 
 #[derive(Clone, Debug)]
 pub struct VaultQueries {
-    pub vault: Vault,
+    pub vault: Arc<Vault>,
     pub(crate) parse_cache: Arc<ParseCache>,
 }
 
 impl VaultQueries {
-    pub fn new(vault: Vault) -> Self {
+    pub fn new(vault: Arc<Vault>) -> Self {
+        let config = vault.config();
         let parse_cache = Arc::new(ParseCache::new(
-            vault.config.parse_cache_ttl_secs,
-            vault.config.parse_cache_max_entries,
+            config.parse_cache_ttl_secs,
+            config.parse_cache_max_entries,
         ));
         Self { vault, parse_cache }
     }
@@ -548,7 +578,7 @@ impl VaultQueries {
         relative_path: &str,
     ) -> anyhow::Result<(Arc<ParsedNote>, String)> {
         self.parse_cache
-            .parse_note(path, relative_path, self.vault.config.max_note_bytes)
+            .parse_note(path, relative_path, self.vault.config().max_note_bytes)
     }
 
     #[tracing::instrument(name = "vault.parse_note")]
@@ -556,7 +586,7 @@ impl VaultQueries {
         let path = self.resolve_note_path(note)?;
         let relative_path = self.vault.relative_path(&path);
         self.parse_cache
-            .parse_note(&path, &relative_path, self.vault.config.max_note_bytes)
+            .parse_note(&path, &relative_path, self.vault.config().max_note_bytes)
     }
 
     #[tracing::instrument(

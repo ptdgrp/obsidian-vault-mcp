@@ -10,7 +10,7 @@ use super::{Vault, VaultConfig, VaultError};
 fn fixture(config: VaultConfig) -> (tempfile::TempDir, Vault) {
     let dir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, config).expect("vault");
+    let vault = Vault::open(&root, config).expect("vault");
     (dir, vault)
 }
 
@@ -19,14 +19,13 @@ fn open_rejects_missing_or_file_roots() {
     let dir = tempdir().expect("tempdir");
     let missing = Utf8PathBuf::from_path_buf(dir.path().join("missing")).expect("utf8 path");
     let error =
-        Vault::open(missing.clone(), VaultConfig::default()).expect_err("missing root should fail");
+        Vault::open(&missing, VaultConfig::default()).expect_err("missing root should fail");
     assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == missing));
 
     let file = dir.path().join("vault.md");
     fs::write(&file, "# not a directory\n").expect("write file root");
     let file = Utf8PathBuf::from_path_buf(file).expect("utf8 path");
-    let error =
-        Vault::open(file.clone(), VaultConfig::default()).expect_err("file root should fail");
+    let error = Vault::open(&file, VaultConfig::default()).expect_err("file root should fail");
     assert!(matches!(error, VaultError::RootIsNotDirectory(path) if path == file));
 }
 
@@ -39,7 +38,7 @@ fn read_note_appends_markdown_extension_and_enforces_size_limit() {
     fs::write(dir.path().join("短.md"), "1234").expect("write short note");
     fs::write(dir.path().join("长.md"), "12345").expect("write long note");
 
-    let queries = VaultQueries::new(vault);
+    let queries = VaultQueries::new(std::sync::Arc::new(vault));
     let result = queries
         .read_note("短", None, None)
         .expect("read short note");
@@ -86,18 +85,18 @@ fn write_note_atomic_reports_missing_parent_directory() {
 
 #[test]
 fn list_notes_honors_include_globs_and_reports_invalid_patterns() {
-    let (dir, mut vault) = fixture(VaultConfig::default());
+    let (dir, vault) = fixture(VaultConfig::default());
     fs::create_dir_all(dir.path().join("正文")).expect("chapter dir");
     fs::create_dir_all(dir.path().join("设定")).expect("setting dir");
     fs::write(dir.path().join("正文/001.md"), "# 第一章\n").expect("write chapter");
     fs::write(dir.path().join("设定/术语.md"), "# 术语\n").expect("write setting");
 
-    vault.config.include = vec!["正文/**/*.md".to_string()];
+    vault.modify_config(|it| it.include = vec!["正文/**/*.md".to_string()]);
     let notes = vault.list_notes().expect("list notes");
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0].relative_path, "正文/001.md");
 
-    vault.config.include = vec!["[".to_string()];
+    vault.modify_config(|it| it.include = vec!["[".to_string()]);
     let error = vault.list_notes().expect_err("invalid glob should fail");
     assert!(matches!(error, VaultError::InvalidGlob(_)));
 }
@@ -146,12 +145,12 @@ fn resolve_path_normalizes_dot_segments_and_rejects_parent_escape() {
 
 #[test]
 fn list_notes_honors_exclude_globs_and_natural_sorting() {
-    let (dir, mut vault) = fixture(VaultConfig::default());
+    let (dir, vault) = fixture(VaultConfig::default());
     fs::write(dir.path().join("10.md"), "# ten\n").expect("write ten");
     fs::write(dir.path().join("2.md"), "# two\n").expect("write two");
     fs::write(dir.path().join("skip.md"), "# skip\n").expect("write skip");
 
-    vault.config.exclude = vec!["skip.md".to_string()];
+    vault.modify_config(|it| it.exclude = vec!["skip.md".to_string()]);
     let notes = vault.list_notes().expect("list notes");
     let paths = notes
         .into_iter()
@@ -209,7 +208,7 @@ fn list_notes_honors_obsidian_user_ignore_filters() {
 
     assert_eq!(paths, vec!["visible.md".to_string()]);
     assert!(
-        VaultQueries::new(vault)
+        VaultQueries::new(std::sync::Arc::new(vault))
             .read_note("archive/note.md", None, None)
             .is_ok()
     );

@@ -61,6 +61,23 @@ pub enum TagScope {
     Line,
 }
 
+impl TryFrom<&str> for TagScope {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "note" => Ok(crate::query::TagScope::Note),
+            "frontmatter" => Ok(crate::query::TagScope::Frontmatter),
+            "body" => Ok(crate::query::TagScope::Body),
+            "section" => Ok(crate::query::TagScope::Section),
+            "line" => Ok(crate::query::TagScope::Line),
+            other => Err(anyhow::anyhow!(
+                "invalid tag scope '{other}'; expected note, frontmatter, body, section, or line"
+            )),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmbedInfo {
     pub raw: String,

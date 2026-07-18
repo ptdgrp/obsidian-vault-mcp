@@ -1,6 +1,5 @@
-use std::fs;
-
 use camino::Utf8PathBuf;
+use std::{fs, sync::Arc};
 use tempfile::tempdir;
 
 use crate::{
@@ -21,8 +20,8 @@ fn fixture() -> (tempfile::TempDir, VaultMutations) {
     .expect("write target note");
     fs::write(dir.path().join("河流.md"), "# 河流\n").expect("write linked note");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
-    (dir, VaultMutations::new(VaultQueries::new(vault)))
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    (dir, VaultMutations::new(VaultQueries::new(Arc::new(vault))))
 }
 
 fn read_note(dir: &tempfile::TempDir, path: &str) -> String {
@@ -258,11 +257,13 @@ fn rename_note_updates_only_resolved_wikilinks_and_keeps_them_navigable() {
     );
 
     let vault = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault");
-    let notes = VaultQueries::new(vault).index_notes().expect("index notes");
+    let notes = VaultQueries::new(Arc::new(vault))
+        .index_notes()
+        .expect("index notes");
     for target in ["archive/推进器-新版.md", "archive/推进器-新版.md#原理"] {
         assert!(matches!(
             RefResolver::resolve(target, &notes),

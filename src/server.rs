@@ -24,7 +24,7 @@ use serde::Deserialize;
 use std::{sync::Arc, time::Instant};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
-pub async fn run_mcp_server(vault: Vault) -> anyhow::Result<()> {
+pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
     let service = ObsidianVaultMcp::new(vault);
     let server = service
         .serve((tokio::io::stdin(), tokio::io::stdout()))
@@ -46,7 +46,7 @@ pub struct AppState {
 }
 
 impl ObsidianVaultMcp {
-    pub fn new(vault: Vault) -> Self {
+    pub fn new(vault: Arc<Vault>) -> Self {
         let queries = VaultQueries::new(vault);
         Self {
             state: Arc::new(AppState {
@@ -903,7 +903,7 @@ where
     let _enter = span.enter();
     let started = Instant::now();
 
-    let (input_preview, input_truncated) = crate::telemetry_preview(&arguments);
+    let (input_preview, input_truncated) = crate::telemetry::telemetry_preview(&arguments);
     tracing::info!(input.preview = %input_preview, input.truncated = input_truncated, "tool.call.start");
     match run(arguments) {
         Ok(result) => {

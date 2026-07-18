@@ -1,27 +1,44 @@
-use std::{fs, io::Write};
-
 use camino::{Utf8Path, Utf8PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::{fs, io::Write, sync::Arc};
+
+use crate::cli;
 
 pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
 
 /// A bounded view over an Obsidian-style Markdown vault with atomic note writes.
 /// Vault 是一个受限、可即时扫描并支持原子笔记写入的 Obsidian Markdown 工作空间。
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Vault {
     pub root: Utf8PathBuf,
-    pub config: VaultConfig,
+    config: arc_swap::ArcSwap<VaultConfig>,
 }
 
 impl Vault {
-    pub fn open(root: Utf8PathBuf, config: VaultConfig) -> Result<Self, VaultError> {
+    pub fn open(root: &Utf8PathBuf, config: VaultConfig) -> Result<Self, VaultError> {
         if !root.is_dir() {
             return Err(VaultError::RootIsNotDirectory(root.to_string()));
         }
-        Ok(Self { root, config })
+        Ok(Self {
+            root: root.clone(),
+            config: arc_swap::ArcSwap::from(Arc::new(config)),
+        })
+    }
+
+    pub fn config(&self) -> arc_swap::Guard<Arc<VaultConfig>> {
+        self.config.load()
+    }
+
+    #[cfg(test)]
+    pub fn modify_config(&self, modifier: impl FnOnce(&mut VaultConfig) -> ()) {
+        let guard = self.config.load();
+        let mut new_config = (*guard).as_ref().clone();
+        drop(guard);
+        modifier(&mut new_config);
+        self.config.store(Arc::new(new_config));
     }
 
     pub fn resolve_path(&self, input: &str) -> Result<Utf8PathBuf, VaultError> {
@@ -75,8 +92,9 @@ impl Vault {
     }
 
     pub fn list_notes(&self) -> Result<Vec<NoteFile>, VaultError> {
-        let include = compile_globs(&self.config.include)?;
-        let exclude = compile_globs(&self.config.exclude)?;
+        let config = self.config.load();
+        let include = compile_globs(&config.include)?;
+        let exclude = compile_globs(&config.exclude)?;
         let obsidian_ignore = self.obsidian_ignore_filters()?;
         let mut files = Vec::new();
         let mut walker = WalkBuilder::new(&self.root);
@@ -86,7 +104,7 @@ impl Vault {
             .git_exclude(true)
             .require_git(false)
             .parents(true)
-            .follow_links(self.config.follow_symlinks);
+            .follow_links(config.follow_symlinks);
 
         for entry in walker.build() {
             let entry = entry.map_err(|err| VaultError::Io(err.to_string()))?;
@@ -105,7 +123,7 @@ impl Vault {
             {
                 continue;
             }
-            if !self.config.include.is_empty() && !include.is_match(&rel) {
+            if !config.include.is_empty() && !include.is_match(&rel) {
                 continue;
             }
             let metadata = fs::metadata(&path).map_err(|err| VaultError::Io(err.to_string()))?;
@@ -188,6 +206,21 @@ pub struct VaultConfig {
     pub parse_cache_max_entries: usize,
 
     pub chapters: Option<ChapterConfig>,
+}
+
+impl VaultConfig {
+    pub(crate) fn build(cli: &cli::Cli) -> Self {
+        VaultConfig {
+            include: cli.include.clone(),
+            exclude: cli.exclude.clone(),
+            follow_symlinks: cli.follow_symlinks,
+            max_read_note_chars: cli.max_read_note_chars,
+            max_results: cli.max_results,
+            parse_cache_ttl_secs: cli.parse_cache_ttl_secs,
+            parse_cache_max_entries: cli.parse_cache_max_entries,
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for VaultConfig {

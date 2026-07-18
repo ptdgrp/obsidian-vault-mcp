@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::Arc;
 
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
@@ -301,8 +302,8 @@ fn note_neighborhood_excludes_edges_with_unresolved_selectors() {
 fn empty_vault_queries_return_empty_results() {
     let dir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
-    let queries = VaultQueries::new(vault);
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    let queries = VaultQueries::new(Arc::new(vault));
 
     let notes = queries.list_notes(&[], &[], 1).expect("list notes");
     assert!(notes.notes.is_empty());

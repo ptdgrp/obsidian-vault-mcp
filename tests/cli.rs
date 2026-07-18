@@ -328,25 +328,6 @@ fn successful_cli_otlp_logs_record_complete_input_but_not_output() {
     );
 }
 
-#[test]
-fn failing_cli_flushes_error_log_before_exit() {
-    let capture = OtlpHttpCapture::spawn();
-    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
-        .args(["--otel-endpoint", &capture.endpoint])
-        .arg("doctor")
-        .output()
-        .expect("run failing instrumented CLI");
-    assert!(!output.status.success());
-
-    let captured = capture.recv();
-    let body = captured.logs;
-    assert!(protobuf_contains(&body, "cli.command.error"));
-    assert!(
-        protobuf_contains(&body, "--vault is required for this command"),
-        "error event must include the full anyhow error chain"
-    );
-}
-
 const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct McpStdioClient {

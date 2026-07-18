@@ -78,7 +78,7 @@ impl VaultQueries {
             None => source_for_line(&relative_path, &content, &parsed, 1, total_lines),
         };
         let selected = slice_text(&content, source.byte_start, source.byte_end);
-        let budget = max_chars.unwrap_or(self.vault.config.max_read_note_chars);
+        let budget = max_chars.unwrap_or(self.vault.config().max_read_note_chars);
         let selected_chars = selected.chars().count();
         let truncated = selected_chars > budget;
         let content = if truncated {

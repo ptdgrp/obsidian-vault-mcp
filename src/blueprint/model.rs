@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +35,32 @@ impl TodoStatus {
             '-' => Some(Self::Cancelled),
             _ => None,
         }
+    }
+}
+
+impl TryFrom<&str> for TodoStatus {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "pending" => Ok(TodoStatus::Pending),
+            "in_progress" => Ok(TodoStatus::InProgress),
+            "completed" => Ok(TodoStatus::Completed),
+            "blocked" => Ok(TodoStatus::Blocked),
+            "cancelled" => Ok(TodoStatus::Cancelled),
+            _ => {
+                anyhow::bail!(
+                    "invalid status: '{value}'; expected one of: pending, in_progress, completed, blocked, or cancelled"
+                )
+            }
+        }
+    }
+}
+
+impl FromStr for TodoStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 

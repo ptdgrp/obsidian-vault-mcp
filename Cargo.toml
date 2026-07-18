@@ -36,6 +36,7 @@ unicode-normalization = "0.1.25"
 ulid = "1.2.1"
 url = "2.5.8"
 walkdir = "2.5.0"
+arc-swap = "1.9.2"
 
 [dev-dependencies]
 insta = "1"

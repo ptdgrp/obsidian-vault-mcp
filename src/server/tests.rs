@@ -34,8 +34,8 @@ pub(super) fn fixture() -> (tempfile::TempDir, ObsidianVaultMcp) {
     fs::write(dir.path().join("引用.md"), "# 引用\n\n[[发动机.md#原理]]\n").expect("write note");
 
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
-    (dir, ObsidianVaultMcp::new(vault))
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    (dir, ObsidianVaultMcp::new(std::sync::Arc::new(vault)))
 }
 
 #[test]

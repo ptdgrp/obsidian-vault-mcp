@@ -13,20 +13,16 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::{
-    blueprint::{
-        BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
-        BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput,
-        BlueprintService, BlueprintStatus, BlueprintUpdateInput, CheckUpdate,
-        CompletionCriterionInput, DodUpdateInput, StoredBlueprint, Todo, TodoAssignInput,
-        TodoBlockInput, TodoCancelInput, TodoCompleteInput, TodoCreateInput, TodoInput,
-        TodoListInput, TodoListOutput, TodoUpdateInput,
-    },
-    vault::Vault,
+use crate::blueprint::{
+    BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
+    BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput,
+    BlueprintService, BlueprintStatus, BlueprintUpdateInput, CheckUpdate, CompletionCriterionInput,
+    DodUpdateInput, StoredBlueprint, Todo, TodoAssignInput, TodoBlockInput, TodoCancelInput,
+    TodoCompleteInput, TodoCreateInput, TodoInput, TodoListInput, TodoListOutput, TodoUpdateInput,
 };
 
-pub async fn run_blueprint_mcp_server(vault: Vault) -> anyhow::Result<()> {
-    let server = BlueprintMcp::new(vault)
+pub async fn run_blueprint_mcp_server(service: BlueprintService) -> anyhow::Result<()> {
+    let server = BlueprintMcp::new(service)
         .serve((tokio::io::stdin(), tokio::io::stdout()))
         .await?;
     server.waiting().await?;
@@ -40,9 +36,9 @@ pub struct BlueprintMcp {
 }
 
 impl BlueprintMcp {
-    pub fn new(vault: Vault) -> Self {
+    pub fn new(service: BlueprintService) -> Self {
         Self {
-            service: Arc::new(BlueprintService::new(vault.root)),
+            service: Arc::new(service),
             tool_router: Self::tool_router(),
         }
     }

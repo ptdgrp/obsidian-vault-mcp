@@ -19,7 +19,7 @@ fn fixture() -> (tempfile::TempDir, Vec<IndexedNote>) {
     fs::create_dir_all(dir.path().join("资料")).expect("资料 dir");
     fs::write(dir.path().join("资料/林动.md"), "# 资料林动\n").expect("write note");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
     let files = vault.list_notes().expect("list notes");
 
     let notes = files
@@ -59,7 +59,7 @@ fn resolve_treats_missing_heading_selector_as_unresolved() {
     let dir = tempdir().expect("tempdir");
     fs::write(dir.path().join("Target.md"), "# Target\n\n## Present\n").expect("write note");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
     let file = vault
         .list_notes()
         .expect("list notes")
@@ -85,7 +85,7 @@ fn resolve_treats_missing_block_selector_as_unresolved() {
     let dir = tempdir().expect("tempdir");
     fs::write(dir.path().join("Target.md"), "# Target\n\n^present\n").expect("write note");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
     let file = vault
         .list_notes()
         .expect("list notes")
@@ -115,7 +115,7 @@ fn resolve_canonicalizes_slash_separated_heading_path_selector() {
     )
     .expect("write note");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-    let vault = Vault::open(root, VaultConfig::default()).expect("vault");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
     let file = vault
         .list_notes()
         .expect("list notes")
@@ -181,7 +181,7 @@ fn resolve_matches_numeric_prefix_stems_after_exact_stem() {
     let (dir, mut notes) = fixture();
     fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n").expect("write numbered note");
     let file = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault")
@@ -209,7 +209,7 @@ fn resolve_matches_named_numeric_sort_prefix_stems() {
         fs::write(dir.path().join(path), "# 排序标题\n").expect("write prefixed note");
     }
     let vault = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault");
@@ -245,7 +245,7 @@ fn resolve_does_not_strip_letter_only_prefix_stems() {
     let (dir, mut notes) = fixture();
     fs::write(dir.path().join("unit-排序标题.md"), "# 排序标题\n").expect("write prefixed note");
     let file = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault")
@@ -273,7 +273,7 @@ fn resolve_reports_ambiguous_numeric_prefix_stems() {
         fs::write(dir.path().join(path), "# 排序标题\n").expect("write numbered note");
     }
     let vault = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault");
@@ -311,7 +311,7 @@ fn resolve_prefers_exact_stem_over_numeric_prefix_stem() {
         fs::write(dir.path().join(path), "# 排序标题\n").expect("write note");
     }
     let vault = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault");
@@ -342,7 +342,7 @@ fn resolve_does_not_apply_numeric_prefix_fallback_to_explicit_markdown_path() {
     let (dir, mut notes) = fixture();
     fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n").expect("write numbered note");
     let vault = Vault::open(
-        Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path"),
         VaultConfig::default(),
     )
     .expect("vault");
