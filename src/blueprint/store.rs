@@ -53,6 +53,15 @@ pub struct BlueprintStore {
     vault_root: Utf8PathBuf,
 }
 
+/// Holds the one exclusive lock for a Blueprint aggregate and exposes only operations that do
+/// not acquire that lock again. This lets a caller update the aggregate document and its Todo
+/// documents atomically with respect to other Store writers.
+pub(crate) struct LockedBlueprintStore<'store> {
+    store: &'store BlueprintStore,
+    id: &'store str,
+    _lock: File,
+}
+
 impl BlueprintStore {
     pub fn new(vault_root: Utf8PathBuf) -> Self {
         Self { vault_root }
@@ -78,41 +87,14 @@ impl BlueprintStore {
 
     pub fn create(&self, id: &str, source: &str) -> anyhow::Result<StoredBlueprint> {
         validate_blueprint_id(id)?;
-        self.ensure_workspace()?;
-        let parsed = parse_blueprint(id, source)?;
-        if parsed.id != id {
-            anyhow::bail!("Blueprint ID does not match document frontmatter: {id}");
-        }
-        self.with_lock(id, || {
-            let directory = self.blueprint_dir(id);
-            if directory.exists() {
-                anyhow::bail!("Blueprint already exists: {id}");
-            }
-            fs::create_dir_all(directory.join("todos"))?;
-            self.write_file_atomic(&self.blueprint_path(id), source)?;
-            self.read(id)
-        })
+        validate_blueprint_source(id, source)?;
+        self.with_lock(id, |locked| locked.create_blueprint(source))
     }
 
     pub fn read(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
         validate_blueprint_id(id)?;
         self.ensure_workspace()?;
-        let path = self.blueprint_path(id);
-        let source = fs::read_to_string(&path)
-            .map_err(|error| anyhow::anyhow!("cannot read Blueprint {id}: {error}"))?;
-        let parsed = parse_blueprint(id, &source)?;
-        if parsed.id != id {
-            anyhow::bail!("Blueprint ID does not match document frontmatter: {id}");
-        }
-        let todos = self.todo_indexes(id)?;
-        Ok(StoredBlueprint {
-            id: id.to_string(),
-            state: parsed.state,
-            path,
-            etag: etag(&source),
-            source,
-            todos,
-        })
+        self.read_unlocked(id)
     }
 
     pub fn list(&self, state: &str) -> anyhow::Result<Vec<String>> {
@@ -129,7 +111,7 @@ impl BlueprintStore {
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("Blueprint directory has no name"))?;
             validate_blueprint_id(id)?;
-            if self.read(id)?.state == state {
+            if self.read_unlocked(id)?.state == state {
                 ids.push(id.to_string());
             }
         }
@@ -143,19 +125,7 @@ impl BlueprintStore {
         expected_etag: Option<&str>,
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredBlueprint> {
-        validate_blueprint_id(id)?;
-        self.ensure_workspace()?;
-        self.with_lock(id, || {
-            let current = self.read(id)?;
-            check_etag(expected_etag, &current.etag)?;
-            let source = mutate(&current.source)?;
-            let parsed = parse_blueprint(id, &source)?;
-            if parsed.id != id {
-                anyhow::bail!("Blueprint ID does not match document frontmatter: {id}");
-            }
-            self.write_file_atomic(&current.path, &source)?;
-            self.read(id)
-        })
+        self.with_lock(id, |locked| locked.write_blueprint(expected_etag, mutate))
     }
 
     pub fn set_state(
@@ -183,42 +153,14 @@ impl BlueprintStore {
         id: &str,
         source: &str,
     ) -> anyhow::Result<StoredTodo> {
-        validate_blueprint_id(blueprint_id)?;
-        validate_todo_id(id)?;
-        self.ensure_workspace()?;
-        let parsed = TodoDetail::parse(&format!("{id}.md"), source)?;
-        if parsed.id != id || parsed.blueprint_id != blueprint_id {
-            anyhow::bail!("Todo frontmatter does not match its aggregate path");
-        }
-        self.with_lock(blueprint_id, || {
-            self.read(blueprint_id)?;
-            let path = self.todo_path(blueprint_id, id);
-            if path.exists() {
-                anyhow::bail!("Todo already exists: {id}");
-            }
-            self.write_file_atomic(&path, source)?;
-            self.read_todo(blueprint_id, id)
-        })
+        self.with_lock(blueprint_id, |locked| locked.create_todo(id, source))
     }
 
     pub fn read_todo(&self, blueprint_id: &str, id: &str) -> anyhow::Result<StoredTodo> {
         validate_blueprint_id(blueprint_id)?;
         validate_todo_id(id)?;
         self.ensure_workspace()?;
-        let path = self.todo_path(blueprint_id, id);
-        let source = fs::read_to_string(&path)
-            .map_err(|error| anyhow::anyhow!("cannot read Todo {id}: {error}"))?;
-        let parsed = TodoDetail::parse(path.as_str(), &source)?;
-        if parsed.id != id || parsed.blueprint_id != blueprint_id {
-            anyhow::bail!("Todo frontmatter does not match its aggregate path");
-        }
-        Ok(StoredTodo {
-            blueprint_id: blueprint_id.to_string(),
-            id: id.to_string(),
-            path,
-            etag: etag(&source),
-            source,
-        })
+        self.read_todo_unlocked(blueprint_id, id)
     }
 
     pub fn write_todo(
@@ -228,19 +170,8 @@ impl BlueprintStore {
         expected_etag: Option<&str>,
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredTodo> {
-        validate_blueprint_id(blueprint_id)?;
-        validate_todo_id(id)?;
-        self.ensure_workspace()?;
-        self.with_lock(blueprint_id, || {
-            let current = self.read_todo(blueprint_id, id)?;
-            check_etag(expected_etag, &current.etag)?;
-            let source = mutate(&current.source)?;
-            let parsed = TodoDetail::parse(current.path.as_str(), &source)?;
-            if parsed.id != id || parsed.blueprint_id != blueprint_id {
-                anyhow::bail!("Todo frontmatter does not match its aggregate path");
-            }
-            self.write_file_atomic(&current.path, &source)?;
-            self.read_todo(blueprint_id, id)
+        self.with_lock(blueprint_id, |locked| {
+            locked.write_todo(id, expected_etag, mutate)
         })
     }
 
@@ -278,21 +209,23 @@ impl BlueprintStore {
             .join(format!("{id}.md"))
     }
 
-    pub fn with_lock<T>(
+    pub(crate) fn with_lock<T>(
         &self,
         id: &str,
-        operation: impl FnOnce() -> anyhow::Result<T>,
+        operation: impl FnOnce(&LockedBlueprintStore<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         validate_blueprint_id(id)?;
         self.ensure_workspace()?;
-        let lock = self.lock(id)?;
-        let result = operation();
-        FileExt::unlock(&lock)?;
-        result
+        let locked = LockedBlueprintStore {
+            store: self,
+            id,
+            _lock: self.lock(id)?,
+        };
+        operation(&locked)
     }
 
-    // These legacy v1 Service entry points are intentionally isolated.  A v2 Store must not
-    // hand a v2 document to ParsedBlueprintSource, whose schema does not identify v2 documents.
+    // These legacy v1 Service entry points are intentionally isolated. A v2 Store must not hand
+    // a v2 document to ParsedBlueprintSource, whose schema does not identify v2 documents.
     pub fn read_active(&self, _id: &str) -> anyhow::Result<StoredBlueprint> {
         anyhow::bail!("legacy Blueprint v1 Service cannot read blueprint/v2 documents")
     }
@@ -316,6 +249,36 @@ impl BlueprintStore {
         anyhow::bail!("legacy Blueprint v1 Service cannot write blueprint/v2 documents")
     }
 
+    fn read_unlocked(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
+        let path = self.blueprint_path(id);
+        let source = fs::read_to_string(&path)
+            .map_err(|error| anyhow::anyhow!("cannot read Blueprint {id}: {error}"))?;
+        let parsed = validate_blueprint_source(id, &source)?;
+        let todos = self.todo_indexes(id)?;
+        Ok(StoredBlueprint {
+            id: id.to_string(),
+            state: parsed.state,
+            path,
+            etag: etag(&source),
+            source,
+            todos,
+        })
+    }
+
+    fn read_todo_unlocked(&self, blueprint_id: &str, id: &str) -> anyhow::Result<StoredTodo> {
+        let path = self.todo_path(blueprint_id, id);
+        let source = fs::read_to_string(&path)
+            .map_err(|error| anyhow::anyhow!("cannot read Todo {id}: {error}"))?;
+        validate_todo_source(blueprint_id, id, &path, &source)?;
+        Ok(StoredTodo {
+            blueprint_id: blueprint_id.to_string(),
+            id: id.to_string(),
+            path,
+            etag: etag(&source),
+            source,
+        })
+    }
+
     fn blueprint_dir(&self, id: &str) -> Utf8PathBuf {
         self.workspace_root().join("blueprints").join(id)
     }
@@ -329,19 +292,26 @@ impl BlueprintStore {
         if !todos_dir.exists() {
             return Ok(Vec::new());
         }
-        let mut todos = fs::read_dir(todos_dir)?
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let path = Utf8PathBuf::from_path_buf(entry.path()).ok()?;
-                let id = path.file_name()?.strip_suffix(".md")?.to_string();
-                let source = fs::read_to_string(&path).ok()?;
-                Some(StoredTodoIndex {
-                    id,
-                    path,
-                    etag: etag(&source),
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut todos = Vec::new();
+        for entry in fs::read_dir(&todos_dir)? {
+            let path = Utf8PathBuf::from_path_buf(entry?.path())
+                .map_err(|_| anyhow::anyhow!("Todo path is not UTF-8"))?;
+            if !path.is_file() || path.extension() != Some("md") {
+                continue;
+            }
+            let id = path
+                .file_stem()
+                .ok_or_else(|| anyhow::anyhow!("Todo document has no filename"))?;
+            validate_todo_id(id)?;
+            let source = fs::read_to_string(&path)
+                .map_err(|error| anyhow::anyhow!("cannot read Todo document {path}: {error}"))?;
+            validate_todo_source(blueprint_id, id, &path, &source)?;
+            todos.push(StoredTodoIndex {
+                id: id.to_string(),
+                path,
+                etag: etag(&source),
+            });
+        }
         todos.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(todos)
     }
@@ -373,15 +343,103 @@ impl BlueprintStore {
     }
 
     fn write_file_atomic(&self, path: &Utf8Path, source: &str) -> anyhow::Result<()> {
-        let mut temporary = tempfile::NamedTempFile::new_in(self.workspace_root().join(".tmp"))?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("document path has no parent: {path}"))?;
+        fs::create_dir_all(parent)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
         temporary.write_all(source.as_bytes())?;
         temporary.persist(path).map_err(|error| error.error)?;
         Ok(())
     }
 }
 
+impl LockedBlueprintStore<'_> {
+    pub(crate) fn read_blueprint(&self) -> anyhow::Result<StoredBlueprint> {
+        self.store.read_unlocked(self.id)
+    }
+
+    pub(crate) fn create_blueprint(&self, source: &str) -> anyhow::Result<StoredBlueprint> {
+        validate_blueprint_source(self.id, source)?;
+        let directory = self.store.blueprint_dir(self.id);
+        if directory.exists() {
+            anyhow::bail!("Blueprint already exists: {}", self.id);
+        }
+        fs::create_dir_all(directory.join("todos"))?;
+        self.store
+            .write_file_atomic(&self.store.blueprint_path(self.id), source)?;
+        self.read_blueprint()
+    }
+
+    pub(crate) fn write_blueprint(
+        &self,
+        expected_etag: Option<&str>,
+        mutate: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        let current = self.read_blueprint()?;
+        check_etag(expected_etag, &current.etag)?;
+        let source = mutate(&current.source)?;
+        validate_blueprint_source(self.id, &source)?;
+        self.store.write_file_atomic(&current.path, &source)?;
+        self.read_blueprint()
+    }
+
+    pub(crate) fn create_todo(&self, id: &str, source: &str) -> anyhow::Result<StoredTodo> {
+        validate_todo_id(id)?;
+        validate_todo_source(self.id, id, &self.store.todo_path(self.id, id), source)?;
+        self.read_blueprint()?;
+        let path = self.store.todo_path(self.id, id);
+        if path.exists() {
+            anyhow::bail!("Todo already exists: {id}");
+        }
+        self.store.write_file_atomic(&path, source)?;
+        self.read_todo(id)
+    }
+
+    pub(crate) fn read_todo(&self, id: &str) -> anyhow::Result<StoredTodo> {
+        validate_todo_id(id)?;
+        self.store.read_todo_unlocked(self.id, id)
+    }
+
+    pub(crate) fn write_todo(
+        &self,
+        id: &str,
+        expected_etag: Option<&str>,
+        mutate: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<StoredTodo> {
+        validate_todo_id(id)?;
+        let current = self.read_todo(id)?;
+        check_etag(expected_etag, &current.etag)?;
+        let source = mutate(&current.source)?;
+        validate_todo_source(self.id, id, &current.path, &source)?;
+        self.store.write_file_atomic(&current.path, &source)?;
+        self.read_todo(id)
+    }
+}
+
 fn parse_blueprint(id: &str, source: &str) -> anyhow::Result<BlueprintSource> {
     BlueprintSource::parse(&format!("blueprints/{id}/blueprint.md"), source)
+}
+
+fn validate_blueprint_source(id: &str, source: &str) -> anyhow::Result<BlueprintSource> {
+    let parsed = parse_blueprint(id, source)?;
+    if parsed.id != id {
+        anyhow::bail!("Blueprint ID does not match document frontmatter: {id}");
+    }
+    Ok(parsed)
+}
+
+fn validate_todo_source(
+    blueprint_id: &str,
+    id: &str,
+    path: &Utf8Path,
+    source: &str,
+) -> anyhow::Result<()> {
+    let parsed = TodoDetail::parse(path.as_str(), source)?;
+    if parsed.id != id || parsed.blueprint_id != blueprint_id {
+        anyhow::bail!("Todo frontmatter does not match its aggregate path");
+    }
+    Ok(())
 }
 
 fn flatten_todos(

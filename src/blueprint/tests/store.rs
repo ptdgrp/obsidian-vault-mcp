@@ -88,7 +88,11 @@ fn stores_todo_documents_with_independent_etags_and_detects_orphans() {
         TodoDetail::parse("todo-a.md", &todo.source).unwrap().id,
         "todo-a"
     );
-    fs::write(store.todo_path("bp-01", "todo-orphan"), todo_source()).unwrap();
+    fs::write(
+        store.todo_path("bp-01", "todo-orphan"),
+        todo_source().replacen("id: todo-a", "id: todo-orphan", 1),
+    )
+    .unwrap();
 
     assert!(
         store
@@ -149,4 +153,73 @@ fn write_operations_preserve_document_specific_etags_and_validate_sources() {
             .to_string()
             .contains("unsupported schema: blueprint/v1")
     );
+}
+
+#[test]
+fn combines_blueprint_and_todo_writes_under_one_aggregate_lock() {
+    let (_dir, store) = store_with_blueprint();
+    let todo = store
+        .create_todo("bp-01", "todo-a", &todo_source())
+        .unwrap();
+    let blueprint = store.read("bp-01").unwrap();
+
+    let (updated_todo, updated_blueprint) = store
+        .with_lock("bp-01", |locked| {
+            let updated_todo = locked.write_todo("todo-a", Some(&todo.etag), |source| {
+                Ok(source.replacen("Test one Todo", "Locked Todo", 1))
+            })?;
+            assert!(
+                locked
+                    .write_todo("todo-a", Some(&todo.etag), |source| Ok(source.into()))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("etag")
+            );
+            let updated_blueprint = locked.write_blueprint(Some(&blueprint.etag), |source| {
+                Ok(source.replacen("# Test", "# Locked Blueprint", 1))
+            })?;
+            Ok((updated_todo, updated_blueprint))
+        })
+        .unwrap();
+
+    assert_ne!(updated_todo.etag, todo.etag);
+    assert_ne!(updated_blueprint.etag, blueprint.etag);
+}
+
+#[test]
+fn aggregate_validation_rejects_invalid_todo_documents() {
+    for (name, source, expected) in [
+        (
+            "wrong schema",
+            todo_source().replacen("blueprint/todo/v2", "blueprint/todo/v1", 1),
+            "unsupported schema",
+        ),
+        (
+            "wrong id",
+            todo_source().replacen("id: todo-a", "id: todo-other", 1),
+            "frontmatter does not match",
+        ),
+        (
+            "wrong Blueprint",
+            todo_source().replacen("blueprint: bp-01", "blueprint: bp-other", 1),
+            "frontmatter does not match",
+        ),
+    ] {
+        let (_dir, store) = store_with_blueprint();
+        fs::write(store.todo_path("bp-01", "todo-a"), source).unwrap();
+        let error = store.validate_aggregate("bp-01").unwrap_err();
+        assert!(error.to_string().contains(expected), "{name}: {error:#}");
+    }
+}
+
+#[test]
+fn creates_a_missing_todo_parent_directory_before_atomic_write() {
+    let (_dir, store) = store_with_blueprint();
+    fs::remove_dir(store.workspace_root().join("blueprints/bp-01/todos")).unwrap();
+
+    store
+        .create_todo("bp-01", "todo-a", &todo_source())
+        .unwrap();
+
+    assert!(store.todo_path("bp-01", "todo-a").is_file());
 }
