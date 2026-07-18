@@ -65,3 +65,28 @@ fn appends_to_sections_and_replaces_frontmatter_fields_in_place() {
         "{next}"
     );
 }
+
+#[test]
+fn replaces_a_setext_h2_body_without_removing_its_underline() {
+    let source = "---\nschema: test/v2\n---\n\n# T\n\n## Intent\n\nx\n\nResults\n-------\n\nold\n";
+    let parsed = ParsedDocument::parse("doc.md", source, SCHEMA).unwrap();
+
+    let next = parsed.replace_section(source, "Results", "new").unwrap();
+
+    assert!(next.contains("Results\n-------\n\nnew\n"), "{next}");
+}
+
+#[test]
+fn replaces_only_a_quoted_frontmatter_value_and_preserves_its_formatting() {
+    let source = "---\nschema: test/v2\n\"state\" : \"active\"  # retained\n---\n\n# T\n\n## Intent\n\nx\n\n## Results\n\nr\n";
+    let parsed = ParsedDocument::parse("doc.md", source, SCHEMA).unwrap();
+
+    let next = parsed
+        .replace_frontmatter_field(source, "state", "closed")
+        .unwrap();
+
+    assert!(
+        next.contains("\"state\" : \"closed\"  # retained"),
+        "{next}"
+    );
+}

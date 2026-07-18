@@ -64,7 +64,7 @@ impl ParsedDocument {
                     headings.push((
                         direct_text(&document, index).trim().to_string(),
                         location_to_byte(source, node.start),
-                        line_start_after(source, node.start.line),
+                        line_start_after(source, node.end.line),
                     ));
                 }
                 _ => {}
@@ -182,22 +182,17 @@ impl ParsedDocument {
         let frontmatter = source
             .get(range.clone())
             .ok_or_else(|| anyhow::anyhow!("frontmatter source range is invalid"))?;
-        let replacement = format!("{field}: {value}");
         let mut next = source.to_string();
-        if let Some((start, end)) = frontmatter_field_range(frontmatter, field) {
-            let suffix = frontmatter[start..end]
-                .ends_with('\n')
-                .then_some("\n")
-                .unwrap_or("");
-            next.replace_range(
-                range.start + start..range.start + end,
-                &format!("{replacement}{suffix}"),
-            );
+        if let Some((start, end, quote)) = frontmatter_field_value_range(frontmatter, field) {
+            let replacement = quote
+                .map(|quote| format!("{quote}{}{quote}", escape_yaml_string(value, quote)))
+                .unwrap_or_else(|| value.to_string());
+            next.replace_range(range.start + start..range.start + end, &replacement);
         } else {
             let closing = frontmatter
                 .rfind("---")
                 .ok_or_else(|| anyhow::anyhow!("frontmatter closing delimiter is missing"))?;
-            next.insert_str(range.start + closing, &format!("{replacement}\n"));
+            next.insert_str(range.start + closing, &format!("{field}: {value}\n"));
         }
         Ok(next)
     }
@@ -291,15 +286,101 @@ fn line_start_after(source: &str, line: u64) -> usize {
     line_start(source, line.saturating_add(1))
 }
 
-fn frontmatter_field_range(frontmatter: &str, field: &str) -> Option<(usize, usize)> {
-    let prefix = format!("{field}:");
+fn frontmatter_field_value_range(
+    frontmatter: &str,
+    field: &str,
+) -> Option<(usize, usize, Option<char>)> {
     let mut offset = 0;
     for line in frontmatter.split_inclusive('\n') {
-        let line_end = offset + line.len();
-        if line.strip_suffix('\n').unwrap_or(line).starts_with(&prefix) {
-            return Some((offset, line_end));
+        let content = line.strip_suffix('\n').unwrap_or(line);
+        let Some(colon) = yaml_mapping_colon(content) else {
+            offset += line.len();
+            continue;
+        };
+        if yaml_key(&content[..colon]) == Some(field) {
+            let value = &content[colon + 1..];
+            let leading_whitespace = value.len() - value.trim_start().len();
+            let start = offset + colon + 1 + leading_whitespace;
+            let value = &value[leading_whitespace..];
+            let (length, quote) = yaml_value_length(value);
+            return Some((start, start + length, quote));
         }
-        offset = line_end;
+        offset += line.len();
     }
     None
+}
+
+fn yaml_mapping_colon(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        if let Some(active_quote) = quote {
+            if active_quote == '"' && character == '\\' && !escaped {
+                escaped = true;
+                continue;
+            }
+            if character == active_quote && !escaped {
+                quote = None;
+            }
+            escaped = false;
+        } else if matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if character == ':' {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn yaml_key(key: &str) -> Option<&str> {
+    let key = key.trim();
+    key.strip_prefix('"')
+        .and_then(|key| key.strip_suffix('"'))
+        .or_else(|| {
+            key.strip_prefix('\'')
+                .and_then(|key| key.strip_suffix('\''))
+        })
+        .or((!key.is_empty()).then_some(key))
+}
+
+fn yaml_value_length(value: &str) -> (usize, Option<char>) {
+    let Some(quote) = value
+        .chars()
+        .next()
+        .filter(|quote| matches!(quote, '\'' | '"'))
+    else {
+        let comment = value
+            .char_indices()
+            .find(|(index, character)| {
+                *character == '#'
+                    && value[..*index]
+                        .chars()
+                        .last()
+                        .is_some_and(char::is_whitespace)
+            })
+            .map(|(index, _)| index)
+            .unwrap_or(value.len());
+        return (value[..comment].trim_end().len(), None);
+    };
+
+    let mut escaped = false;
+    for (index, character) in value.char_indices().skip(1) {
+        if quote == '"' && character == '\\' && !escaped {
+            escaped = true;
+            continue;
+        }
+        if character == quote && !escaped {
+            return (index + character.len_utf8(), Some(quote));
+        }
+        escaped = false;
+    }
+    (value.len(), Some(quote))
+}
+
+fn escape_yaml_string(value: &str, quote: char) -> String {
+    match quote {
+        '"' => value.replace('\\', "\\\\").replace('"', "\\\""),
+        '\'' => value.replace('\'', "''"),
+        _ => value.to_string(),
+    }
 }
