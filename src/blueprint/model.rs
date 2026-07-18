@@ -70,6 +70,76 @@ pub struct CheckItem {
     pub completed: bool,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BlueprintState {
+    Active,
+    Closed,
+    Cancelled,
+}
+
+impl TryFrom<&str> for BlueprintState {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "active" => Ok(Self::Active),
+            "closed" => Ok(Self::Closed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => anyhow::bail!(
+                "invalid Blueprint state: '{value}'; expected active, closed, or cancelled"
+            ),
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct TodoGraphNode {
+    pub id: String,
+    pub title: String,
+    pub document: String,
+    pub status: TodoStatus,
+    pub created_by: Option<String>,
+    pub owner: Option<String>,
+    pub completed_by: Option<String>,
+    pub depends_on: Vec<String>,
+    pub block_reason: Option<String>,
+    pub cancel_reason: Option<String>,
+    pub children: Vec<TodoGraphNode>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct EvidenceItem {
+    pub id: String,
+    pub markdown: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct RevisionEntry {
+    pub id: String,
+    pub markdown: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct TodoDetail {
+    pub id: String,
+    pub blueprint_id: String,
+    pub title: String,
+    pub intent: String,
+    pub completion_criteria: Vec<CheckItem>,
+    pub plan: String,
+    pub handoff: String,
+    pub results: String,
+    pub evidence: Vec<EvidenceItem>,
+    pub revisions: Vec<RevisionEntry>,
+    pub notes: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct Todo {
     pub id: String,

@@ -1,86 +1,45 @@
-use super::super::{model::TodoStatus, source::ParsedBlueprintSource};
+use super::super::{BlueprintSource, BlueprintState, TodoStatus};
 
-fn blueprint(todos: &str) -> String {
+fn blueprint_v2(todos: &str) -> String {
     format!(
-        "# 测试\n\n## Record\n\n- Created By: agent\n\n## Intent\n\n目标\n\n## Constraints\n\n- 限制\n\n## Definition of Done\n\n- [ ] 完成 ^dod-01\n\n## Plan\n\n计划\n\n## Todos\n\n{todos}\n## Results\n\n\n## Notes\n\n"
+        "---\nschema: blueprint/v2\nid: bp-01\nstate: active\n---\n\n# 写作计划\n\n## Record\n\n- Created By: planner\n\n## Intent\n\n完成初稿\n\n## Constraints\n\n- 保持风格\n\n## Definition of Done\n\n- [ ] 初稿完成 ^dod-draft\n\n## Plan\n\n先研究，再写作\n\n## Rubric\n\n核对目标和约束\n\n## Todos\n\n{todos}\n## Results\n\n\n## Evidence\n\n### 已确认素材 ^evidence-source\n\n- Observation: 可用。\n\n## Revision History\n\n### 创建计划 ^revision-source\n\n- Changed By: planner\n\n## Notes\n\n<!-- preserve -->\n"
     )
 }
 
 #[test]
-fn parses_todos_but_excludes_completion_criteria_from_graph() {
-    let source = blueprint(
-        "- [/] 父任务 ^todo-parent\n  - Created By: a\n  - Completion Criteria:\n    - [ ] 局部条件\n  - Children:\n    - [ ] 子任务 ^todo-child\n      - Created By: a\n",
+fn parses_v2_graph_links_without_loading_todo_details() {
+    let source = blueprint_v2(
+        "- [/] [完成初稿](todos/todo-draft.md) ^todo-draft\n  - Created By: planner\n  - Owner: writer\n",
     );
-    let parsed = ParsedBlueprintSource::parse("bp-01.md", &source).unwrap();
-    assert_eq!(parsed.todos.len(), 1);
-    assert_eq!(parsed.todos[0].id, "todo-parent");
-    assert_eq!(parsed.todos[0].children[0].id, "todo-child");
-    assert_eq!(parsed.todos[0].completion_criteria.len(), 1);
+
+    let parsed = BlueprintSource::parse("bp-01/blueprint.md", &source).unwrap();
+
+    assert_eq!(parsed.state, BlueprintState::Active);
+    assert_eq!(parsed.todos[0].id, "todo-draft");
+    assert_eq!(parsed.todos[0].title, "完成初稿");
+    assert_eq!(parsed.todos[0].document, "todos/todo-draft.md");
+    assert_eq!(parsed.todos[0].status, TodoStatus::InProgress);
+    assert_eq!(parsed.rubric, "核对目标和约束");
+    assert_eq!(parsed.evidence[0].id, "evidence-source");
+    assert!(parsed.evidence[0].markdown.contains("Observation: 可用。"));
+    assert_eq!(parsed.revisions[0].id, "revision-source");
+    assert!(parsed.notes.contains("<!-- preserve -->"));
 }
 
 #[test]
-fn rejects_invalid_path_and_missing_or_duplicate_required_sections() {
-    let source = blueprint("");
-    let error = ParsedBlueprintSource::parse("bp-01.txt", &source)
-        .err()
-        .expect("non-Markdown path must fail");
-    assert!(error.to_string().contains("must end with .md"));
-
-    let missing_notes = source.replacen("## Notes\n\n", "", 1);
-    let error = ParsedBlueprintSource::parse("bp-01.md", &missing_notes)
-        .err()
-        .expect("missing required section must fail");
+fn requires_v2_frontmatter_and_standard_todo_links() {
+    let source = blueprint_v2("- [ ] 普通任务 ^todo-draft\n");
+    let error = BlueprintSource::parse("bp-01/blueprint.md", &source).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("missing required section: Notes")
+        error.to_string().contains("standard Markdown link"),
+        "{error:#}"
     );
 
-    let duplicate_plan = source.replace("## Todos", "## Plan\n\nduplicate\n\n## Todos");
-    let error = ParsedBlueprintSource::parse("bp-01.md", &duplicate_plan)
-        .err()
-        .expect("duplicate required section must fail");
-    assert!(
-        error
-            .to_string()
-            .contains("required section must occur exactly once: Plan")
+    let missing_frontmatter = source.replacen(
+        "---\nschema: blueprint/v2\nid: bp-01\nstate: active\n---\n\n",
+        "",
+        1,
     );
-}
-
-#[test]
-fn parses_protocol_fields_statuses_and_children_without_promoting_criteria() {
-    let source = blueprint(
-        "- [?] 父任务 ^todo-parent\n  - Created By: creator\n  - Depends On: todo-a, todo-b\n  - Handoff: first\n  - Handoff: second\n  - Reference: [A](../../a.md)\n  - Reference: [B](../../b.md)\n  - Block Reason: waiting\n  - Completion Criteria:\n    - [x] checked\n  - Children:\n    - [-] 子任务 ^todo-child\n      - Created By: creator\n      - Cancel Reason: obsolete\n",
-    );
-    let parsed = ParsedBlueprintSource::parse("bp-01.md", &source).expect("parse Blueprint");
-    assert_eq!(parsed.todos.len(), 1);
-    let parent = &parsed.todos[0];
-    assert_eq!(parent.status, TodoStatus::Blocked);
-    assert_eq!(parent.depends_on, vec!["todo-a", "todo-b"]);
-    assert_eq!(parent.handoff, vec!["first", "second"]);
-    assert_eq!(
-        parent.references,
-        vec!["[A](../../a.md)", "[B](../../b.md)"]
-    );
-    assert_eq!(parent.completion_criteria.len(), 1);
-    assert!(parent.completion_criteria[0].completed);
-    assert_eq!(parent.children.len(), 1);
-    assert_eq!(parent.children[0].status, TodoStatus::Cancelled);
-}
-
-#[test]
-fn ignores_todo_shaped_tasks_outside_the_todos_section() {
-    let source = blueprint("- [ ] executable ^todo-inside\n  - Created By: creator\n").replace(
-        "## Notes\n\n",
-        "## Notes\n\n- [ ] ordinary note task ^todo-outside\n  - Created By: creator\n",
-    );
-    let parsed = ParsedBlueprintSource::parse("bp-01.md", &source).expect("parse Blueprint");
-    assert_eq!(
-        parsed
-            .todos
-            .iter()
-            .map(|todo| todo.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["todo-inside"]
-    );
+    let error = BlueprintSource::parse("bp-01/blueprint.md", &missing_frontmatter).unwrap_err();
+    assert!(error.to_string().contains("frontmatter"), "{error:#}");
 }
