@@ -189,6 +189,8 @@ pub struct BlueprintGetOutput {
     pub etag: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    #[serde(default)]
+    pub todo_index: Vec<TodoDocumentIndex>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<BlueprintResumeOutput>,
 }
@@ -199,11 +201,20 @@ pub struct BlueprintResumeOutput {
     pub intent: String,
     pub constraints: String,
     pub plan: String,
+    pub rubric: String,
     pub results: String,
     pub open_definition_of_done: Vec<String>,
     pub active_todos: Vec<Todo>,
     pub ready_todos: Vec<String>,
     pub not_ready_todos: Vec<NotReadyTodo>,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+pub struct TodoDocumentIndex {
+    pub id: String,
+    #[schemars(with = "String")]
+    pub path: camino::Utf8PathBuf,
+    pub etag: String,
 }
 
 /// The concrete result of `blueprint_list`.

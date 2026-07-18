@@ -11,11 +11,11 @@ pub use mcp::run_blueprint_mcp_server;
 #[allow(unused_imports)]
 pub use model::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
-    BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintState,
-    BlueprintUpdateInput, CompletionCriterionInput, DodUpdateInput, EvidenceItem, RevisionEntry,
-    Todo, TodoAssignInput, TodoBlockInput, TodoCancelInput, TodoCompleteInput, TodoCreateInput,
-    TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput, TodoStatus,
-    TodoUpdateInput,
+    BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintPatch,
+    BlueprintState, BlueprintUpdateInput, CompletionCriterionInput, DodUpdateInput, EvidenceItem,
+    RevisionEntry, Todo, TodoAssignInput, TodoBlockInput, TodoCancelInput, TodoCompleteInput,
+    TodoCreateInput, TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput,
+    TodoStatus, TodoUpdateInput,
 };
 pub use service::{BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate};
 #[allow(unused_imports)]

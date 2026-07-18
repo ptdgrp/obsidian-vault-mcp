@@ -714,6 +714,12 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         plan: Option<String>,
         #[arg(long)]
+        rubric: Option<String>,
+        #[arg(long)]
+        changed_by: Option<String>,
+        #[arg(long)]
+        change_reason: Option<String>,
+        #[arg(long)]
         results: Option<String>,
         #[arg(long)]
         notes: Option<String>,
@@ -938,18 +944,26 @@ impl BlueprintCommand {
                 intent,
                 constraints,
                 plan,
+                rubric,
+                changed_by,
+                change_reason,
                 results,
                 notes,
                 expected_etag,
             } => {
-                print_value(&service.blueprint_update(
+                print_value(&service.blueprint_update_semantic(
                     &blueprint_id,
-                    title.as_deref(),
-                    intent.as_deref(),
-                    constraints.as_deref(),
-                    plan.as_deref(),
-                    results.as_deref(),
-                    notes.as_deref(),
+                    crate::blueprint::BlueprintPatch {
+                        title,
+                        intent,
+                        constraints,
+                        plan,
+                        rubric,
+                        results,
+                        notes,
+                    },
+                    changed_by.as_deref(),
+                    change_reason.as_deref(),
                     expected_etag.as_deref(),
                 )?)?;
             }

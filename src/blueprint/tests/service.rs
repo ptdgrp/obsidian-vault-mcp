@@ -58,6 +58,89 @@ fn semantic_update_requires_and_appends_revision() {
     assert!(updated.source.contains("- Reason: 用户调整方向"));
 }
 
+#[test]
+fn todo_details_are_the_source_for_handoff_criteria_and_results() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "detail-backed",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &["verify detail".into()],
+            None,
+        )
+        .unwrap();
+    service
+        .todo_update(
+            &blueprint.id,
+            &todo.id,
+            None,
+            None,
+            Some(&[CheckUpdate {
+                text: "verify detail".into(),
+                completed: true,
+            }]),
+            Some(&["resume from detail".into()]),
+            Some("detail result"),
+            None,
+        )
+        .unwrap();
+    let loaded = service.todo_get(&blueprint.id, &todo.id).unwrap();
+    assert!(loaded.completion_criteria[0].completed);
+    assert_eq!(loaded.handoff, vec!["resume from detail"]);
+    assert_eq!(loaded.result_summary.as_deref(), Some("detail result"));
+    let full = service.blueprint_view(&blueprint.id, Some("full")).unwrap();
+    assert_eq!(full.todo_index.len(), 1);
+    assert!(full.source.unwrap().contains("todos/"));
+}
+
+#[test]
+fn mutations_reject_closed_blueprints_and_failed_create_leaves_no_orphan() {
+    let (directory, service, blueprint) = create_blueprint();
+    let stale = "stale";
+    assert!(
+        service
+            .todo_create(
+                &blueprint.id,
+                "will fail",
+                "creator",
+                None,
+                None,
+                &[],
+                &[],
+                Some(stale)
+            )
+            .is_err()
+    );
+    let todos = Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+        .unwrap()
+        .join(".blueprint/blueprints")
+        .join(&blueprint.id)
+        .join("todos");
+    assert!(fs::read_dir(todos).unwrap().next().is_none());
+    service
+        .blueprint_cancel(&blueprint.id, "agent", "stopped", None)
+        .unwrap();
+    assert!(
+        service
+            .dod_update(&blueprint.id, "dod-missing", true, None, None)
+            .is_err()
+    );
+    assert!(
+        service
+            .todo_create(&blueprint.id, "nope", "creator", None, None, &[], &[], None)
+            .is_err()
+    );
+    assert!(
+        service
+            .blueprint_cancel(&blueprint.id, "agent", "again", None)
+            .is_err()
+    );
+}
+
 fn first_dod_id(source: &str) -> String {
     source
         .lines()
@@ -625,7 +708,7 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
     assert!(closed.source.contains(&format!("  - {open_dod}")));
     assert!(closed.source.contains(&format!("  - {}", open.id)));
 
-    let (_directory, service, complete) = create_blueprint();
+    let (directory, service, complete) = create_blueprint();
     let todo = service
         .todo_create(
             &complete.id,
@@ -653,6 +736,19 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
             None,
         )
         .expect("complete DoD");
+    let stored = service.blueprint_get(&complete.id).unwrap();
+    fs::write(
+        Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+            .unwrap()
+            .join(".blueprint/blueprints")
+            .join(&complete.id)
+            .join("blueprint.md"),
+        stored.source.replace(
+            "## Results\n\n## Evidence",
+            "## Results\n\n- Evidence: [completion](#^evidence-close)\n\n## Evidence\n\n### Completion ^evidence-close",
+        ),
+    )
+    .unwrap();
     let closed = service
         .blueprint_close(&complete.id, "closer", None, None)
         .expect("close complete Blueprint");

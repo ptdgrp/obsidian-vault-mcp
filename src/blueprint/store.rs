@@ -396,6 +396,15 @@ impl LockedBlueprintStore<'_> {
         self.read_todo(id)
     }
 
+    pub(crate) fn remove_todo(&self, id: &str) -> anyhow::Result<()> {
+        validate_todo_id(id)?;
+        let path = self.store.todo_path(self.id, id);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn read_todo(&self, id: &str) -> anyhow::Result<StoredTodo> {
         validate_todo_id(id)?;
         self.store.read_todo_unlocked(self.id, id)

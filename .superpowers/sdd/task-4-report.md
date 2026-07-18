@@ -21,3 +21,11 @@
 
 - 当前 Todo 的生命周期字段仍同时保留在中央图的旧 Service 投影中；独立 Todo 文档已经创建，但后续 Todo 更新尚未完全改为以详情文件的 Completion Criteria、Handoff 与 Results 为唯一读取/写入来源。该协议收敛需要在合并前继续完成，不能将其误认为已完成的 v2 Todo 双 ETag 实现。
 - `todo_create` 已使用 v2 文档链接和详情文件，但创建详情后再写中央图的失败清理以及完整单 guard 多文档事务仍需收敛。
+
+## 审查修复补充
+
+- Todo 创建现在在同一 Blueprint guard 中创建详情文件并提交中央图；中央图写失败时删除刚创建的详情文件，覆盖 stale ETag 无 orphan 回归。
+- `todo_get` 会把中央图状态/依赖与 TodoDetail 的 Completion Criteria、Handoff、Results 合并；`todo_update` 实际写回 Todo 详情文档；完成会写入详情 Results 和 Evidence。
+- Service mutation 在 closed/cancelled Blueprint 上拒绝执行，重复 close/cancel 也被拒绝；完整 close 需要非空 Results 和 Evidence 引用。
+- full view 返回 Todo 文档索引，resume 返回 Rubric 且从详情文件载入活动 Todo 的 Handoff；CLI update 走 BlueprintPatch 语义更新，支持 rubric/changed_by/change_reason。
+- 最终验证：`cargo fmt --all && cargo test blueprint::tests -- --nocapture` 为 50 passed, 0 failed；`cargo check` 和 `git diff --check` 成功。
