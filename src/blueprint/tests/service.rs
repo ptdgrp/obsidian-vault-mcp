@@ -1,9 +1,39 @@
 use std::fs;
 
 use camino::Utf8PathBuf;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 
-use super::super::service::{BlueprintCreateRequest, BlueprintService};
+use super::super::{
+    model::TodoStatus,
+    service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate},
+};
+
+fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
+    let directory = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).expect("UTF-8 path");
+    let service = BlueprintService::new(root);
+    let blueprint = service
+        .blueprint_create(BlueprintCreateRequest {
+            title: "协议测试".into(),
+            created_by: "creator".into(),
+            intent: "验证 Blueprint 协议".into(),
+            constraints: vec!["保留 Markdown".into()],
+            definition_of_done: vec!["完成协议验证".into()],
+            plan: "按状态转换验证".into(),
+        })
+        .expect("create Blueprint");
+    (directory, service, blueprint)
+}
+
+fn first_dod_id(source: &str) -> String {
+    source
+        .lines()
+        .find_map(|line| {
+            line.split_once("^dod-")
+                .map(|(_, suffix)| format!("dod-{suffix}"))
+        })
+        .expect("generated DoD ID")
+}
 
 #[test]
 fn creating_a_blueprint_automatically_creates_workspace_and_generates_protocol_document() {
@@ -101,6 +131,123 @@ fn blueprint_update_preserves_unknown_markdown() {
             .source
             .contains("## Results\n\n### Current Outcome\n\n完成。\n## Extra")
     );
+}
+
+#[test]
+fn blueprint_create_rejects_blank_required_fields_and_empty_definition_of_done() {
+    let directory = tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let service = BlueprintService::new(root);
+    let request = |title: &str, created_by: &str, intent: &str, plan: &str, dod: Vec<String>| {
+        BlueprintCreateRequest {
+            title: title.into(),
+            created_by: created_by.into(),
+            intent: intent.into(),
+            constraints: vec![],
+            definition_of_done: dod,
+            plan: plan.into(),
+        }
+    };
+
+    for (input, expected) in [
+        (
+            request(" ", "agent", "intent", "plan", vec!["done".into()]),
+            "title",
+        ),
+        (
+            request("title", " ", "intent", "plan", vec!["done".into()]),
+            "created_by",
+        ),
+        (
+            request("title", "agent", " ", "plan", vec!["done".into()]),
+            "intent",
+        ),
+        (
+            request("title", "agent", "intent", " ", vec!["done".into()]),
+            "plan",
+        ),
+    ] {
+        let error = service
+            .blueprint_create(input)
+            .expect_err("blank required field must fail");
+        assert!(error.to_string().contains(expected), "{error:#}");
+    }
+    let error = service
+        .blueprint_create(request("title", "agent", "intent", "plan", vec![]))
+        .expect_err("empty DoD must fail");
+    assert!(error.to_string().contains("definition_of_done"));
+}
+
+#[test]
+fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
+    let (directory, service, blueprint) = create_blueprint();
+    let path = Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+        .unwrap()
+        .join(".blueprint/active")
+        .join(format!("{}.md", blueprint.id));
+    fs::write(
+        &path,
+        blueprint
+            .source
+            .replace("## Notes", "## Extra\n\nkeep me\n\n## Notes"),
+    )
+    .expect("add unknown section");
+
+    let updated = service
+        .blueprint_update(
+            &blueprint.id,
+            Some(" renamed "),
+            Some("revised intent"),
+            Some(&[" first ".into(), "second".into()]),
+            Some("revised plan"),
+            Some("### Current Outcome\n\nworking"),
+            Some("note text"),
+            None,
+        )
+        .expect("update Blueprint sections");
+    assert!(updated.source.starts_with("# renamed\n"));
+    assert!(updated.source.contains("- Created By: creator"));
+    assert!(updated.source.contains("## Intent\n\nrevised intent"));
+    assert!(
+        updated
+            .source
+            .contains("## Constraints\n\n- first\n- second")
+    );
+    assert!(updated.source.contains("## Plan\n\nrevised plan"));
+    assert!(
+        updated
+            .source
+            .contains("## Results\n\n### Current Outcome\n\nworking")
+    );
+    assert!(updated.source.contains("## Notes\n\nnote text"));
+    assert!(updated.source.contains("## Extra\n\nkeep me"));
+
+    for (title, intent, plan, expected) in [
+        (Some(" "), None, None, "title"),
+        (None, Some(" "), None, "intent"),
+        (None, None, Some(" "), "plan"),
+    ] {
+        let before = service
+            .blueprint_get(&blueprint.id)
+            .expect("current Blueprint");
+        let error = service
+            .blueprint_update(
+                &blueprint.id,
+                title,
+                intent,
+                None,
+                plan,
+                None,
+                None,
+                Some(&before.etag),
+            )
+            .expect_err("blank required update must fail");
+        assert!(error.to_string().contains(expected), "{error:#}");
+        assert_eq!(
+            service.blueprint_get(&blueprint.id).unwrap().etag,
+            before.etag
+        );
+    }
 }
 
 #[test]
@@ -230,4 +377,758 @@ fn creates_child_todos_in_the_parent_children_list() {
     let loaded = service.todo_get(&blueprint.id, &parent.id).unwrap();
     assert_eq!(loaded.children.len(), 1);
     assert_eq!(loaded.children[0].id, child.id);
+}
+
+#[test]
+fn blueprint_views_return_full_source_or_resume_context() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let ready = service
+        .todo_create(
+            &blueprint.id,
+            "ready",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create ready Todo");
+    let running = service
+        .todo_create(
+            &blueprint.id,
+            "running",
+            "creator",
+            None,
+            Some("agent-a"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create running Todo");
+    service
+        .todo_start(&blueprint.id, &running.id, None)
+        .expect("start Todo");
+    let blocked = service
+        .todo_create(
+            &blueprint.id,
+            "blocked",
+            "creator",
+            None,
+            Some("agent-b"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create blocked Todo");
+    service
+        .todo_start(&blueprint.id, &blocked.id, None)
+        .expect("start blocked Todo");
+    service
+        .todo_block(
+            &blueprint.id,
+            &blocked.id,
+            "waiting for user",
+            "resume after decision",
+            None,
+        )
+        .expect("block Todo");
+
+    let full = service
+        .blueprint_view(&blueprint.id, None)
+        .expect("full view");
+    let stored = service
+        .blueprint_get(&blueprint.id)
+        .expect("stored Blueprint");
+    assert_eq!(full.source.as_deref(), Some(stored.source.as_str()));
+    assert!(full.resume.is_none());
+
+    let resume = service
+        .blueprint_view(&blueprint.id, Some("resume"))
+        .expect("resume view")
+        .resume
+        .expect("resume payload");
+    assert_eq!(resume.intent, "验证 Blueprint 协议");
+    assert_eq!(resume.constraints, "- 保留 Markdown");
+    assert_eq!(resume.plan, "按状态转换验证");
+    assert_eq!(resume.ready_todos, vec![ready.id.clone()]);
+    assert_eq!(resume.open_definition_of_done.len(), 1);
+    let mut active_ids = resume
+        .active_todos
+        .iter()
+        .map(|todo| todo.id.as_str())
+        .collect::<Vec<_>>();
+    active_ids.sort_unstable();
+    let mut expected_ids = vec![ready.id.as_str(), running.id.as_str(), blocked.id.as_str()];
+    expected_ids.sort_unstable();
+    assert_eq!(active_ids, expected_ids);
+
+    let error = service
+        .blueprint_view(&blueprint.id, Some("summary"))
+        .expect_err("unsupported view must fail");
+    assert!(error.to_string().contains("view must be full or resume"));
+}
+
+#[test]
+fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let prerequisite = service
+        .todo_create(
+            &blueprint.id,
+            "prerequisite",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create prerequisite");
+    let dependent = service
+        .todo_create(
+            &blueprint.id,
+            "dependent",
+            "creator",
+            None,
+            None,
+            std::slice::from_ref(&prerequisite.id),
+            &[],
+            None,
+        )
+        .expect("create dependent");
+    let blocked = service
+        .todo_create(
+            &blueprint.id,
+            "blocked",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create blocked Todo");
+    service
+        .todo_start(&blueprint.id, &blocked.id, None)
+        .expect("start Todo");
+    service
+        .todo_block(
+            &blueprint.id,
+            &blocked.id,
+            "external decision",
+            "ask the user",
+            None,
+        )
+        .expect("block Todo");
+    let cancelled = service
+        .todo_create(
+            &blueprint.id,
+            "cancelled",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create cancelled Todo");
+    service
+        .todo_cancel(&blueprint.id, &cancelled.id, "no longer needed", None)
+        .expect("cancel Todo");
+
+    let status = service
+        .blueprint_status(&blueprint.id)
+        .expect("Blueprint status");
+    assert_eq!(status.ready_todos, vec![prerequisite.id.clone()]);
+    assert_eq!(status.not_ready_todos.len(), 1);
+    assert_eq!(status.not_ready_todos[0].id, dependent.id);
+    assert_eq!(
+        status.not_ready_todos[0].unsatisfied_dependencies[0].id,
+        prerequisite.id
+    );
+    assert_eq!(status.blocked_todos, vec![blocked.id.clone()]);
+    assert_eq!(status.unassigned_todos.len(), 2);
+    assert!(status.unassigned_todos.contains(&prerequisite.id));
+    assert!(status.unassigned_todos.contains(&dependent.id));
+    assert_eq!(status.open_todos.len(), 3);
+    assert!(status.open_todos.contains(&prerequisite.id));
+    assert!(status.open_todos.contains(&dependent.id));
+    assert!(status.open_todos.contains(&blocked.id));
+    assert!(!status.open_todos.contains(&cancelled.id));
+    assert_eq!(status.open_definition_of_done.len(), 1);
+}
+
+#[test]
+fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
+    let (_directory, service, incomplete) = create_blueprint();
+    let open = service
+        .todo_create(
+            &incomplete.id,
+            "open",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create open Todo");
+    let error = service
+        .blueprint_close(&incomplete.id, "closer", None, None)
+        .expect_err("incomplete close without reason must fail");
+    assert!(error.to_string().contains("reason is required"));
+    let open_dod = first_dod_id(&incomplete.source);
+    let closed = service
+        .blueprint_close(&incomplete.id, " closer ", Some(" user stopped "), None)
+        .expect("close incomplete Blueprint");
+    assert_eq!(closed.state, "closed");
+    assert!(closed.source.contains("- Closed By: closer"));
+    assert!(closed.source.contains("- Outcome: incomplete"));
+    assert!(closed.source.contains("- Reason: user stopped"));
+    assert!(closed.source.contains(&format!("  - {open_dod}")));
+    assert!(closed.source.contains(&format!("  - {}", open.id)));
+
+    let (_directory, service, complete) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &complete.id,
+            "finish",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create Todo");
+    service
+        .todo_start(&complete.id, &todo.id, None)
+        .expect("start Todo");
+    service
+        .todo_complete(&complete.id, &todo.id, "agent", "finished", None)
+        .expect("complete Todo");
+    service
+        .dod_update(
+            &complete.id,
+            &first_dod_id(&complete.source),
+            true,
+            None,
+            None,
+        )
+        .expect("complete DoD");
+    let closed = service
+        .blueprint_close(&complete.id, "closer", None, None)
+        .expect("close complete Blueprint");
+    assert!(closed.source.contains("- Outcome: complete"));
+    assert!(!closed.source.contains("- Open Definition of Done:"));
+    assert!(!closed.source.contains("- Open Todos:"));
+}
+
+#[test]
+fn blueprint_cancel_records_actor_and_reason_then_moves_the_document() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let cancelled = service
+        .blueprint_cancel(&blueprint.id, " agent ", " abandoned direction ", None)
+        .expect("cancel Blueprint");
+
+    assert_eq!(cancelled.state, "cancelled");
+    assert!(cancelled.source.contains("- Cancelled By: agent"));
+    assert!(cancelled.source.contains("### Cancellation"));
+    assert!(cancelled.source.contains("- Reason: abandoned direction"));
+    assert!(service.blueprint_list("active").unwrap().is_empty());
+    assert_eq!(
+        service.blueprint_list("cancelled").unwrap(),
+        vec![blueprint.id]
+    );
+}
+
+#[test]
+fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal_work() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "assign",
+            "creator",
+            None,
+            Some("agent-a"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create Todo");
+    let assigned = service
+        .todo_assign(&blueprint.id, &todo.id, " agent-b ", None)
+        .expect("assign pending Todo");
+    assert_eq!(assigned.owner.as_deref(), Some("agent-b"));
+    service
+        .todo_start(&blueprint.id, &todo.id, None)
+        .expect("start Todo");
+
+    let error = service
+        .todo_assign(&blueprint.id, &todo.id, "agent-c", None)
+        .expect_err("active reassignment without Handoff must fail");
+    assert!(error.to_string().contains("requires Handoff"));
+    service
+        .todo_update(
+            &blueprint.id,
+            &todo.id,
+            None,
+            None,
+            None,
+            Some(&["continue from checkpoint".into()]),
+            None,
+            None,
+        )
+        .expect("write Handoff");
+    let reassigned = service
+        .todo_assign(&blueprint.id, &todo.id, "agent-c", None)
+        .expect("reassign with Handoff");
+    assert_eq!(reassigned.owner.as_deref(), Some("agent-c"));
+    service
+        .todo_complete(&blueprint.id, &todo.id, "agent-c", "done", None)
+        .expect("complete Todo");
+    let error = service
+        .todo_assign(&blueprint.id, &todo.id, "agent-d", None)
+        .expect_err("completed Todo cannot be assigned");
+    assert!(error.to_string().contains("cannot be assigned"));
+
+    let cancelled = service
+        .todo_create(
+            &blueprint.id,
+            "cancel",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create cancellable Todo");
+    service
+        .todo_cancel(&blueprint.id, &cancelled.id, "obsolete", None)
+        .expect("cancel Todo");
+    assert!(
+        service
+            .todo_assign(&blueprint.id, &cancelled.id, "agent", None)
+            .is_err()
+    );
+}
+
+#[test]
+fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let unowned = service
+        .todo_create(
+            &blueprint.id,
+            "unowned",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create unowned Todo");
+    let error = service
+        .todo_start(&blueprint.id, &unowned.id, None)
+        .expect_err("unowned Todo must not start");
+    assert!(error.to_string().contains("Owner"));
+
+    let prerequisite = service
+        .todo_create(
+            &blueprint.id,
+            "prerequisite",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create prerequisite");
+    let dependent = service
+        .todo_create(
+            &blueprint.id,
+            "dependent",
+            "creator",
+            None,
+            Some("agent"),
+            std::slice::from_ref(&prerequisite.id),
+            &[],
+            None,
+        )
+        .expect("create dependent");
+    let error = service
+        .todo_start(&blueprint.id, &dependent.id, None)
+        .expect_err("unsatisfied dependency must prevent start");
+    assert!(error.to_string().contains("not ready"));
+    service
+        .todo_start(&blueprint.id, &prerequisite.id, None)
+        .expect("start prerequisite");
+    service
+        .todo_complete(&blueprint.id, &prerequisite.id, "agent", "done", None)
+        .expect("complete prerequisite");
+    let started = service
+        .todo_start(&blueprint.id, &dependent.id, None)
+        .expect("start ready dependent");
+    assert_eq!(started.status, TodoStatus::InProgress);
+    let error = service
+        .todo_start(&blueprint.id, &dependent.id, None)
+        .expect_err("non-pending Todo cannot start again");
+    assert!(error.to_string().contains("only pending"));
+}
+
+#[test]
+fn todo_block_and_cancel_enforce_transition_fields_and_states() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "block",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create Todo");
+    assert!(
+        service
+            .todo_block(&blueprint.id, &todo.id, "reason", "handoff", None)
+            .expect_err("pending Todo cannot be blocked")
+            .to_string()
+            .contains("only in_progress")
+    );
+    service
+        .todo_start(&blueprint.id, &todo.id, None)
+        .expect("start Todo");
+    assert!(
+        service
+            .todo_block(&blueprint.id, &todo.id, " ", "handoff", None)
+            .expect_err("empty reason must fail")
+            .to_string()
+            .contains("reason must not be empty")
+    );
+    assert!(
+        service
+            .todo_block(&blueprint.id, &todo.id, "reason", " ", None)
+            .expect_err("empty Handoff must fail")
+            .to_string()
+            .contains("handoff must not be empty")
+    );
+    let blocked = service
+        .todo_block(
+            &blueprint.id,
+            &todo.id,
+            " external decision ",
+            " resume after answer ",
+            None,
+        )
+        .expect("block Todo");
+    assert_eq!(blocked.status, TodoStatus::Blocked);
+    assert_eq!(blocked.block_reason.as_deref(), Some("external decision"));
+    assert_eq!(blocked.handoff, vec!["resume after answer"]);
+    let cancelled = service
+        .todo_cancel(&blueprint.id, &todo.id, " no longer needed ", None)
+        .expect("cancel blocked Todo");
+    assert_eq!(cancelled.status, TodoStatus::Cancelled);
+    assert_eq!(cancelled.cancel_reason.as_deref(), Some("no longer needed"));
+    assert!(
+        service
+            .todo_cancel(&blueprint.id, &todo.id, "again", None)
+            .is_err()
+    );
+}
+
+#[test]
+fn todo_completion_requires_checked_criteria_and_terminal_children() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let parent = service
+        .todo_create(
+            &blueprint.id,
+            "parent",
+            "creator",
+            None,
+            Some("agent"),
+            &[],
+            &["verified".into()],
+            None,
+        )
+        .expect("create parent");
+    let child = service
+        .todo_create(
+            &blueprint.id,
+            "child",
+            "creator",
+            Some(&parent.id),
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create child");
+    assert!(
+        service
+            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .expect_err("pending Todo cannot complete")
+            .to_string()
+            .contains("only in_progress")
+    );
+    service
+        .todo_start(&blueprint.id, &parent.id, None)
+        .expect("start parent");
+    assert!(
+        service
+            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .expect_err("unchecked criteria must prevent completion")
+            .to_string()
+            .contains("Completion Criteria")
+    );
+    service
+        .todo_update(
+            &blueprint.id,
+            &parent.id,
+            None,
+            None,
+            Some(&[CheckUpdate {
+                text: "verified".into(),
+                completed: true,
+            }]),
+            None,
+            None,
+            None,
+        )
+        .expect("check criterion");
+    assert!(
+        service
+            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .expect_err("open child must prevent completion")
+            .to_string()
+            .contains("child Todos")
+    );
+    service
+        .todo_cancel(&blueprint.id, &child.id, "covered elsewhere", None)
+        .expect("cancel child");
+    let completed = service
+        .todo_complete(&blueprint.id, &parent.id, " agent ", " finished ", None)
+        .expect("complete parent");
+    assert_eq!(completed.status, TodoStatus::Completed);
+    assert_eq!(completed.completed_by.as_deref(), Some("agent"));
+    assert_eq!(completed.result_summary.as_deref(), Some("finished"));
+    assert_eq!(completed.owner.as_deref(), Some("agent"));
+}
+
+#[test]
+fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let dependency = service
+        .todo_create(
+            &blueprint.id,
+            "dependency",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create dependency");
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "original",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .expect("create Todo");
+    let updated = service
+        .todo_update(
+            &blueprint.id,
+            &todo.id,
+            Some(" renamed "),
+            Some(std::slice::from_ref(&dependency.id)),
+            Some(&[
+                CheckUpdate {
+                    text: "first".into(),
+                    completed: true,
+                },
+                CheckUpdate {
+                    text: "second".into(),
+                    completed: false,
+                },
+            ]),
+            Some(&["one".into(), "two".into()]),
+            Some(" draft result "),
+            None,
+        )
+        .expect("update Todo");
+    assert_eq!(updated.title, "renamed");
+    assert_eq!(updated.depends_on, vec![dependency.id]);
+    assert_eq!(updated.handoff, vec!["one", "two"]);
+    assert_eq!(updated.result_summary.as_deref(), Some("draft result"));
+    assert_eq!(updated.completion_criteria.len(), 2);
+    assert!(updated.completion_criteria[0].completed);
+    assert!(!updated.completion_criteria[1].completed);
+
+    let before = service
+        .blueprint_get(&blueprint.id)
+        .expect("before invalid update");
+    let error = service
+        .todo_update(
+            &blueprint.id,
+            &todo.id,
+            None,
+            Some(std::slice::from_ref(&todo.id)),
+            None,
+            None,
+            None,
+            Some(&before.etag),
+        )
+        .expect_err("self-dependency must fail");
+    assert!(error.to_string().contains("cannot depend on itself"));
+    assert_eq!(
+        service.blueprint_get(&blueprint.id).unwrap().etag,
+        before.etag
+    );
+    let error = service
+        .todo_update(
+            &blueprint.id,
+            &todo.id,
+            None,
+            Some(&["todo-missing".into()]),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect_err("unknown dependency must fail");
+    assert!(error.to_string().contains("unknown Todo"));
+}
+
+#[test]
+fn todo_list_combines_status_owner_and_readiness_filters() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let ready_a = service
+        .todo_create(
+            &blueprint.id,
+            "ready a",
+            "creator",
+            None,
+            Some("agent-a"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create ready A");
+    let prerequisite = service
+        .todo_create(
+            &blueprint.id,
+            "prerequisite",
+            "creator",
+            None,
+            Some("agent-b"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create prerequisite");
+    let waiting = service
+        .todo_create(
+            &blueprint.id,
+            "waiting",
+            "creator",
+            None,
+            Some("agent-a"),
+            std::slice::from_ref(&prerequisite.id),
+            &[],
+            None,
+        )
+        .expect("create waiting Todo");
+    let blocked = service
+        .todo_create(
+            &blueprint.id,
+            "blocked",
+            "creator",
+            None,
+            Some("agent-b"),
+            &[],
+            &[],
+            None,
+        )
+        .expect("create blocked Todo");
+    service
+        .todo_start(&blueprint.id, &blocked.id, None)
+        .expect("start blocked Todo");
+    service
+        .todo_block(&blueprint.id, &blocked.id, "reason", "handoff", None)
+        .expect("block Todo");
+
+    let filtered = service
+        .todo_list(
+            &blueprint.id,
+            Some(TodoStatus::Pending),
+            Some("agent-a"),
+            Some(true),
+        )
+        .expect("combined filter");
+    assert_eq!(
+        filtered.iter().map(|todo| &todo.id).collect::<Vec<_>>(),
+        vec![&ready_a.id]
+    );
+    let not_ready = service
+        .todo_list(&blueprint.id, None, None, Some(false))
+        .expect("not-ready filter");
+    let not_ready_ids = not_ready
+        .iter()
+        .map(|todo| todo.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(not_ready_ids.contains(&waiting.id.as_str()));
+    assert!(not_ready_ids.contains(&blocked.id.as_str()));
+    let blocked_only = service
+        .todo_list(&blueprint.id, Some(TodoStatus::Blocked), None, None)
+        .expect("status filter");
+    assert_eq!(blocked_only[0].id, blocked.id);
+}
+
+#[test]
+fn dod_update_toggles_only_the_selected_item_and_preserves_note() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let dod_id = first_dod_id(&blueprint.source);
+    let completed = service
+        .dod_update(
+            &blueprint.id,
+            &dod_id,
+            true,
+            Some(" evidence recorded "),
+            None,
+        )
+        .expect("complete DoD");
+    assert!(
+        completed
+            .source
+            .contains(&format!("- [x] 完成协议验证 ^{dod_id}"))
+    );
+    assert!(completed.source.contains("- Note: evidence recorded"));
+    let reopened = service
+        .dod_update(&blueprint.id, &dod_id, false, None, None)
+        .expect("reopen DoD");
+    assert!(
+        reopened
+            .source
+            .contains(&format!("- [ ] 完成协议验证 ^{dod_id}"))
+    );
+    assert!(reopened.source.contains("- Note: evidence recorded"));
+
+    let before = reopened.etag;
+    let error = service
+        .dod_update(&blueprint.id, "dod-missing", true, None, Some(&before))
+        .expect_err("unknown DoD must fail");
+    assert!(error.to_string().contains("unknown Definition of Done"));
+    assert_eq!(service.blueprint_get(&blueprint.id).unwrap().etag, before);
 }

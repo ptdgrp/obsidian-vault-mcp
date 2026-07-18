@@ -929,12 +929,15 @@ fn replace_repeated_todo_field(
     field: &str,
     values: &[String],
 ) -> anyhow::Result<String> {
-    let mut next = source.to_string();
-    for value in values.iter().rev() {
+    for value in values {
         require_text(field, value)?;
-        next = replace_or_insert_todo_field(&next, todo_id, field, value.trim())?;
     }
-    Ok(next)
+    replace_todo_field_values(
+        source,
+        todo_id,
+        field,
+        &values.iter().map(|value| value.trim()).collect::<Vec<_>>(),
+    )
 }
 
 fn replace_completion_criteria(
@@ -1071,37 +1074,74 @@ fn replace_or_insert_todo_field(
     field: &str,
     value: &str,
 ) -> anyhow::Result<String> {
+    replace_todo_field_values(source, todo_id, field, &[value])
+}
+
+/// Replaces direct fields inside one Todo without touching nested criteria or child Todos.
+fn replace_todo_field_values(
+    source: &str,
+    todo_id: &str,
+    field: &str,
+    values: &[&str],
+) -> anyhow::Result<String> {
     let task_line = source
         .lines()
         .find(|line| line.contains(&format!("^{todo_id}")))
         .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
     let task_offset = task_line.as_ptr() as usize - source.as_ptr() as usize;
+    let task_end = task_offset + task_line.len();
     let task_indent = task_line.len() - task_line.trim_start().len();
     let field_prefix = format!("{}- {field}:", " ".repeat(task_indent + 2));
-    let after = &source[task_offset + task_line.len()..];
-    let mut offset = task_offset + task_line.len();
-    for line in after.lines() {
-        offset += 1;
-        if line.trim_start().starts_with("- [")
-            || (line.starts_with("## ") && !line.starts_with("### "))
-        {
+    let body_start = task_end + usize::from(source.as_bytes().get(task_end) == Some(&b'\n'));
+    let mut body_end = source.len();
+    let mut offset = body_start;
+    for line_with_ending in source[body_start..].split_inclusive('\n') {
+        let line = line_with_ending
+            .strip_suffix('\n')
+            .unwrap_or(line_with_ending);
+        let indent = line.len() - line.trim_start().len();
+        if line.starts_with("## ") || (indent <= task_indent && is_task_line(line.trim_start())) {
+            body_end = offset;
             break;
         }
-        if line.trim_start().starts_with(&format!("- {field}:")) {
-            let start = offset;
-            let end = offset + line.len();
-            let mut result = source.to_string();
-            result.replace_range(start..end, &format!("{field_prefix} {value}"));
-            return Ok(result);
-        }
-        offset += line.len();
+        offset += line_with_ending.len();
     }
-    let insert = task_offset + task_line.len();
+
+    let retained_body = source[body_start..body_end]
+        .split_inclusive('\n')
+        .filter(|line| {
+            line.strip_suffix('\n')
+                .unwrap_or(line)
+                .trim_end()
+                .strip_prefix(&field_prefix)
+                .is_none_or(|suffix| !suffix.is_empty() && !suffix.starts_with(' '))
+        })
+        .collect::<String>();
+    let fields = values
+        .iter()
+        .map(|value| format!("{field_prefix} {value}\n"))
+        .collect::<String>();
     Ok(format!(
-        "{}\n{field_prefix} {value}{}",
-        &source[..insert],
-        &source[insert..]
+        "{}\n{}{}{}",
+        &source[..task_end],
+        fields,
+        retained_body,
+        &source[body_end..]
     ))
+}
+
+fn is_task_line(line: &str) -> bool {
+    matches!(
+        line.as_bytes(),
+        [
+            b'-',
+            b' ',
+            b'[',
+            b' ' | b'/' | b'x' | b'X' | b'?' | b'-',
+            b']',
+            ..
+        ]
+    )
 }
 
 fn render_blueprint(request: &BlueprintCreateRequest) -> String {

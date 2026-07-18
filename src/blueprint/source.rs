@@ -60,9 +60,20 @@ impl ParsedBlueprintSource {
                 anyhow::bail!("required section must occur exactly once: {section}");
             }
         }
+        let todos_start_line = h2_headings
+            .iter()
+            .find(|(name, _)| name == "Todos")
+            .map(|(_, line)| *line)
+            .expect("validated required Todos section");
+        let todos_end_line = h2_headings
+            .iter()
+            .find(|(_, line)| *line > todos_start_line)
+            .map(|(_, line)| *line)
+            .unwrap_or(u64::MAX);
         let tasks = active_node_indices(&document)
             .into_iter()
             .filter_map(|index| task_node(&document, index))
+            .filter(|task| task.line > todos_start_line && task.line < todos_end_line)
             .collect::<Vec<_>>();
         let mut todos = tasks
             .iter()
