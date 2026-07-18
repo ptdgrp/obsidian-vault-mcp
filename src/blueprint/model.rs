@@ -73,6 +73,7 @@ pub struct CheckItem {
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+/// Lifecycle state recorded in Blueprint v2 frontmatter.
 pub enum BlueprintState {
     Active,
     Closed,
@@ -96,6 +97,7 @@ impl TryFrom<&str> for BlueprintState {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+/// Central Todo Graph node; execution state is authoritative here, not in Todo detail files.
 pub struct TodoGraphNode {
     pub id: String,
     pub title: String,
@@ -112,6 +114,7 @@ pub struct TodoGraphNode {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+/// An Evidence block retained exactly as Markdown.
 pub struct EvidenceItem {
     pub id: String,
     pub markdown: String,
@@ -119,6 +122,7 @@ pub struct EvidenceItem {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+/// An append-only revision record retained exactly as Markdown.
 pub struct RevisionEntry {
     pub id: String,
     pub markdown: String,
@@ -126,6 +130,7 @@ pub struct RevisionEntry {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+/// Typed content of a standalone Todo detail document.
 pub struct TodoDetail {
     pub id: String,
     pub blueprint_id: String,

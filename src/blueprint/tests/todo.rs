@@ -41,3 +41,19 @@ fn rejects_todo_without_required_v2_frontmatter() {
         "{error:#}"
     );
 }
+
+#[test]
+fn preserves_crlf_and_boundary_blank_lines_in_evidence_and_revisions() {
+    let source =
+        todo_v2("todo-review", "bp-01", "- [ ] 检查", "", evidence()).replace('\n', "\r\n");
+    let detail = TodoDetail::parse("todos/todo-review.md", &source).unwrap();
+
+    assert_eq!(
+        detail.evidence[0].markdown,
+        "### 测试已通过 ^evidence-review\r\n\r\n- Command: `cargo test`\r\n\r\n"
+    );
+    assert_eq!(
+        detail.revisions[0].markdown,
+        "### 初始范围 ^revision-review\r\n\r\n- Changed By: planner\r\n\r\n"
+    );
+}

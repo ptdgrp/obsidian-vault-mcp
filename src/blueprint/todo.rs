@@ -23,11 +23,13 @@ const TODO_SCHEMA: DocumentSchema = DocumentSchema {
 };
 
 impl TodoDetail {
+    /// Parses one standalone `blueprint/todo/v2` detail document.
     pub fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
         parse_todo_source(path, source)
     }
 }
 
+/// Parses one standalone `blueprint/todo/v2` detail document.
 pub fn parse_todo_source(path: &str, source: &str) -> anyhow::Result<TodoDetail> {
     let parsed = ParsedDocument::parse(path, source, TODO_SCHEMA)?;
     Ok(TodoDetail {

@@ -2,7 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use markdown::{Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem};
+use markdown::{
+    Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem, parser::Location,
+};
 
 use crate::blueprint::{
     document::{DocumentSchema, ParsedDocument, Section},
@@ -47,6 +49,7 @@ const V2_BLUEPRINT_SCHEMA: DocumentSchema = DocumentSchema {
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Typed, aggregate view of a `blueprint/v2` document.
 pub struct BlueprintSource {
     pub id: String,
     pub state: BlueprintState,
@@ -64,16 +67,22 @@ pub struct BlueprintSource {
 }
 
 impl BlueprintSource {
+    /// Parses one `blueprint/v2` aggregate document.
     pub fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
         parse_blueprint_source(path, source)
     }
 }
 
+/// Parses one `blueprint/v2` aggregate document.
 pub fn parse_blueprint_source(path: &str, source: &str) -> anyhow::Result<BlueprintSource> {
     let parsed = ParsedDocument::parse(path, source, V2_BLUEPRINT_SCHEMA)?;
     let id = required_frontmatter(&parsed, "id")?;
     let state = BlueprintState::try_from(required_frontmatter(&parsed, "state")?.as_str())?;
     let todos = parse_graph_nodes(source, parsed.section("Todos")?)?;
+    let rubric = section_text(&parsed, source, "Rubric")?;
+    if rubric.is_empty() {
+        anyhow::bail!("Rubric must not be empty");
+    }
     Ok(BlueprintSource {
         id,
         state,
@@ -82,7 +91,7 @@ pub fn parse_blueprint_source(path: &str, source: &str) -> anyhow::Result<Bluepr
         constraints: section_text(&parsed, source, "Constraints")?,
         definition_of_done: parse_check_items(parsed.section("Definition of Done")?.body(source)),
         plan: section_text(&parsed, source, "Plan")?,
-        rubric: section_text(&parsed, source, "Rubric")?,
+        rubric,
         todos,
         results: section_text(&parsed, source, "Results")?,
         evidence: evidence_items(parsed.section("Evidence")?.body(source)),
@@ -366,7 +375,7 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
         .filter(|task| task.id.as_deref().is_some_and(|id| id.starts_with("todo-")))
         .collect::<Vec<_>>();
 
-    let mut todos = tasks
+    let todos = tasks
         .iter()
         .map(|task| {
             let line = source
@@ -409,6 +418,8 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
                 .map(|parent| (parent, task.id.clone().expect("filtered to Todo ID")))
         })
         .collect::<Vec<_>>();
+    let mut children_by_parent = HashMap::<usize, Vec<usize>>::new();
+    let mut child_indexes = HashSet::new();
     for (parent_id, child_id) in child_pairs {
         let Some(&parent_index) = todo_indexes.get(&parent_id) else {
             continue;
@@ -417,16 +428,32 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
             continue;
         };
         if parent_index != child_index {
-            let child = todos[child_index].clone();
-            todos[parent_index].children.push(child);
+            children_by_parent
+                .entry(parent_index)
+                .or_default()
+                .push(child_index);
+            child_indexes.insert(child_index);
         }
     }
-    let child_ids = todos
-        .iter()
-        .flat_map(|todo| todo.children.iter().map(|child| child.id.clone()))
-        .collect::<HashSet<_>>();
-    todos.retain(|todo| !child_ids.contains(&todo.id));
-    Ok(todos)
+    Ok((0..todos.len())
+        .filter(|index| !child_indexes.contains(index))
+        .map(|index| build_graph_node(index, &todos, &children_by_parent))
+        .collect())
+}
+
+fn build_graph_node(
+    index: usize,
+    nodes: &[TodoGraphNode],
+    children_by_parent: &HashMap<usize, Vec<usize>>,
+) -> TodoGraphNode {
+    let mut node = nodes[index].clone();
+    node.children = children_by_parent
+        .get(&index)
+        .into_iter()
+        .flatten()
+        .map(|child| build_graph_node(*child, nodes, children_by_parent))
+        .collect();
+    node
 }
 
 fn standard_markdown_link(line: &str) -> Option<(String, String)> {
@@ -455,16 +482,21 @@ fn revision_entries(source: &str) -> Vec<RevisionEntry> {
 }
 
 pub(crate) fn markdown_entries(source: &str, prefix: &str) -> Vec<(String, String)> {
-    let lines = source.lines().collect::<Vec<_>>();
-    let starts = lines
-        .iter()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let id = line
-                .split_whitespace()
-                .find_map(|word| word.strip_prefix('^'))?
-                .to_string();
-            id.starts_with(prefix).then_some((index, id))
+    let Ok(document) =
+        Parser::new_with_options(source, ParserOptions::default().enabled_gfm().enabled_ofm())
+            .parse_checked()
+    else {
+        return Vec::new();
+    };
+    let starts = active_node_indices(&document)
+        .into_iter()
+        .filter_map(|index| {
+            let node = &document.tree[index];
+            let id = node.id.as_deref()?.strip_prefix(prefix)?.to_string();
+            Some((
+                location_to_byte(source, node.start),
+                format!("{prefix}{id}"),
+            ))
         })
         .collect::<Vec<_>>();
     starts
@@ -474,8 +506,27 @@ pub(crate) fn markdown_entries(source: &str, prefix: &str) -> Vec<(String, Strin
             let end = starts
                 .get(index + 1)
                 .map(|(next, _)| *next)
-                .unwrap_or(lines.len());
-            (id.clone(), lines[*start..end].join("\n").trim().to_string())
+                .unwrap_or(source.len());
+            (id.clone(), source[*start..end].to_string())
         })
         .collect()
+}
+
+fn location_to_byte(source: &str, location: Location) -> usize {
+    let mut line = 1;
+    let mut start = 0;
+    for (index, character) in source.char_indices() {
+        if line == location.line {
+            break;
+        }
+        if character == '\n' {
+            line += 1;
+            start = index + 1;
+        }
+    }
+    source[start..]
+        .char_indices()
+        .nth(location.column.saturating_sub(1) as usize)
+        .map(|(offset, _)| start + offset)
+        .unwrap_or(source.len())
 }
