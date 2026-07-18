@@ -1,3 +1,4 @@
+mod document;
 mod mcp;
 mod model;
 mod service;

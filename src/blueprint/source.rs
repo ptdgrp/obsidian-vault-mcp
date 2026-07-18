@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use markdown::{
-    Document, MarkdownNode, Parser, ParserOptions,
-    ast::{heading::HeadingLevel, list::ListItem},
-};
+use markdown::{Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem};
 
-use crate::blueprint::model::{CheckItem, Todo, TodoStatus};
+use crate::blueprint::{
+    document::{DocumentSchema, ParsedDocument},
+    model::{CheckItem, Todo, TodoStatus},
+};
 
 const REQUIRED_SECTIONS: [&str; 8] = [
     "Record",
@@ -18,62 +18,28 @@ const REQUIRED_SECTIONS: [&str; 8] = [
     "Notes",
 ];
 
+const BLUEPRINT_SOURCE_SCHEMA: DocumentSchema = DocumentSchema {
+    name: "",
+    required_sections: &REQUIRED_SECTIONS,
+};
+
 pub(crate) struct ParsedBlueprintSource {
     pub todos: Vec<Todo>,
 }
 
 impl ParsedBlueprintSource {
     pub(crate) fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
-        if !path.ends_with(".md") {
-            anyhow::bail!("Blueprint path must end with .md");
-        }
+        let parsed_document = ParsedDocument::parse(path, source, BLUEPRINT_SOURCE_SCHEMA)?;
         let document =
             Parser::new_with_options(source, ParserOptions::default().enabled_gfm().enabled_ofm())
                 .parse_checked()
                 .map_err(|error| anyhow::anyhow!("invalid Markdown: {error:?}"))?;
 
-        let mut h2_headings = active_node_indices(&document)
-            .into_iter()
-            .filter_map(|index| match &document.tree[index].body {
-                MarkdownNode::Heading(heading) if heading.level() == &HeadingLevel::H2 => Some((
-                    direct_text(&document, index).trim().to_string(),
-                    document.tree[index].start.line,
-                )),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        h2_headings.sort_by_key(|(_, line)| *line);
-        let headings = h2_headings
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect::<HashSet<_>>();
-        for section in REQUIRED_SECTIONS {
-            if !headings.contains(section) {
-                anyhow::bail!("missing required section: {section}");
-            }
-            if h2_headings
-                .iter()
-                .filter(|(name, _)| name == section)
-                .count()
-                != 1
-            {
-                anyhow::bail!("required section must occur exactly once: {section}");
-            }
-        }
-        let todos_start_line = h2_headings
-            .iter()
-            .find(|(name, _)| name == "Todos")
-            .map(|(_, line)| *line)
-            .expect("validated required Todos section");
-        let todos_end_line = h2_headings
-            .iter()
-            .find(|(_, line)| *line > todos_start_line)
-            .map(|(_, line)| *line)
-            .unwrap_or(u64::MAX);
+        let todos_section = parsed_document.section("Todos")?;
         let tasks = active_node_indices(&document)
             .into_iter()
             .filter_map(|index| task_node(&document, index))
-            .filter(|task| task.line > todos_start_line && task.line < todos_end_line)
+            .filter(|task| todos_section.contains_line(source, task.line))
             .collect::<Vec<_>>();
         let mut todos = tasks
             .iter()
