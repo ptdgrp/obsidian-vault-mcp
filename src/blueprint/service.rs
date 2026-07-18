@@ -740,65 +740,24 @@ impl BlueprintService {
             if expected_etag.is_some_and(|etag| etag != graph.etag) {
                 anyhow::bail!("document etag does not match; re-read before writing");
             }
-            locked.write_todo(todo_id, None, |source| {
-                let mut next = source.to_string();
-                if let Some(title) = title {
-                    next = replace_title(&next, title)?;
-                }
-                if let Some(criteria) = completion_criteria {
-                    for item in criteria {
-                        require_text("completion criterion", &item.text)?;
-                    }
-                    next = replace_section(
-                        &next,
-                        "Completion Criteria",
-                        &criteria
-                            .iter()
-                            .map(|item| {
-                                format!(
-                                    "- [{}] {}",
-                                    if item.completed { 'x' } else { ' ' },
-                                    item.text.trim()
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    )?;
-                }
-                if let Some(handoff) = handoff {
-                    next = replace_section(
-                        &next,
-                        "Handoff",
-                        &handoff
-                            .iter()
-                            .map(|item| format!("- {}", item.trim()))
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    )?;
-                }
-                if let Some(summary) = result_summary {
-                    next = replace_section(&next, "Results", summary)?;
-                }
-                Ok(next)
-            })?;
-            locked.write_blueprint(expected_etag, |source| {
-                let mut next = source.to_string();
-                if let Some(title) = title {
-                    require_text("title", title)?;
-                    next = replace_task_title(&next, todo_id, title)?;
-                }
-                if let Some(depends_on) = depends_on {
-                    next = replace_or_insert_todo_field(
-                        &next,
-                        todo_id,
-                        "Depends On",
-                        &depends_on.join(", "),
-                    )?;
-                }
-                let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &next)?;
-                derive_readiness(&parsed.todos)?;
-                Ok(next)
-            })?;
+            let detail = locked.read_todo(todo_id)?;
+            let detail_candidate = todo_update_detail_candidate(
+                &detail.source,
+                title,
+                completion_criteria,
+                handoff,
+                result_summary,
+            )?;
+            crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail_candidate)?;
+            let graph_candidate = todo_update_graph_candidate(
+                blueprint_id,
+                &graph.source,
+                todo_id,
+                title,
+                depends_on,
+            )?;
+            locked.write_todo(todo_id, None, |_| Ok(detail_candidate))?;
+            locked.write_blueprint(expected_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -1086,6 +1045,75 @@ fn append_to_section(source: &str, section: &str, content: &str) -> anyhow::Resu
         content.trim_end(),
         &source[end..]
     ))
+}
+
+fn todo_update_detail_candidate(
+    source: &str,
+    title: Option<&str>,
+    completion_criteria: Option<&[CheckUpdate]>,
+    handoff: Option<&[String]>,
+    result_summary: Option<&str>,
+) -> anyhow::Result<String> {
+    let mut next = source.to_string();
+    if let Some(title) = title {
+        require_text("title", title)?;
+        next = replace_title(&next, title)?;
+    }
+    if let Some(criteria) = completion_criteria {
+        for item in criteria {
+            require_text("completion criterion", &item.text)?;
+        }
+        next = replace_section(
+            &next,
+            "Completion Criteria",
+            &criteria
+                .iter()
+                .map(|item| {
+                    format!(
+                        "- [{}] {}",
+                        if item.completed { 'x' } else { ' ' },
+                        item.text.trim()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )?;
+    }
+    if let Some(handoff) = handoff {
+        next = replace_section(
+            &next,
+            "Handoff",
+            &handoff
+                .iter()
+                .map(|item| format!("- {}", item.trim()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )?;
+    }
+    if let Some(summary) = result_summary {
+        next = replace_section(&next, "Results", summary)?;
+    }
+    Ok(next)
+}
+
+fn todo_update_graph_candidate(
+    blueprint_id: &str,
+    source: &str,
+    todo_id: &str,
+    title: Option<&str>,
+    depends_on: Option<&[String]>,
+) -> anyhow::Result<String> {
+    let mut next = source.to_string();
+    if let Some(title) = title {
+        require_text("title", title)?;
+        next = replace_task_title(&next, todo_id, title)?;
+    }
+    if let Some(depends_on) = depends_on {
+        next = replace_or_insert_todo_field(&next, todo_id, "Depends On", &depends_on.join(", "))?;
+    }
+    let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &next)?;
+    derive_readiness(&parsed.todos)?;
+    Ok(next)
 }
 
 fn replace_title(source: &str, title: &str) -> anyhow::Result<String> {

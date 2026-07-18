@@ -1244,6 +1244,56 @@ fn todo_update_persists_allowed_fields_and_rejects_invalid_dependencies() {
 }
 
 #[test]
+fn todo_update_invalid_dependency_keeps_detail_and_graph_titles() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(
+            &blueprint.id,
+            "original title",
+            "creator",
+            None,
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .unwrap();
+
+    for dependency in [todo.id.clone(), "todo-missing".into()] {
+        assert!(
+            service
+                .todo_update(
+                    &blueprint.id,
+                    &todo.id,
+                    Some("new title"),
+                    Some(&[dependency]),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .is_err()
+        );
+        let blueprint_source = service.blueprint_get(&blueprint.id).unwrap();
+        assert!(
+            blueprint_source
+                .source
+                .contains(&format!("[original title](todos/{}.md)", todo.id))
+        );
+        let detail = blueprint_source
+            .todos
+            .into_iter()
+            .find(|index| index.id == todo.id)
+            .unwrap();
+        assert!(
+            fs::read_to_string(detail.path)
+                .unwrap()
+                .contains("# original title\n")
+        );
+    }
+}
+
+#[test]
 fn todo_list_combines_status_owner_and_readiness_filters() {
     let (_directory, service, blueprint) = create_blueprint();
     let ready_a = service

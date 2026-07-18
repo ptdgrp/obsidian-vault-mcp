@@ -44,3 +44,8 @@
 - 回归覆盖：详情写失败不提交中央图、锁内 stale active guard、关闭/取消 Revision、dangling Evidence，以及中央图不含详情字段。
 
 验证：`cargo fmt --all`、`cargo test blueprint::tests -- --nocapture`（54 passed）、`cargo check`、`git diff --check`。
+
+## 原子性复审补充
+
+- `todo_update` 现会在同一锁内先构造并解析 TodoDetail 候选，再构造并验证中央图候选（含依赖/readiness）；两份候选均通过后才按详情、中央图顺序写入，避免无效依赖留下已改标题的详情文档。
+- 回归覆盖同时改标题并提交 self / unknown dependency：失败后 Todo H1 与中央 Markdown 链接文本均保持原值。
