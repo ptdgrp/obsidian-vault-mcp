@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
 use crate::blueprint::{
-    model::{BlueprintGetOutput, BlueprintResumeOutput, NotReadyTodo, Todo, TodoStatus},
+    model::{
+        BlueprintGetOutput, BlueprintResumeOutput, BlueprintState, NotReadyTodo, Todo, TodoStatus,
+    },
     source::ParsedBlueprintSource,
     store::{BlueprintStore, StoredBlueprint},
     validate::derive_readiness,
@@ -103,7 +105,7 @@ impl BlueprintService {
         match view.unwrap_or("full") {
             "full" => Ok(BlueprintGetOutput {
                 id: stored.id,
-                state: stored.state,
+                state: blueprint_state_name(stored.state).to_string(),
                 etag: stored.etag,
                 source: Some(stored.source),
                 resume: None,
@@ -121,7 +123,7 @@ impl BlueprintService {
                     .collect();
                 Ok(BlueprintGetOutput {
                     id: stored.id,
-                    state: stored.state,
+                    state: blueprint_state_name(stored.state).to_string(),
                     etag: stored.etag,
                     source: None,
                     resume: Some(BlueprintResumeOutput {
@@ -151,7 +153,7 @@ impl BlueprintService {
         let readiness = derive_readiness(&parsed.todos)?;
         let flattened = flatten_todos(&parsed.todos);
         Ok(BlueprintStatus {
-            state: stored.state,
+            state: blueprint_state_name(stored.state).to_string(),
             ready_todos: readiness.ready,
             not_ready_todos: readiness.not_ready,
             blocked_todos: flattened
@@ -1173,4 +1175,12 @@ fn require_text(name: &str, value: &str) -> anyhow::Result<()> {
         anyhow::bail!("{name} must not be empty");
     }
     Ok(())
+}
+
+fn blueprint_state_name(state: BlueprintState) -> &'static str {
+    match state {
+        BlueprintState::Active => "active",
+        BlueprintState::Closed => "closed",
+        BlueprintState::Cancelled => "cancelled",
+    }
 }
