@@ -41,7 +41,8 @@ server supports structural section edits as well as read operations.
 | `blueprint_status` | Return derived Todo readiness for one Blueprint. |
 | `blueprint_update` | Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it. |
 | `dod_update` | Explicitly mark a Definition of Done item complete or incomplete. |
-| `evidence_add` | Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric. |
+| `evidence_list` | List Evidence submitted to a Blueprint or one Todo. |
+| `evidence_submit` | Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric. |
 | `revision_append` | Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted. |
 | `todo_assign` | Assign or reassign a Todo owner. |
 | `todo_block` | Block an in-progress Todo with a reason and handoff. |
@@ -950,10 +951,20 @@ Input:
 | `constraints` | `string[]` | no |  |
 | `created_by` | `string` | yes |  |
 | `definition_of_done` | `string[]` | yes |  |
-| `intent` | `string` | yes |  |
-| `plan` | `string` | yes |  |
-| `rubric` | `string` | yes | The evaluation procedure selected for this Blueprint. |
+| `intent` | `ExternalBody` | yes |  |
+| `plan` | `ExternalBody` | yes |  |
+| `rubric` | `ExternalBody` | yes | The evaluation procedure selected for this Blueprint. |
 | `title` | `string` | yes |  |
+
+Nested types:
+
+### `ExternalBody`
+
+External, body-shaped content that is isolated from Blueprint protocol Markdown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `lines` | `string[]` | yes |  |
 
 
 Output:
@@ -1174,12 +1185,29 @@ Input:
 | `changed_by` | `string \| null` | no |  |
 | `constraints` | `array \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
-| `intent` | `string \| null` | no |  |
-| `notes` | `string \| null` | no |  |
-| `plan` | `string \| null` | no |  |
-| `results` | `string \| null` | no |  |
-| `rubric` | `string \| null` | no |  |
+| `intent` | `ExternalBody \| null` | no |  |
+| `notes` | `ExternalBody \| null` | no |  |
+| `plan` | `ExternalBody \| null` | no |  |
+| `results` | `ResultsInput \| null` | no |  |
+| `rubric` | `ExternalBody \| null` | no |  |
 | `title` | `string \| null` | no |  |
+
+Nested types:
+
+### `ExternalBody`
+
+External, body-shaped content that is isolated from Blueprint protocol Markdown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `lines` | `string[]` | yes |  |
+
+### `ResultsInput`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `body` | `ExternalBody` | yes |  |
+| `evidence_ids` | `string[]` | no |  |
 
 
 Output:
@@ -1261,7 +1289,52 @@ Lifecycle state recorded in Blueprint v2 frontmatter.
 | `path` | `string` | yes |  |
 
 
-## 🔧 `evidence_add`
+## 🔧 `evidence_list`
+
+List Evidence submitted to a Blueprint or one Todo.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `blueprint_id` | `string` | yes |  |
+| `page` | `integer` | no |  |
+| `todo_id` | `string \| null` | no |  |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `evidence` | `EvidenceSummary[]` | yes |  |
+| `index_status` | `string` | yes |  |
+| `pagination` | `EvidencePagination` | yes |  |
+
+Nested types:
+
+### `EvidencePagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_evidence` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+
+### `EvidenceSummary`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `blueprint_reference` | `string` | yes |  |
+| `body_preview` | `string` | yes |  |
+| `document` | `string` | yes |  |
+| `id` | `string` | yes |  |
+| `local_reference` | `string` | yes |  |
+| `scope` | `string` | yes |  |
+| `title` | `string` | yes |  |
+| `todo_id` | `string \| null` | no |  |
+
+
+## 🔧 `evidence_submit`
 
 Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric.
 
@@ -1270,18 +1343,34 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
+| `body` | `ExternalBody` | yes |  |
 | `expected_etag` | `string \| null` | no |  |
-| `markdown` | `string` | yes |  |
 | `title` | `string` | yes |  |
 | `todo_id` | `string \| null` | no |  |
+
+Nested types:
+
+### `ExternalBody`
+
+External, body-shaped content that is isolated from Blueprint protocol Markdown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `lines` | `string[]` | yes |  |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `blueprint_reference` | `string` | yes |  |
+| `body_preview` | `string` | yes |  |
+| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
+| `local_reference` | `string` | yes |  |
+| `scope` | `string` | yes |  |
+| `title` | `string` | yes |  |
+| `todo_id` | `string \| null` | no |  |
 
 
 ## 🔧 `revision_append`
@@ -1753,11 +1842,21 @@ Input:
 | `depends_on` | `string[]` | no |  |
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
-| `intent` | `string` | yes |  |
+| `intent` | `ExternalBody` | yes |  |
 | `owner` | `string \| null` | no |  |
 | `parent_id` | `string \| null` | no |  |
-| `plan` | `string` | yes |  |
+| `plan` | `ExternalBody` | yes |  |
 | `title` | `string` | yes |  |
+
+Nested types:
+
+### `ExternalBody`
+
+External, body-shaped content that is isolated from Blueprint protocol Markdown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `lines` | `string[]` | yes |  |
 
 
 Output:
@@ -2205,10 +2304,10 @@ Input:
 | `expected_etag` | `string \| null` | no |  |
 | `expected_todo_etag` | `string \| null` | no |  |
 | `handoff` | `array \| null` | no |  |
-| `intent` | `string \| null` | no |  |
-| `notes` | `string \| null` | no |  |
-| `plan` | `string \| null` | no |  |
-| `result_summary` | `string \| null` | no |  |
+| `intent` | `ExternalBody \| null` | no |  |
+| `notes` | `ExternalBody \| null` | no |  |
+| `plan` | `ExternalBody \| null` | no |  |
+| `results` | `ResultsInput \| null` | no |  |
 | `title` | `string \| null` | no |  |
 | `todo_id` | `string` | yes |  |
 
@@ -2220,6 +2319,21 @@ Nested types:
 | --- | --- | --- | --- |
 | `completed` | `boolean` | no |  |
 | `text` | `string` | yes |  |
+
+### `ExternalBody`
+
+External, body-shaped content that is isolated from Blueprint protocol Markdown.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `lines` | `string[]` | yes |  |
+
+### `ResultsInput`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `body` | `ExternalBody` | yes |  |
+| `evidence_ids` | `string[]` | no |  |
 
 
 Output:

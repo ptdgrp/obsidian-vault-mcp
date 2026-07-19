@@ -125,16 +125,63 @@ pub struct RevisionEntry {
     pub markdown: String,
 }
 
-/// Appends one Evidence block to the Blueprint or a Todo detail document.
+/// Submits one Evidence block to the Blueprint or a Todo detail document.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-pub struct EvidenceAddInput {
+pub struct EvidenceSubmitInput {
     pub blueprint_id: String,
     #[serde(default)]
     pub todo_id: Option<String>,
     pub title: String,
-    pub markdown: String,
+    pub body: crate::blueprint::ExternalBody,
     #[serde(default)]
     pub expected_etag: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EvidenceListInput {
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub todo_id: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: usize,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct EvidenceSummary {
+    pub id: String,
+    pub title: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todo_id: Option<String>,
+    pub document: String,
+    pub body_preview: String,
+    pub blueprint_reference: String,
+    pub local_reference: String,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct EvidencePagination {
+    pub page: usize,
+    pub total_pages: usize,
+    pub total_evidence: usize,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct EvidenceListOutput {
+    pub evidence: Vec<EvidenceSummary>,
+    pub pagination: EvidencePagination,
+    pub index_status: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct ResultsInput {
+    pub body: crate::blueprint::ExternalBody,
+    #[serde(default)]
+    pub evidence_ids: Vec<String>,
+}
+
+fn default_page() -> usize {
+    1
 }
 
 /// Appends one immutable semantic-change record to the Blueprint or a Todo detail document.
@@ -266,7 +313,7 @@ pub struct TodoPatch {
     #[serde(default)]
     pub handoff: Option<String>,
     #[serde(default)]
-    pub results: Option<String>,
+    pub results: Option<ResultsInput>,
     #[serde(default)]
     pub notes: Option<String>,
 }
@@ -349,13 +396,13 @@ pub struct TodoListOutput {
 pub struct BlueprintCreateInput {
     pub title: String,
     pub created_by: String,
-    pub intent: String,
+    pub intent: crate::blueprint::ExternalBody,
     #[serde(default)]
     pub constraints: Vec<String>,
     pub definition_of_done: Vec<String>,
-    pub plan: String,
+    pub plan: crate::blueprint::ExternalBody,
     /// The evaluation procedure selected for this Blueprint.
-    pub rubric: String,
+    pub rubric: crate::blueprint::ExternalBody,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -380,21 +427,21 @@ pub struct BlueprintUpdateInput {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
-    pub intent: Option<String>,
+    pub intent: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub constraints: Option<Vec<String>>,
     #[serde(default)]
-    pub plan: Option<String>,
+    pub plan: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
-    pub rubric: Option<String>,
+    pub rubric: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub changed_by: Option<String>,
     #[serde(default)]
     pub change_reason: Option<String>,
     #[serde(default)]
-    pub results: Option<String>,
+    pub results: Option<ResultsInput>,
     #[serde(default)]
-    pub notes: Option<String>,
+    pub notes: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub expected_etag: Option<String>,
 }
@@ -413,7 +460,7 @@ pub struct BlueprintPatch {
     #[serde(default)]
     pub rubric: Option<String>,
     #[serde(default)]
-    pub results: Option<String>,
+    pub results: Option<ResultsInput>,
     #[serde(default)]
     pub notes: Option<String>,
 }
@@ -449,8 +496,8 @@ pub struct TodoCreateInput {
     pub blueprint_id: String,
     pub title: String,
     pub created_by: String,
-    pub intent: String,
-    pub plan: String,
+    pub intent: crate::blueprint::ExternalBody,
+    pub plan: crate::blueprint::ExternalBody,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
@@ -496,17 +543,17 @@ pub struct TodoUpdateInput {
     #[serde(default)]
     pub depends_on: Option<Vec<String>>,
     #[serde(default)]
-    pub intent: Option<String>,
+    pub intent: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub completion_criteria: Option<Vec<CompletionCriterionInput>>,
     #[serde(default)]
     pub handoff: Option<Vec<String>>,
     #[serde(default)]
-    pub plan: Option<String>,
+    pub plan: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
-    pub result_summary: Option<String>,
+    pub results: Option<ResultsInput>,
     #[serde(default)]
-    pub notes: Option<String>,
+    pub notes: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub changed_by: Option<String>,
     #[serde(default)]

@@ -4,9 +4,11 @@ use serde::Serialize;
 use ulid::Ulid;
 
 use crate::blueprint::{
+    ExternalBody,
     model::{
-        BlueprintGetOutput, BlueprintResumeOutput, BlueprintState, EvidenceAddInput, EvidenceItem,
-        NotReadyTodo, RevisionAppendInput, RevisionEntry, Todo, TodoCreateRequest, TodoGraphNode,
+        BlueprintGetOutput, BlueprintResumeOutput, BlueprintState, EvidenceItem,
+        EvidenceListOutput, EvidencePagination, EvidenceSubmitInput, EvidenceSummary, NotReadyTodo,
+        ResultsInput, RevisionAppendInput, RevisionEntry, Todo, TodoCreateRequest, TodoGraphNode,
         TodoPatch, TodoStatus, TodoView,
     },
     source::{
@@ -16,7 +18,16 @@ use crate::blueprint::{
     validate::derive_readiness,
 };
 
-pub use crate::blueprint::model::BlueprintCreateInput as BlueprintCreateRequest;
+#[derive(Clone, Debug)]
+pub struct BlueprintCreateRequest {
+    pub title: String,
+    pub created_by: String,
+    pub intent: String,
+    pub constraints: Vec<String>,
+    pub definition_of_done: Vec<String>,
+    pub plan: String,
+    pub rubric: String,
+}
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct BlueprintCreated {
@@ -100,11 +111,18 @@ impl BlueprintService {
     ) -> anyhow::Result<BlueprintCreated> {
         require_text("title", &request.title)?;
         require_text("created_by", &request.created_by)?;
-        require_text("intent", &request.intent)?;
-        require_text("plan", &request.plan)?;
-        require_text("rubric", &request.rubric)?;
+        require_body_text("intent", &request.intent)?;
+        require_body_text("plan", &request.plan)?;
+        require_body_text("rubric", &request.rubric)?;
         if request.definition_of_done.is_empty() {
             anyhow::bail!("definition_of_done must not be empty");
+        }
+        for item in request
+            .constraints
+            .iter()
+            .chain(request.definition_of_done.iter())
+        {
+            require_text("list item", item)?;
         }
         let id = format!("bp-{}", Ulid::generate());
         let source = render_blueprint(&id, &request);
@@ -165,6 +183,8 @@ impl BlueprintService {
                 resume: None,
             }),
             "resume" => {
+                let parsed =
+                    crate::blueprint::BlueprintSource::parse(&format!("{id}.md"), &stored.source)?;
                 let status = self.blueprint_status(id)?;
                 let active_todos = status
                     .todos
@@ -182,11 +202,11 @@ impl BlueprintService {
                     source: None,
                     todo_index,
                     resume: Some(BlueprintResumeOutput {
-                        intent: section_body(&stored.source, "Intent")?,
-                        constraints: section_body(&stored.source, "Constraints")?,
-                        plan: section_body(&stored.source, "Plan")?,
-                        rubric: section_body(&stored.source, "Rubric")?,
-                        results: section_body(&stored.source, "Results")?,
+                        intent: parsed.intent,
+                        constraints: parsed.constraints,
+                        plan: parsed.plan,
+                        rubric: parsed.rubric,
+                        results: parsed.results,
                         open_definition_of_done: status.open_definition_of_done,
                         active_todos,
                         ready_todos: status.ready_todos,
@@ -248,6 +268,16 @@ impl BlueprintService {
         expected_etag: Option<&str>,
     ) -> anyhow::Result<StoredBlueprint> {
         self.require_active(id)?;
+        let rendered_results = patch
+            .results
+            .as_ref()
+            .map(|results| {
+                self.store.with_lock(id, |locked| {
+                    let graph = locked.read_blueprint()?;
+                    render_results(locked, &graph.source, None, results)
+                })
+            })
+            .transpose()?;
         let semantic = patch.intent.is_some()
             || patch.constraints.is_some()
             || patch.plan.is_some()
@@ -256,6 +286,14 @@ impl BlueprintService {
             require_text("changed_by", changed_by.unwrap_or(""))?;
             require_text("change_reason", change_reason.unwrap_or(""))?;
         }
+        let revision_id = semantic
+            .then(|| {
+                self.store.with_lock(id, |locked| {
+                    let graph = locked.read_blueprint()?;
+                    next_revision_id(locked, &graph.source)
+                })
+            })
+            .transpose()?;
         self.write_blueprint_validated(id, expected_etag, |source| {
             let mut next = source.to_string();
             if let Some(title) = patch.title.as_deref() {
@@ -263,33 +301,36 @@ impl BlueprintService {
                 next = replace_title(&next, title)?;
             }
             if let Some(intent) = patch.intent.as_deref() {
-                require_text("intent", intent)?;
-                next = replace_section(&next, "Intent", intent)?;
+                require_body_text("intent", intent)?;
+                next = replace_section(&next, "Intent", &render_external(intent, true)?)?;
             }
             if let Some(constraints) = patch.constraints.as_deref() {
                 next = replace_section(
                     &next,
                     "Constraints",
-                    &constraints
-                        .iter()
-                        .map(|item| format!("- {}", item.trim()))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
+                    &render_external(
+                        &constraints
+                            .iter()
+                            .map(|item| format!("- {}", item.trim()))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        false,
+                    )?,
                 )?;
             }
             if let Some(plan) = patch.plan.as_deref() {
-                require_text("plan", plan)?;
-                next = replace_section(&next, "Plan", plan)?;
+                require_body_text("plan", plan)?;
+                next = replace_section(&next, "Plan", &render_external(plan, true)?)?;
             }
             if let Some(rubric) = patch.rubric.as_deref() {
-                require_text("rubric", rubric)?;
-                next = replace_section(&next, "Rubric", rubric)?;
+                require_body_text("rubric", rubric)?;
+                next = replace_section(&next, "Rubric", &render_external(rubric, true)?)?;
             }
-            if let Some(results) = patch.results.as_deref() {
+            if let Some(results) = rendered_results.as_deref() {
                 next = replace_section(&next, "Results", results)?;
             }
             if let Some(notes) = patch.notes.as_deref() {
-                next = replace_section(&next, "Notes", notes)?;
+                next = replace_section(&next, "Notes", &render_external(notes, false)?)?;
             }
             if semantic {
                 let sections = [
@@ -303,7 +344,7 @@ impl BlueprintService {
                 .collect::<Vec<_>>()
                 .join(", ");
                 let revision = render_revision(
-                    &format!("revision-{}", Ulid::generate()),
+                    revision_id.as_deref().expect("allocated"),
                     changed_by.expect("validated"),
                     change_reason.expect("validated"),
                     "Blueprint semantic update",
@@ -346,7 +387,7 @@ impl BlueprintService {
             title: title.to_string(),
             created_by: created_by.to_string(),
             intent: title.to_string(),
-            plan: String::new(),
+            plan: "执行 Todo".to_string(),
             parent_id: parent_id.map(ToOwned::to_owned),
             owner: owner.map(ToOwned::to_owned),
             depends_on: depends_on.to_vec(),
@@ -357,8 +398,8 @@ impl BlueprintService {
 
     /// Creates the Todo detail document before linking it from the central graph.
     pub fn todo_create(&self, request: TodoCreateRequest) -> anyhow::Result<TodoView> {
-        require_text("intent", &request.intent)?;
-        require_text("plan", &request.plan)?;
+        require_body_text("intent", &request.intent)?;
+        require_body_text("plan", &request.plan)?;
         self.todo_create_with_detail(request)
     }
 
@@ -368,17 +409,7 @@ impl BlueprintService {
         for criterion in &request.completion_criteria {
             require_text("completion criterion", criterion)?;
         }
-        let todo_id = format!("todo-{}", Ulid::generate());
-        let detail_source = render_todo(
-            &request.blueprint_id,
-            &todo_id,
-            &request.title,
-            &request.intent,
-            &request.plan,
-            &request.completion_criteria,
-        );
-        crate::blueprint::TodoDetail::parse(&format!("{todo_id}.md"), &detail_source)?;
-        self.store.with_lock(&request.blueprint_id, |locked| {
+        let todo_id = self.store.with_lock(&request.blueprint_id, |locked| {
             locked.require_active()?;
             let blueprint = locked.read_blueprint()?;
             if request
@@ -392,6 +423,16 @@ impl BlueprintService {
                 &format!("{}.md", request.blueprint_id),
                 &blueprint.source,
             )?;
+            let todo_id = next_todo_id(&parsed.todos)?;
+            let detail_source = render_todo(
+                &request.blueprint_id,
+                &todo_id,
+                &request.title,
+                &request.intent,
+                &request.plan,
+                &request.completion_criteria,
+            );
+            crate::blueprint::TodoDetail::parse(&format!("{todo_id}.md"), &detail_source)?;
             if let Some(parent_id) = request.parent_id.as_deref() {
                 find_todo(&parsed.todos, parent_id)
                     .ok_or_else(|| anyhow::anyhow!("unknown Todo: {parent_id}"))?;
@@ -445,7 +486,8 @@ impl BlueprintService {
             if result.is_err() {
                 locked.remove_todo(&todo_id)?;
             }
-            result.map(|_| ())
+            result?;
+            Ok(todo_id)
         })?;
         self.todo_get(&request.blueprint_id, &todo_id)
     }
@@ -509,20 +551,15 @@ impl BlueprintService {
         todo_view_from_store(&self.store, blueprint_id, todo_id)
     }
 
-    /// Appends free-form Markdown Evidence while retaining every existing Evidence entry.
-    pub fn evidence_add(&self, input: EvidenceAddInput) -> anyhow::Result<EvidenceItem> {
+    /// Submits fenced Evidence and returns its canonical aggregate reference.
+    pub fn evidence_submit(&self, input: EvidenceSubmitInput) -> anyhow::Result<EvidenceSummary> {
         require_text("title", &input.title)?;
-        require_text("markdown", &input.markdown)?;
-        let id = format!("evidence-{}", Ulid::generate());
-        let entry = format!(
-            "### {} ^{}\n\n{}",
-            input.title.trim(),
-            id,
-            input.markdown.trim()
-        );
+        let body = input.body.render()?;
         self.store.with_lock(&input.blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
+            let id = next_evidence_id(locked, &graph.source, None)?;
+            let entry = format!("### {} ^{}\n\n{}", input.title.trim(), id, body);
             match input.todo_id.as_deref() {
                 Some(todo_id) => {
                     let parsed = ParsedBlueprintSource::parse(
@@ -541,13 +578,23 @@ impl BlueprintService {
                     }
                     let candidate = append_to_section(&detail.source, "Evidence", &entry)?;
                     crate::blueprint::TodoDetail::parse(detail.path.as_str(), &candidate)?;
-                    validate_locked_evidence_aggregate(
+                    let graph_candidate = rebuild_todo_evidence_index(
                         locked,
                         &graph.source,
                         Some((todo_id, &candidate)),
                     )?;
+                    validate_locked_evidence_aggregate(
+                        locked,
+                        &graph_candidate,
+                        Some((todo_id, &candidate)),
+                    )?;
                     locked
                         .write_todo(todo_id, input.expected_etag.as_deref(), |_| Ok(candidate))?;
+                    if let Err(error) = locked.write_blueprint(None, |_| Ok(graph_candidate)) {
+                        let previous = detail.source;
+                        let _ = locked.write_todo(todo_id, None, |_| Ok(previous));
+                        return Err(error);
+                    }
                 }
                 None => {
                     if input
@@ -563,11 +610,48 @@ impl BlueprintService {
                     locked.write_blueprint(input.expected_etag.as_deref(), |_| Ok(candidate))?;
                 }
             }
-            Ok(())
-        })?;
-        Ok(EvidenceItem {
-            id,
-            markdown: entry,
+            Ok(evidence_summary(
+                &id,
+                input.title.trim(),
+                &input.body.text(),
+                input.todo_id.as_deref(),
+            ))
+        })
+    }
+
+    pub fn evidence_list(
+        &self,
+        blueprint_id: &str,
+        todo_id: Option<&str>,
+        page: usize,
+    ) -> anyhow::Result<EvidenceListOutput> {
+        if page == 0 {
+            anyhow::bail!("page must be at least 1");
+        }
+        self.store.with_lock(blueprint_id, |locked| {
+            let graph = locked.read_blueprint()?;
+            let mut evidence = collect_evidence_summaries(locked, &graph.source)?;
+            if let Some(todo_id) = todo_id {
+                evidence.retain(|item| item.todo_id.as_deref() == Some(todo_id));
+            }
+            evidence.sort_by_key(|item| numeric_suffix(&item.id, "evidence-").unwrap_or(u64::MAX));
+            const PAGE_SIZE: usize = 100;
+            let total_evidence = evidence.len();
+            let total_pages = total_evidence.div_ceil(PAGE_SIZE).max(1);
+            if page > total_pages {
+                anyhow::bail!("page {page} exceeds total pages {total_pages}");
+            }
+            let start = (page - 1) * PAGE_SIZE;
+            let evidence = evidence.into_iter().skip(start).take(PAGE_SIZE).collect();
+            Ok(EvidenceListOutput {
+                evidence,
+                pagination: EvidencePagination {
+                    page,
+                    total_pages,
+                    total_evidence,
+                },
+                index_status: "current".into(),
+            })
         })
     }
 
@@ -579,18 +663,18 @@ impl BlueprintService {
         if input.affected.is_empty() || input.affected.iter().any(|item| item.trim().is_empty()) {
             anyhow::bail!("affected must contain at least one non-empty item");
         }
-        let id = format!("revision-{}", Ulid::generate());
-        let entry = render_revision(
-            &id,
-            &input.changed_by,
-            &input.reason,
-            &input.change,
-            &input.affected.join(", "),
-            input.evidence_impact.as_deref(),
-        );
-        self.store.with_lock(&input.blueprint_id, |locked| {
+        let (id, entry) = self.store.with_lock(&input.blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
+            let id = next_revision_id(locked, &graph.source)?;
+            let entry = render_revision(
+                &id,
+                &input.changed_by,
+                &input.reason,
+                &input.change,
+                &input.affected.join(", "),
+                input.evidence_impact.as_deref(),
+            );
             match input.todo_id.as_deref() {
                 Some(todo_id) => {
                     let detail = locked.read_todo(todo_id)?;
@@ -625,7 +709,7 @@ impl BlueprintService {
                     locked.write_blueprint(input.expected_etag.as_deref(), |_| Ok(candidate))?;
                 }
             }
-            Ok(())
+            Ok((id, entry))
         })?;
         Ok(RevisionEntry {
             id,
@@ -738,7 +822,7 @@ impl BlueprintService {
         expected_todo_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
         require_text("reason", reason)?;
-        require_text("handoff", handoff)?;
+        require_body_text("handoff", handoff)?;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
@@ -758,8 +842,11 @@ impl BlueprintService {
             if expected_todo_etag.is_some_and(|etag| etag != detail.etag) {
                 anyhow::bail!("Todo ETag does not match; re-read before writing");
             }
-            let detail_candidate =
-                replace_section(&detail.source, "Handoff", &format!("- {}", handoff.trim()))?;
+            let detail_candidate = replace_section(
+                &detail.source,
+                "Handoff",
+                &render_external(&format!("- {}", handoff.trim()), false)?,
+            )?;
             crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail_candidate)?;
             let graph_candidate = {
                 let source = replace_task_status_in_section(
@@ -844,20 +931,25 @@ impl BlueprintService {
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
         // v0.1 test-only compatibility: older unit tests supplied a completion summary instead
-        // of first recording detail Results and Evidence. The public v2 operation never does this.
+        // of first recording detail Results and Evidence. The public operation never does this.
         self.store.with_lock(blueprint_id, |locked| {
+            let graph = locked.read_blueprint()?;
             let detail = locked.read_todo(todo_id)?;
             let parsed = crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail.source)?;
             {
-                let mut candidate = replace_section(&detail.source, "Results", summary.trim())?;
+                let mut candidate = replace_section(
+                    &detail.source,
+                    "Results",
+                    &render_external(summary.trim(), false)?,
+                )?;
                 if parsed.evidence.is_empty() {
+                    let evidence_id = next_evidence_id(locked, &graph.source, None)?;
                     candidate = append_to_section(
                         &candidate,
                         "Evidence",
                         &format!(
-                            "### Completion summary ^evidence-{}\n\n- Summary: {}",
-                            Ulid::generate(),
-                            summary.trim()
+                            "### Completion summary ^{evidence_id}\n\n{}",
+                            render_external(summary.trim(), true)?
                         ),
                     )?;
                 }
@@ -917,7 +1009,8 @@ impl BlueprintService {
             if detail.results.trim().is_empty() {
                 anyhow::bail!("Todo Results must not be empty before completion");
             }
-            if detail.evidence.is_empty() && evidence_references(&detail.results)?.is_empty() {
+            let stored_results = section_body(&detail_source.source, "Results")?;
+            if detail.evidence.is_empty() && evidence_references(&stored_results)?.is_empty() {
                 anyhow::bail!("Todo Evidence must be defined or referenced before completion");
             }
             validate_locked_evidence_aggregate(locked, &graph.source, None)?;
@@ -1019,8 +1112,15 @@ impl BlueprintService {
             {
                 anyhow::bail!("Todo ETag does not match; re-read before writing");
             }
-            let mut detail_candidate = todo_patch_detail_candidate(&detail.source, &patch)?;
+            let rendered_results = patch
+                .results
+                .as_ref()
+                .map(|results| render_results(locked, &graph.source, Some(todo_id), results))
+                .transpose()?;
+            let mut detail_candidate =
+                todo_patch_detail_candidate(&detail.source, &patch, rendered_results.as_deref())?;
             if semantic {
+                let revision_id = next_revision_id(locked, &graph.source)?;
                 let sections = [
                     patch.depends_on.as_ref().map(|_| "Depends On"),
                     patch.intent.as_ref().map(|_| "Intent"),
@@ -1036,6 +1136,7 @@ impl BlueprintService {
                 .join(", ");
                 detail_candidate = append_revision(
                     &detail_candidate,
+                    &revision_id,
                     options.changed_by.expect("validated"),
                     options.change_reason.expect("validated"),
                     &format!("Todo {todo_id} update ({sections})"),
@@ -1140,6 +1241,7 @@ impl BlueprintService {
             if !complete && reason.is_none_or(|value| value.trim().is_empty()) {
                 anyhow::bail!("reason is required when closing incomplete Blueprint");
             }
+            let revision_id = next_revision_id(locked, &before.source)?;
             locked.write_blueprint(expected_etag, |source| {
                 let outcome = if !open_todos.is_empty() || !open_dod.is_empty() {
                     "incomplete"
@@ -1171,6 +1273,7 @@ impl BlueprintService {
                 next = replace_section(&next, "Results", &format!("{results}\n\n{closure}"))?;
                 next = append_revision(
                     &next,
+                    &revision_id,
                     closed_by,
                     reason.unwrap_or("closure"),
                     "Blueprint closure",
@@ -1197,6 +1300,8 @@ impl BlueprintService {
         require_text("reason", reason)?;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
+            let before = locked.read_blueprint()?;
+            let revision_id = next_revision_id(locked, &before.source)?;
             locked.write_blueprint(expected_etag, |source| {
                 let next =
                     replace_or_insert_record_field(source, "Cancelled By", cancelled_by.trim())?;
@@ -1212,6 +1317,7 @@ impl BlueprintService {
                 )?;
                 let next = append_revision(
                     &next,
+                    &revision_id,
                     cancelled_by,
                     reason,
                     "Blueprint cancellation",
@@ -1392,43 +1498,47 @@ fn todo_update_detail_candidate(
         )?;
     }
     if let Some(handoff) = handoff {
-        next = replace_section(
-            &next,
-            "Handoff",
-            &handoff
-                .iter()
-                .map(|item| format!("- {}", item.trim()))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )?;
+        let content = handoff
+            .iter()
+            .map(|item| format!("- {}", item.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        next = replace_section(&next, "Handoff", &render_external(&content, false)?)?;
     }
     if let Some(summary) = result_summary {
-        next = replace_section(&next, "Results", summary)?;
+        next = replace_section(&next, "Results", &render_external(summary, false)?)?;
     }
     Ok(next)
 }
 
-fn todo_patch_detail_candidate(source: &str, patch: &TodoPatch) -> anyhow::Result<String> {
+fn todo_patch_detail_candidate(
+    source: &str,
+    patch: &TodoPatch,
+    rendered_results: Option<&str>,
+) -> anyhow::Result<String> {
     let mut next = todo_update_detail_candidate(
         source,
         patch.title.as_deref(),
         patch.completion_criteria.as_deref(),
         None,
-        patch.results.as_deref(),
+        None,
     )?;
     if let Some(intent) = patch.intent.as_deref() {
-        require_text("intent", intent)?;
-        next = replace_section(&next, "Intent", intent)?;
+        require_body_text("intent", intent)?;
+        next = replace_section(&next, "Intent", &render_external(intent, true)?)?;
     }
     if let Some(plan) = patch.plan.as_deref() {
-        require_text("plan", plan)?;
-        next = replace_section(&next, "Plan", plan)?;
+        require_body_text("plan", plan)?;
+        next = replace_section(&next, "Plan", &render_external(plan, true)?)?;
     }
     if let Some(handoff) = patch.handoff.as_deref() {
-        next = replace_section(&next, "Handoff", handoff)?;
+        next = replace_section(&next, "Handoff", &render_external(handoff, false)?)?;
     }
     if let Some(notes) = patch.notes.as_deref() {
-        next = replace_section(&next, "Notes", notes)?;
+        next = replace_section(&next, "Notes", &render_external(notes, false)?)?;
+    }
+    if let Some(results) = rendered_results {
+        next = replace_section(&next, "Results", results)?;
     }
     Ok(next)
 }
@@ -1552,6 +1662,48 @@ fn find_todo<'a>(todos: &'a [Todo], id: &str) -> Option<&'a Todo> {
     None
 }
 
+fn next_todo_id(todos: &[Todo]) -> anyhow::Result<String> {
+    let mut maximum = 0_u64;
+    for todo in flatten_todos(todos) {
+        let suffix = todo
+            .id
+            .strip_prefix("todo-")
+            .ok_or_else(|| anyhow::anyhow!("malformed Todo ID: {}", todo.id))?;
+        let number = suffix
+            .parse::<u64>()
+            .map_err(|_| anyhow::anyhow!("malformed Todo ID: {}", todo.id))?;
+        if number == 0 {
+            anyhow::bail!("malformed Todo ID: {}", todo.id);
+        }
+        maximum = maximum.max(number);
+    }
+    Ok(format!("todo-{}", maximum + 1))
+}
+
+fn next_revision_id(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+) -> anyhow::Result<String> {
+    let source = crate::blueprint::BlueprintSource::parse("blueprint.md", blueprint_source)?;
+    let graph = ParsedBlueprintSource::parse("blueprint.md", blueprint_source)?;
+    let mut maximum = source
+        .revisions
+        .iter()
+        .map(|entry| numeric_suffix(&entry.id, "revision-"))
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+    for todo in flatten_todos(&graph.todos) {
+        let stored = locked.read_todo(&todo.id)?;
+        let detail = crate::blueprint::TodoDetail::parse(stored.path.as_str(), &stored.source)?;
+        for entry in detail.revisions {
+            maximum = maximum.max(numeric_suffix(&entry.id, "revision-")?);
+        }
+    }
+    Ok(format!("revision-{}", maximum + 1))
+}
+
 fn replace_task_status_in_section(
     source: &str,
     section: &str,
@@ -1641,19 +1793,21 @@ fn render_blueprint(id: &str, request: &BlueprintCreateRequest) -> String {
     let definition_of_done = request
         .definition_of_done
         .iter()
-        .map(|item| format!("- [ ] {item} ^dod-{}", Ulid::generate()))
+        .enumerate()
+        .map(|(index, item)| format!("- [ ] {item} ^dod-{}", index + 1))
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "---\nschema: blueprint/v2\nid: {id}\nstate: active\n---\n\n# {title}\n\n## Record\n\n- Created By: {created_by}\n\n## Intent\n\n{intent}\n\n## Constraints\n\n{constraints}\n\n## Definition of Done\n\n{definition_of_done}\n\n## Plan\n\n{plan}\n\n## Rubric\n\n{rubric}\n\n## Todos\n\n## Results\n\n## Evidence\n\n## Revision History\n\n## Notes\n",
+        "---\nschema: blueprint/v3\nid: {id}\nstate: active\n---\n\n# {title}\n\n## Record\n\n- Created By: {created_by}\n\n## Intent\n\n{intent}\n\n## Constraints\n\n{constraints}\n\n## Definition of Done\n\n{definition_of_done}\n\n## Plan\n\n{plan}\n\n## Rubric\n\n{rubric}\n\n## Todos\n\n## Results\n\n{empty}\n\n## Evidence\n\n## Revision History\n\n## Notes\n\n{empty}\n",
         id = id,
         title = request.title.trim(),
         created_by = request.created_by.trim(),
-        intent = request.intent.trim(),
-        constraints = constraints,
+        intent = render_external(&request.intent, true).expect("validated intent"),
+        constraints = render_external(&constraints, false).expect("optional constraints"),
         definition_of_done = definition_of_done,
-        plan = request.plan.trim(),
-        rubric = request.rubric.trim(),
+        plan = render_external(&request.plan, true).expect("validated plan"),
+        rubric = render_external(&request.rubric, true).expect("validated rubric"),
+        empty = render_external("", false).expect("optional empty body"),
     )
 }
 
@@ -1671,11 +1825,33 @@ fn render_todo(
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "---\nschema: blueprint/todo/v2\nid: {todo_id}\nblueprint: {blueprint_id}\n---\n\n# {title}\n\n## Intent\n\n{intent}\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n{plan}\n\n## Handoff\n\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n"
+        "---\nschema: blueprint/todo/v3\nid: {todo_id}\nblueprint: {blueprint_id}\n---\n\n# {title}\n\n## Intent\n\n{intent}\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n{plan}\n\n## Handoff\n\n{empty}\n\n## Results\n\n{empty}\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n{empty}\n",
+        intent = render_external(intent, true).expect("validated intent"),
+        plan = render_external(plan, true).expect("validated plan"),
+        empty = render_external("", false).expect("optional empty body"),
     )
 }
 
+fn render_external(value: &str, required: bool) -> anyhow::Result<String> {
+    let body = ExternalBody::from_text(value.trim());
+    if required {
+        body.render()
+    } else {
+        body.render_optional()
+    }
+}
+
 fn require_text(name: &str, value: &str) -> anyhow::Result<()> {
+    if value.trim().is_empty() {
+        anyhow::bail!("{name} must not be empty");
+    }
+    if value.contains(['\r', '\n']) {
+        anyhow::bail!("{name} must be a single line");
+    }
+    Ok(())
+}
+
+fn require_body_text(name: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("{name} must not be empty");
     }
@@ -1700,19 +1876,13 @@ fn replace_state(source: &str, state: BlueprintState) -> anyhow::Result<String> 
 
 fn append_revision(
     source: &str,
+    id: &str,
     changed_by: &str,
     reason: &str,
     change: &str,
     affected: &str,
 ) -> anyhow::Result<String> {
-    let revision = render_revision(
-        &format!("revision-{}", Ulid::generate()),
-        changed_by,
-        reason,
-        change,
-        affected,
-        None,
-    );
+    let revision = render_revision(id, changed_by, reason, change, affected, None);
     let history = section_body(source, "Revision History")?;
     replace_section(
         source,
@@ -1748,11 +1918,16 @@ fn validate_complete_close_evidence(
 ) -> anyhow::Result<()> {
     let results = section_body(source, "Results")?;
     let references = evidence_references(&results)?;
-    if results.is_empty() || references.is_empty() {
-        anyhow::bail!("complete Blueprint close requires Results with a valid Evidence reference");
-    }
     let mut defined = std::collections::HashSet::new();
     let blueprint = crate::blueprint::BlueprintSource::parse("blueprint.md", source)?;
+    if blueprint.results.trim().is_empty() {
+        anyhow::bail!("complete Blueprint close requires a non-empty Results body");
+    }
+    if references.is_empty() {
+        anyhow::bail!(
+            "complete Blueprint close requires at least one Results Evidence reference.\nSubmit Evidence with evidence_submit, then add its ID to results.evidence_ids.\nStored Markdown example: [Acceptance evidence](#^evidence-1)"
+        );
+    }
     for evidence in blueprint.evidence {
         if !defined.insert(evidence.id) {
             anyhow::bail!("duplicate Evidence ID");
@@ -1774,6 +1949,177 @@ fn validate_complete_close_evidence(
         }
     }
     Ok(())
+}
+
+fn numeric_suffix(id: &str, prefix: &str) -> anyhow::Result<u64> {
+    let value = id
+        .strip_prefix(prefix)
+        .ok_or_else(|| anyhow::anyhow!("malformed ID: {id}"))?
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("malformed ID: {id}"))?;
+    if value == 0 {
+        anyhow::bail!("malformed ID: {id}");
+    }
+    Ok(value)
+}
+
+fn next_evidence_id(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+    todo_override: Option<(&str, &str)>,
+) -> anyhow::Result<String> {
+    let maximum =
+        collect_evidence_summaries_with_override(locked, blueprint_source, todo_override)?
+            .iter()
+            .filter_map(|item| numeric_suffix(&item.id, "evidence-").ok())
+            .max()
+            .unwrap_or(0);
+    Ok(format!("evidence-{}", maximum + 1))
+}
+
+fn evidence_summary(id: &str, title: &str, body: &str, todo_id: Option<&str>) -> EvidenceSummary {
+    let local_reference = format!("[{title}](#^{id})");
+    let blueprint_reference = match todo_id {
+        Some(todo_id) => format!("[{title}](todos/{todo_id}.md#^{id})"),
+        None => local_reference.clone(),
+    };
+    EvidenceSummary {
+        id: id.into(),
+        title: title.into(),
+        scope: if todo_id.is_some() {
+            "todo"
+        } else {
+            "blueprint"
+        }
+        .into(),
+        todo_id: todo_id.map(ToOwned::to_owned),
+        document: todo_id
+            .map(|id| format!("todos/{id}.md"))
+            .unwrap_or_else(|| "blueprint.md".into()),
+        body_preview: body.chars().take(200).collect(),
+        blueprint_reference,
+        local_reference,
+    }
+}
+
+fn render_results(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+    owner_todo: Option<&str>,
+    input: &ResultsInput,
+) -> anyhow::Result<String> {
+    let mut seen = std::collections::HashSet::new();
+    if input.evidence_ids.iter().any(|id| !seen.insert(id)) {
+        anyhow::bail!("results.evidence_ids must not contain duplicates");
+    }
+    let evidence = collect_evidence_summaries(locked, blueprint_source)?
+        .into_iter()
+        .map(|item| (item.id.clone(), item))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut rendered = input.body.render()?;
+    if !input.evidence_ids.is_empty() {
+        rendered.push_str("\n\n- Evidence:\n");
+    }
+    for id in &input.evidence_ids {
+        let item = evidence
+            .get(id)
+            .ok_or_else(|| anyhow::anyhow!("unknown Evidence ID in results.evidence_ids: {id}"))?;
+        let reference = match owner_todo {
+            None => item.blueprint_reference.clone(),
+            Some(owner) if item.todo_id.as_deref() == Some(owner) => item.local_reference.clone(),
+            Some(_) if item.todo_id.is_none() => {
+                format!("[{}](../blueprint.md#^{})", item.title, item.id)
+            }
+            Some(_) => format!(
+                "[{}]({}.md#^{})",
+                item.title,
+                item.todo_id.as_deref().expect("Todo Evidence"),
+                item.id
+            ),
+        };
+        rendered.push_str(&format!("  - {reference}\n"));
+    }
+    Ok(rendered.trim_end().to_string())
+}
+
+fn summary_from_item(
+    item: &EvidenceItem,
+    todo_id: Option<&str>,
+) -> anyhow::Result<EvidenceSummary> {
+    let first = item
+        .markdown
+        .lines()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Evidence {} has no title", item.id))?;
+    let title = first
+        .strip_prefix("### ")
+        .and_then(|line| line.strip_suffix(&format!(" ^{}", item.id)))
+        .ok_or_else(|| anyhow::anyhow!("Evidence {} has malformed title", item.id))?;
+    let (_, body_source) = item
+        .markdown
+        .split_once("\n\n")
+        .ok_or_else(|| anyhow::anyhow!("Evidence {} has no body", item.id))?;
+    let body = ExternalBody::parse("Evidence", body_source.trim())?;
+    Ok(evidence_summary(&item.id, title, &body.text(), todo_id))
+}
+
+fn collect_evidence_summaries(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+) -> anyhow::Result<Vec<EvidenceSummary>> {
+    collect_evidence_summaries_with_override(locked, blueprint_source, None)
+}
+
+fn collect_evidence_summaries_with_override(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+    todo_override: Option<(&str, &str)>,
+) -> anyhow::Result<Vec<EvidenceSummary>> {
+    let blueprint = crate::blueprint::BlueprintSource::parse("blueprint.md", blueprint_source)?;
+    let mut summaries = blueprint
+        .evidence
+        .iter()
+        .map(|item| summary_from_item(item, None))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    for index in locked.read_blueprint()?.todos {
+        let source = match todo_override {
+            Some((id, source)) if id == index.id => source.to_string(),
+            _ => locked.read_todo(&index.id)?.source,
+        };
+        let todo = crate::blueprint::TodoDetail::parse(index.path.as_str(), &source)?;
+        for item in &todo.evidence {
+            summaries.push(summary_from_item(item, Some(&index.id))?);
+        }
+    }
+    Ok(summaries)
+}
+
+fn rebuild_todo_evidence_index(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+    todo_override: Option<(&str, &str)>,
+) -> anyhow::Result<String> {
+    let blueprint = crate::blueprint::BlueprintSource::parse("blueprint.md", blueprint_source)?;
+    let mut body = blueprint
+        .evidence
+        .iter()
+        .map(|item| item.markdown.trim().to_string())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let todos = collect_evidence_summaries_with_override(locked, blueprint_source, todo_override)?
+        .into_iter()
+        .filter(|item| item.todo_id.is_some())
+        .collect::<Vec<_>>();
+    if !todos.is_empty() {
+        if !body.is_empty() {
+            body.push_str("\n\n");
+        }
+        body.push_str("### Todo Evidence Index\n\n");
+        for item in todos {
+            body.push_str(&format!("- {}\n", item.blueprint_reference));
+        }
+    }
+    replace_section(blueprint_source, "Evidence", &body)
 }
 
 fn validate_evidence_aggregate_store(

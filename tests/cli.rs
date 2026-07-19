@@ -217,12 +217,13 @@ fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() 
         &dir,
         &[
             "blueprint",
-            "evidence-add",
+            "evidence-submit",
             "--blueprint-id",
             blueprint_id,
             "--title",
             "CLI evidence",
-            "--markdown=- Collected By: cli-test\n- Observation: forwarded intact",
+            "--body-line=- Collected By: cli-test",
+            "--body-line=- Observation: forwarded intact",
         ],
     );
     assert!(evidence.status.success(), "{evidence:?}");
@@ -233,9 +234,9 @@ fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() 
             .is_some_and(|id| id.starts_with("evidence-"))
     );
     assert!(
-        evidence["markdown"]
+        evidence["body_preview"]
             .as_str()
-            .is_some_and(|markdown| markdown.contains("forwarded intact"))
+            .is_some_and(|body| body.contains("forwarded intact"))
     );
 
     let revision = run_cli(
@@ -290,7 +291,7 @@ fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() 
             [
                 "blueprint_",
                 "dod_update",
-                "evidence_add",
+                "evidence_",
                 "revision_append",
                 "todo_",
             ]
@@ -298,8 +299,13 @@ fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() 
             .any(|prefix| line.starts_with(&format!("## 🔧 `{prefix}")))
         })
         .count();
-    assert_eq!(blueprint_headings, 19, "Blueprint tool count");
-    for expected in ["`blueprint_create`", "`evidence_add`", "`revision_append`"] {
+    assert_eq!(blueprint_headings, 20, "Blueprint tool count");
+    for expected in [
+        "`blueprint_create`",
+        "`evidence_submit`",
+        "`evidence_list`",
+        "`revision_append`",
+    ] {
         assert!(tools.contains(expected), "missing {expected}");
     }
 

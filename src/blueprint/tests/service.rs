@@ -5,13 +5,20 @@ use tempfile::{TempDir, tempdir};
 
 use super::super::{
     model::{
-        BlueprintPatch, EvidenceAddInput, RevisionAppendInput, TodoCreateRequest, TodoPatch,
-        TodoStatus,
+        BlueprintPatch, EvidenceSubmitInput, ResultsInput, RevisionAppendInput, TodoCreateRequest,
+        TodoPatch, TodoStatus,
     },
     service::{
         BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate, TodoUpdateOptions,
     },
 };
+
+fn results(body: &str, evidence_ids: &[&str]) -> ResultsInput {
+    ResultsInput {
+        body: super::super::ExternalBody::from_text(body),
+        evidence_ids: evidence_ids.iter().map(|id| (*id).to_string()).collect(),
+    }
+}
 
 fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
     let directory = tempdir().expect("tempdir");
@@ -63,7 +70,7 @@ fn aggregate_reads_and_close_reject_missing_orphan_and_title_mismatched_todo_doc
     let todos = root.join(format!(".blueprint/blueprints/{}/todos", blueprint.id));
     fs::write(
         todos.join("todo-orphan.md"),
-        "---\nschema: blueprint/todo/v2\nid: todo-orphan\nblueprint: PLACEHOLDER\n---\n\n# orphan\n\n## Intent\n\nx\n\n## Completion Criteria\n\n\n## Plan\n\nx\n\n## Handoff\n\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n"
+        "---\nschema: blueprint/todo/v3\nid: todo-orphan\nblueprint: PLACEHOLDER\n---\n\n# orphan\n\n## Intent\n\n~~~\nx\n~~~\n\n## Completion Criteria\n\n\n## Plan\n\n~~~\nx\n~~~\n\n## Handoff\n\n~~~\n\n~~~\n\n## Results\n\n~~~\n\n~~~\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n~~~\n\n~~~\n"
             .replace("PLACEHOLDER", &blueprint.id),
     )
     .unwrap();
@@ -164,17 +171,19 @@ fn evidence_validation_uses_the_setext_evidence_section_not_literal_heading_text
         .unwrap()
         .replace(
             "## Evidence\n",
-            "Evidence\n--------\n\n### first ^evidence-duplicate\n\n- Observation: one\n\n### second ^evidence-duplicate\n\n- Observation: two\n",
+            "Evidence\n--------\n\n### first ^evidence-1\n\n~~~\none\n~~~\n\n### second ^evidence-1\n\n~~~\ntwo\n~~~\n",
         )
         .replace("## Notes", "```md\n## Evidence\n```\n\n## Notes");
     fs::write(path, source).unwrap();
 
     let error = service
-        .evidence_add(EvidenceAddInput {
+        .evidence_submit(EvidenceSubmitInput {
             blueprint_id: blueprint.id,
             todo_id: None,
             title: "new evidence".into(),
-            markdown: "- Observation: three".into(),
+            body: super::super::ExternalBody {
+                lines: vec!["three".into()],
+            },
             expected_etag: None,
         })
         .unwrap_err();
@@ -205,7 +214,7 @@ fn section_edits_preserve_unknown_setext_h2_bytes() {
         .blueprint_update_semantic(
             &blueprint.id,
             BlueprintPatch {
-                results: Some("updated results".into()),
+                results: Some(results("updated results", &[])),
                 ..Default::default()
             },
             None,
@@ -253,7 +262,10 @@ fn task_mutations_ignore_ast_and_fenced_block_id_decoys() {
             "## Results\n",
             &format!("{fake_task}{nested_todo_decoy}## Results\n"),
         )
-        .replace("## Notes\n", &format!("## Notes\n\n{fake_notes}"));
+        .replace(
+            "## Notes\n\n~~~\n",
+            &format!("## Notes\n\n~~~\n{fake_notes}"),
+        );
     fs::write(&path, source).unwrap();
 
     let started = service
@@ -300,8 +312,8 @@ fn task_mutations_ignore_ast_and_fenced_block_id_decoys() {
     fs::write(
         &path,
         after.replace(
-            "## Definition of Done\n",
-            &format!("{fake_dod}## Definition of Done\n"),
+            "## Constraints\n\n~~~\n",
+            &format!("## Constraints\n\n~~~\n{fake_dod}"),
         ),
     )
     .unwrap();
@@ -341,7 +353,7 @@ fn todo_create_writes_graph_link_and_independent_detail_document() {
 }
 
 #[test]
-fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
+fn evidence_submit_is_short_and_listed_across_todo_documents() {
     let (_directory, service, blueprint) = create_blueprint();
     let first = service
         .todo_create(TodoCreateRequest {
@@ -365,11 +377,13 @@ fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
         .unwrap();
 
     let evidence = service
-        .evidence_add(EvidenceAddInput {
+        .evidence_submit(EvidenceSubmitInput {
             blueprint_id: blueprint.id.clone(),
             todo_id: Some(first.graph.id.clone()),
             title: "测试输出".into(),
-            markdown: "- Observation: 全部通过".into(),
+            body: super::super::ExternalBody {
+                lines: vec!["- Observation: 全部通过".into()],
+            },
             expected_etag: Some(first.todo_etag.clone()),
         })
         .unwrap();
@@ -379,10 +393,7 @@ fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
             &blueprint.id,
             &second.graph.id,
             TodoPatch {
-                results: Some(format!(
-                    "- Related: [前置证据]({}.md#^{})",
-                    first.graph.id, evidence.id
-                )),
+                results: Some(results("- Related: 前置证据", &[&evidence.id])),
                 ..Default::default()
             },
             TodoUpdateOptions {
@@ -394,16 +405,15 @@ fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
         .unwrap();
     service.blueprint_status(&blueprint.id).unwrap();
 
-    let duplicate = service
-        .evidence_add(EvidenceAddInput {
-            blueprint_id: blueprint.id.clone(),
-            todo_id: Some(second.graph.id.clone()),
-            title: "重复".into(),
-            markdown: format!("### 重复 ^{}\n", evidence.id),
-            expected_etag: None,
-        })
-        .unwrap_err();
-    assert!(duplicate.to_string().contains("duplicate Evidence ID"));
+    assert_eq!(evidence.id, "evidence-1");
+    let listed = service.evidence_list(&blueprint.id, None, 1).unwrap();
+    assert_eq!(listed.evidence.len(), 1);
+    assert_eq!(listed.evidence[0].id, "evidence-1");
+    assert!(
+        listed.evidence[0]
+            .blueprint_reference
+            .contains("todo-1.md#^evidence-1")
+    );
 }
 
 #[test]
@@ -459,7 +469,7 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             &blueprint.id,
             &todo.graph.id,
             TodoPatch {
-                results: Some("not-a-link](#^evidence-fake)".into()),
+                results: Some(results("not-a-link](#^evidence-fake)", &[])),
                 ..Default::default()
             },
             TodoUpdateOptions {
@@ -485,7 +495,7 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             &blueprint.id,
             &todo.graph.id,
             TodoPatch {
-                results: Some("[坏链接](outside.md#^evidence-missing)".into()),
+                results: Some(results("坏链接", &["evidence-missing"])),
                 ..Default::default()
             },
             TodoUpdateOptions {
@@ -495,7 +505,7 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             },
         )
         .unwrap_err();
-    assert!(with_bad_link.to_string().contains("Evidence target"));
+    assert!(with_bad_link.to_string().contains("Evidence"));
 }
 
 #[test]
@@ -527,7 +537,8 @@ fn revision_append_is_append_only_with_fixed_fields() {
         })
         .unwrap();
     let source = service.blueprint_get(&blueprint.id).unwrap().source;
-    assert_ne!(first.id, second.id);
+    assert_eq!(first.id, "revision-1");
+    assert_eq!(second.id, "revision-2");
     assert!(source.contains(&first.markdown));
     assert!(source.contains(&second.markdown));
     assert!(second.markdown.contains("- Change: 补充审查"));
@@ -541,7 +552,7 @@ fn blueprint_semantic_update_rejects_dangling_evidence_without_writing() {
         .blueprint_update_semantic(
             &blueprint.id,
             BlueprintPatch {
-                results: Some("[missing](#^evidence-missing)".into()),
+                results: Some(results("missing", &["evidence-missing"])),
                 ..Default::default()
             },
             None,
@@ -549,7 +560,7 @@ fn blueprint_semantic_update_rejects_dangling_evidence_without_writing() {
             Some(&blueprint.etag),
         )
         .unwrap_err();
-    assert!(error.to_string().contains("dangling Evidence reference"));
+    assert!(error.to_string().contains("Evidence"));
     assert_eq!(
         service.blueprint_get(&blueprint.id).unwrap().source,
         blueprint.source
@@ -859,8 +870,8 @@ fn complete_close_rejects_dangling_evidence_reference() {
         .join(&blueprint.id)
         .join("blueprint.md");
     let source = fs::read_to_string(&path).unwrap().replace(
-        "## Results\n\n## Evidence",
-        "## Results\n\n- Evidence: [missing](#^evidence-missing)\n\n## Evidence\n\n### Present ^evidence-present",
+        "## Results\n\n~~~\n\n~~~\n\n## Evidence",
+        "## Results\n\n~~~\nresult\n~~~\n\n- Evidence: [missing](#^evidence-missing)\n\n## Evidence",
     );
     fs::write(path, source).unwrap();
 
@@ -868,6 +879,40 @@ fn complete_close_rejects_dangling_evidence_reference() {
         .blueprint_close(&blueprint.id, "closer", None, None)
         .unwrap_err();
     assert!(error.to_string().contains("Evidence"), "{error:#}");
+}
+
+#[test]
+fn complete_close_explains_one_legal_evidence_reference() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let completed = service
+        .dod_update(
+            &blueprint.id,
+            &first_dod_id(&blueprint.source),
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    service
+        .blueprint_update_semantic(
+            &blueprint.id,
+            BlueprintPatch {
+                results: Some(results("finished", &[])),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&completed.etag),
+        )
+        .unwrap();
+
+    let error = service
+        .blueprint_close(&blueprint.id, "closer", None, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("evidence_submit"));
+    assert!(error.contains("results.evidence_ids"));
+    assert!(error.contains("[Acceptance evidence](#^evidence-1)"));
 }
 
 #[test]
@@ -1039,7 +1084,7 @@ fn blueprint_update_preserves_unknown_markdown() {
         .blueprint_update_semantic(
             &created.id,
             BlueprintPatch {
-                results: Some("### Current Outcome\n\n完成。".into()),
+                results: Some(results("### Current Outcome\n\n完成。", &[])),
                 ..Default::default()
             },
             None,
@@ -1052,7 +1097,7 @@ fn blueprint_update_preserves_unknown_markdown() {
     assert!(
         updated
             .source
-            .contains("## Results\n\n### Current Outcome\n\n完成。")
+            .contains("## Results\n\n~~~\n### Current Outcome\n\n完成。\n~~~")
     );
 }
 
@@ -1126,7 +1171,7 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
                 intent: Some("revised intent".into()),
                 constraints: Some(vec![" first ".into(), "second".into()]),
                 plan: Some("revised plan".into()),
-                results: Some("### Current Outcome\n\nworking".into()),
+                results: Some(results("### Current Outcome\n\nworking", &[])),
                 notes: Some("note text".into()),
                 ..Default::default()
             },
@@ -1137,19 +1182,23 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
         .expect("update Blueprint sections");
     assert!(updated.source.contains("# renamed\n"));
     assert!(updated.source.contains("- Created By: creator"));
-    assert!(updated.source.contains("## Intent\n\nrevised intent"));
     assert!(
         updated
             .source
-            .contains("## Constraints\n\n- first\n- second")
+            .contains("## Intent\n\n~~~\nrevised intent\n~~~")
     );
-    assert!(updated.source.contains("## Plan\n\nrevised plan"));
     assert!(
         updated
             .source
-            .contains("## Results\n\n### Current Outcome\n\nworking")
+            .contains("## Constraints\n\n~~~\n- first\n- second\n~~~")
     );
-    assert!(updated.source.contains("## Notes\n\nnote text"));
+    assert!(updated.source.contains("## Plan\n\n~~~\nrevised plan\n~~~"));
+    assert!(
+        updated
+            .source
+            .contains("## Results\n\n~~~\n### Current Outcome\n\nworking\n~~~")
+    );
+    assert!(updated.source.contains("## Notes\n\n~~~\nnote text\n~~~"));
     assert!(updated.source.contains("## Extra\n\nkeep me"));
 
     for (title, intent, plan, expected) in [
@@ -1523,7 +1572,7 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
     assert!(closed.source.contains(&format!("  - {open_dod}")));
     assert!(closed.source.contains(&format!("  - {}", open.id)));
 
-    let (directory, service, complete) = create_blueprint();
+    let (_directory, service, complete) = create_blueprint();
     let todo = service
         .todo_create_legacy(
             &complete.id,
@@ -1552,18 +1601,28 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
         )
         .expect("complete DoD");
     let stored = service.blueprint_get(&complete.id).unwrap();
-    fs::write(
-        Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
-            .unwrap()
-            .join(".blueprint/blueprints")
-            .join(&complete.id)
-            .join("blueprint.md"),
-        stored.source.replace(
-            "## Results\n\n## Evidence",
-            "## Results\n\n- Evidence: [completion](#^evidence-close)\n\n## Evidence\n\n### Completion ^evidence-close",
-        ),
-    )
-    .unwrap();
+    let evidence = service
+        .evidence_submit(EvidenceSubmitInput {
+            blueprint_id: complete.id.clone(),
+            todo_id: None,
+            title: "Completion".into(),
+            body: super::super::ExternalBody::from_text("finished"),
+            expected_etag: Some(stored.etag),
+        })
+        .unwrap();
+    let after_evidence = service.blueprint_get(&complete.id).unwrap();
+    service
+        .blueprint_update_semantic(
+            &complete.id,
+            BlueprintPatch {
+                results: Some(results("finished", &[&evidence.id])),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&after_evidence.etag),
+        )
+        .unwrap();
     let closed = service
         .blueprint_close(&complete.id, "closer", None, None)
         .expect("close complete Blueprint");

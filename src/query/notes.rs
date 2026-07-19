@@ -1,3 +1,5 @@
+use std::fs;
+
 use rayon::prelude::*;
 
 use crate::parser::{ParsedNote, slice_text, source_for_line};
@@ -115,6 +117,20 @@ impl VaultQueries {
         }
         let path = self.resolve_reference_note_path(&reference)?;
         let relative_path = self.vault.relative_path(&path);
+        if selector.is_none() {
+            let maximum = self.vault.config().max_note_bytes;
+            let size = fs::metadata(&path)?.len();
+            if size > maximum as u64 {
+                anyhow::bail!("note exceeds configured maximum size: {size} > {maximum} bytes");
+            }
+            let selected = fs::read_to_string(&path)?;
+            return Ok(NoteStatsResult {
+                scope: relative_path,
+                word_count: count_words(&selected),
+                character_count: selected.chars().count(),
+                line_count: selected.lines().count(),
+            });
+        }
         let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
         let source = selector
             .as_ref()

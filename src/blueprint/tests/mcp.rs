@@ -1,12 +1,12 @@
 use crate::blueprint::mcp::BlueprintMcp;
 
 #[test]
-fn exposes_the_nineteen_blueprint_protocol_tools() {
+fn exposes_the_twenty_blueprint_protocol_tools() {
     let names = BlueprintMcp::tool_definitions()
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 19);
+    assert_eq!(names.len(), 20);
     for name in [
         "blueprint_create",
         "blueprint_get",
@@ -16,7 +16,8 @@ fn exposes_the_nineteen_blueprint_protocol_tools() {
         "blueprint_close",
         "blueprint_cancel",
         "dod_update",
-        "evidence_add",
+        "evidence_submit",
+        "evidence_list",
         "revision_append",
         "todo_create",
         "todo_get",
@@ -103,7 +104,7 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
 }
 
 #[test]
-fn v2_tool_descriptions_explain_agent_owned_semantics() {
+fn v3_tool_descriptions_explain_agent_owned_semantics() {
     let tools = BlueprintMcp::tool_definitions();
     let description = |name: &str| {
         tools
@@ -117,6 +118,6 @@ fn v2_tool_descriptions_explain_agent_owned_semantics() {
     assert!(description("blueprint_create").contains("Rubric"));
     assert!(description("blueprint_update").contains("Rubric"));
     assert!(description("blueprint_update").contains("Agent"));
-    assert!(description("evidence_add").contains("structural"));
+    assert!(description("evidence_submit").contains("structural"));
     assert!(description("revision_append").contains("append-only"));
 }

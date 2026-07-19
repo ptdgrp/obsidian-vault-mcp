@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::blueprint::{
+    ExternalBody,
     document::{DocumentSchema, ParsedDocument},
     model::{CheckItem, EvidenceItem, RevisionEntry, TodoDetail},
     source::markdown_entries,
@@ -18,29 +19,29 @@ const TODO_REQUIRED_SECTIONS: [&str; 8] = [
 ];
 
 const TODO_SCHEMA: DocumentSchema = DocumentSchema {
-    name: "blueprint/todo/v2",
+    name: "blueprint/todo/v3",
     required_sections: &TODO_REQUIRED_SECTIONS,
 };
 
 impl TodoDetail {
-    /// Parses one standalone `blueprint/todo/v2` detail document.
+    /// Parses one standalone `blueprint/todo/v3` detail document.
     pub fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
         parse_todo_source(path, source)
     }
 }
 
-/// Parses one standalone `blueprint/todo/v2` detail document.
+/// Parses one standalone `blueprint/todo/v3` detail document.
 pub fn parse_todo_source(path: &str, source: &str) -> anyhow::Result<TodoDetail> {
     let parsed = ParsedDocument::parse(path, source, TODO_SCHEMA)?;
     Ok(TodoDetail {
         id: required_frontmatter(&parsed, "id")?,
         blueprint_id: required_frontmatter(&parsed, "blueprint")?,
         title: parsed.h1().to_string(),
-        intent: section_text(&parsed, source, "Intent")?,
+        intent: external_section_text(&parsed, source, "Intent", true)?,
         completion_criteria: check_items(parsed.section("Completion Criteria")?.body(source)),
-        plan: section_text(&parsed, source, "Plan")?,
-        handoff: section_text(&parsed, source, "Handoff")?,
-        results: section_text(&parsed, source, "Results")?,
+        plan: external_section_text(&parsed, source, "Plan", true)?,
+        handoff: external_section_text(&parsed, source, "Handoff", false)?,
+        results: external_section_prefix_text(&parsed, source, "Results", false)?,
         evidence: markdown_entries(parsed.section("Evidence")?.body(source), "evidence-")
             .into_iter()
             .map(|(id, markdown)| EvidenceItem { id, markdown })
@@ -52,7 +53,7 @@ pub fn parse_todo_source(path: &str, source: &str) -> anyhow::Result<TodoDetail>
         .into_iter()
         .map(|(id, markdown)| RevisionEntry { id, markdown })
         .collect(),
-        notes: section_text(&parsed, source, "Notes")?,
+        notes: external_section_text(&parsed, source, "Notes", false)?,
     })
 }
 
@@ -64,8 +65,30 @@ fn required_frontmatter(document: &ParsedDocument, field: &str) -> anyhow::Resul
         .ok_or_else(|| anyhow::anyhow!("frontmatter {field} is missing"))
 }
 
-fn section_text(document: &ParsedDocument, source: &str, title: &str) -> anyhow::Result<String> {
-    Ok(document.section(title)?.body(source).trim().to_string())
+fn external_section_text(
+    document: &ParsedDocument,
+    source: &str,
+    title: &str,
+    required: bool,
+) -> anyhow::Result<String> {
+    let body = document.section(title)?.body(source).trim();
+    let parsed = if required {
+        ExternalBody::parse(title, body)?
+    } else {
+        ExternalBody::parse_optional(title, body)?
+    };
+    Ok(parsed.text())
+}
+
+fn external_section_prefix_text(
+    document: &ParsedDocument,
+    source: &str,
+    title: &str,
+    required: bool,
+) -> anyhow::Result<String> {
+    let body = document.section(title)?.body(source).trim();
+    let (parsed, _) = ExternalBody::parse_leading(title, body, required)?;
+    Ok(parsed.text())
 }
 
 fn check_items(source: &str) -> Vec<CheckItem> {

@@ -5,10 +5,10 @@ use crate::{
         BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
         BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput,
         BlueprintService, BlueprintStatus, BlueprintUpdateInput, CheckUpdate,
-        CompletionCriterionInput, DodUpdateInput, EvidenceAddInput, RevisionAppendInput,
-        StoredBlueprint, TodoAssignInput, TodoBlockInput, TodoCancelInput, TodoCompleteInput,
-        TodoCreateInput, TodoCreateRequest, TodoInput, TodoListInput, TodoListOutput, TodoPatch,
-        TodoUpdateInput, TodoView,
+        CompletionCriterionInput, DodUpdateInput, EvidenceListInput, EvidenceSubmitInput,
+        RevisionAppendInput, StoredBlueprint, TodoAssignInput, TodoBlockInput, TodoCancelInput,
+        TodoCompleteInput, TodoCreateInput, TodoCreateRequest, TodoInput, TodoListInput,
+        TodoListOutput, TodoPatch, TodoUpdateInput, TodoView,
     },
     server::run_tool,
 };
@@ -58,7 +58,18 @@ impl BlueprintMcp {
         &self,
         Parameters(r): Parameters<BlueprintCreateInput>,
     ) -> Result<Json<crate::blueprint::BlueprintCreated>, String> {
-        run_tool("blueprint_create", r, |r| self.service.blueprint_create(r))
+        run_tool("blueprint_create", r, |r| {
+            self.service
+                .blueprint_create(crate::blueprint::service::BlueprintCreateRequest {
+                    title: r.title,
+                    created_by: r.created_by,
+                    intent: r.intent.text(),
+                    constraints: r.constraints,
+                    definition_of_done: r.definition_of_done,
+                    plan: r.plan.text(),
+                    rubric: r.rubric.text(),
+                })
+        })
     }
     #[tool(
         description = "Read one Blueprint. The optional resume view is a focused recovery view."
@@ -95,12 +106,12 @@ impl BlueprintMcp {
                 &r.blueprint_id,
                 crate::blueprint::model::BlueprintPatch {
                     title: r.title,
-                    intent: r.intent,
+                    intent: r.intent.map(|body| body.text()),
                     constraints: r.constraints,
-                    plan: r.plan,
-                    rubric: r.rubric,
+                    plan: r.plan.map(|body| body.text()),
+                    rubric: r.rubric.map(|body| body.text()),
                     results: r.results,
-                    notes: r.notes,
+                    notes: r.notes.map(|body| body.text()),
                 },
                 r.changed_by.as_deref(),
                 r.change_reason.as_deref(),
@@ -170,8 +181,8 @@ impl BlueprintMcp {
                 blueprint_id: r.blueprint_id,
                 title: r.title,
                 created_by: r.created_by,
-                intent: r.intent,
-                plan: r.plan,
+                intent: r.intent.text(),
+                plan: r.plan.text(),
                 parent_id: r.parent_id,
                 owner: r.owner,
                 depends_on: r.depends_on,
@@ -218,9 +229,9 @@ impl BlueprintMcp {
                 TodoPatch {
                     title: r.title,
                     depends_on: r.depends_on,
-                    intent: r.intent,
+                    intent: r.intent.map(|body| body.text()),
                     completion_criteria: criteria,
-                    plan: r.plan,
+                    plan: r.plan.map(|body| body.text()),
                     handoff: r.handoff.map(|items| {
                         items
                             .into_iter()
@@ -228,8 +239,8 @@ impl BlueprintMcp {
                             .collect::<Vec<_>>()
                             .join("\n")
                     }),
-                    results: r.result_summary,
-                    notes: r.notes,
+                    results: r.results,
+                    notes: r.notes.map(|body| body.text()),
                 },
                 crate::blueprint::TodoUpdateOptions {
                     changed_by: r.changed_by.as_deref(),
@@ -260,11 +271,21 @@ impl BlueprintMcp {
     #[tool(
         description = "Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric."
     )]
-    fn evidence_add(
+    fn evidence_submit(
         &self,
-        Parameters(r): Parameters<EvidenceAddInput>,
-    ) -> Result<Json<crate::blueprint::EvidenceItem>, String> {
-        run_tool("evidence_add", r, |r| self.service.evidence_add(r))
+        Parameters(r): Parameters<EvidenceSubmitInput>,
+    ) -> Result<Json<crate::blueprint::EvidenceSummary>, String> {
+        run_tool("evidence_submit", r, |r| self.service.evidence_submit(r))
+    }
+    #[tool(description = "List Evidence submitted to a Blueprint or one Todo.")]
+    fn evidence_list(
+        &self,
+        Parameters(r): Parameters<EvidenceListInput>,
+    ) -> Result<Json<crate::blueprint::EvidenceListOutput>, String> {
+        run_tool("evidence_list", r, |r| {
+            self.service
+                .evidence_list(&r.blueprint_id, r.todo_id.as_deref(), r.page)
+        })
     }
     #[tool(
         description = "Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted."

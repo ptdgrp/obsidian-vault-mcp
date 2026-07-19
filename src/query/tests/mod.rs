@@ -245,6 +245,11 @@ fn get_note_stats_counts_only_the_selected_note() {
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
     assert_eq!(result.line_count, content.lines().count());
+    assert_eq!(
+        queries.parse_cache.len(),
+        0,
+        "whole-note stats skip AST parsing"
+    );
     let value = serde_json::to_value(result).expect("stats json");
     assert!(value.get("backlink_count").is_none());
     assert!(value.get("word_count_mode").is_none());

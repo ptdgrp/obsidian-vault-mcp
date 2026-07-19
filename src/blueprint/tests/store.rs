@@ -20,11 +20,11 @@ impl PartialEq<&str> for BlueprintState {
 }
 
 fn blueprint_source() -> String {
-    "---\nschema: blueprint/v2\nid: bp-01\nstate: active\n---\n\n# Test\n\n## Record\n\n- Created By: tester\n\n## Intent\n\nTest the store\n\n## Constraints\n\nNone\n\n## Definition of Done\n\n- [ ] Store works ^dod-store\n\n## Plan\n\nWrite tests\n\n## Rubric\n\nKeep aggregate files stable\n\n## Todos\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n<!-- preserve -->\n".to_string()
+    "---\nschema: blueprint/v3\nid: bp-01\nstate: active\n---\n\n# Test\n\n## Record\n\n- Created By: tester\n\n## Intent\n\n~~~\nTest the store\n~~~\n\n## Constraints\n\n~~~\nNone\n~~~\n\n## Definition of Done\n\n- [ ] Store works ^dod-1\n\n## Plan\n\n~~~\nWrite tests\n~~~\n\n## Rubric\n\n~~~\nKeep aggregate files stable\n~~~\n\n## Todos\n\n## Results\n\n~~~\n\n~~~\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n".to_string()
 }
 
 fn todo_source() -> String {
-    "---\nschema: blueprint/todo/v2\nid: todo-a\nblueprint: bp-01\n---\n\n# Todo A\n\n## Intent\n\nTest one Todo\n\n## Completion Criteria\n\n- [ ] It is stored\n\n## Plan\n\nWrite it\n\n## Handoff\n\nNone\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n<!-- preserve -->\n".to_string()
+    "---\nschema: blueprint/todo/v3\nid: todo-a\nblueprint: bp-01\n---\n\n# Todo A\n\n## Intent\n\n~~~\nTest one Todo\n~~~\n\n## Completion Criteria\n\n- [ ] It is stored\n\n## Plan\n\n~~~\nWrite it\n~~~\n\n## Handoff\n\n~~~\nNone\n~~~\n\n## Results\n\n~~~\n\n~~~\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n".to_string()
 }
 
 fn store() -> (TempDir, BlueprintStore) {
@@ -168,7 +168,7 @@ fn write_operations_preserve_document_specific_etags_and_validate_sources() {
     assert!(
         store
             .write_blueprint("bp-01", Some(&blueprint.etag), |source| {
-                Ok(source.replacen("blueprint/v2", "blueprint/v1", 1))
+                Ok(source.replacen("blueprint/v3", "blueprint/v1", 1))
             })
             .unwrap_err()
             .to_string()
@@ -212,7 +212,7 @@ fn aggregate_validation_rejects_invalid_todo_documents() {
     for (name, source, expected) in [
         (
             "wrong schema",
-            todo_source().replacen("blueprint/todo/v2", "blueprint/todo/v1", 1),
+            todo_source().replacen("blueprint/todo/v3", "blueprint/todo/v1", 1),
             "unsupported schema",
         ),
         (

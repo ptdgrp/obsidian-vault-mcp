@@ -13,9 +13,9 @@ use crate::blueprint::{
     document::{DocumentSchema, ParsedDocument},
 };
 
-const MANIFEST: &str = "---\nschema: blueprint/v2\n---\n\n# Blueprint Workspace\n";
+const MANIFEST: &str = "---\nschema: blueprint/v3\n---\n\n# Blueprint Workspace\n";
 const MANIFEST_SCHEMA: DocumentSchema = DocumentSchema {
-    name: "blueprint/v2",
+    name: "blueprint/v3",
     required_sections: &[],
 };
 
@@ -138,7 +138,7 @@ impl BlueprintStore {
                 &format!("blueprints/{id}/blueprint.md"),
                 source,
                 crate::blueprint::document::DocumentSchema {
-                    name: "blueprint/v2",
+                    name: "blueprint/v3",
                     required_sections: &[],
                 },
             )?;

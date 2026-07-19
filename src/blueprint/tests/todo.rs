@@ -4,38 +4,38 @@ fn evidence() -> &'static str {
     "### 测试已通过 ^evidence-review\n\n- Command: `cargo test`\n"
 }
 
-fn todo_v2(id: &str, blueprint: &str, criteria: &str, results: &str, evidence: &str) -> String {
+fn todo_v3(id: &str, blueprint: &str, criteria: &str, results: &str, evidence: &str) -> String {
     format!(
-        "---\nschema: blueprint/todo/v2\nid: {id}\nblueprint: {blueprint}\n---\n\n# 审阅章节\n\n## Intent\n\n检查故事连续性\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n阅读相邻章节\n\n## Handoff\n\n无需交接\n\n## Results\n\n{results}\n\n## Evidence\n\n{evidence}\n## Revision History\n\n### 初始范围 ^revision-review\n\n- Changed By: planner\n\n## Notes\n\n<!-- preserve -->\n"
+        "---\nschema: blueprint/todo/v3\nid: {id}\nblueprint: {blueprint}\n---\n\n# 审阅章节\n\n## Intent\n\n~~~\n检查故事连续性\n~~~\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n~~~\n阅读相邻章节\n~~~\n\n## Handoff\n\n~~~\n无需交接\n~~~\n\n## Results\n\n~~~\n{results}\n~~~\n\n## Evidence\n\n{evidence}\n## Revision History\n\n### 初始范围 ^revision-1\n\n- Changed By: planner\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n"
     )
 }
 
 #[test]
 fn parses_todo_sections_without_duplicating_graph_state() {
-    let source = todo_v2(
-        "todo-review",
+    let source = todo_v3(
+        "todo-1",
         "bp-01",
         "- [x] 已检查前后段落",
         "评估完成",
         evidence(),
     );
-    let detail = TodoDetail::parse("todos/todo-review.md", &source).unwrap();
+    let detail = TodoDetail::parse("todos/todo-1.md", &source).unwrap();
 
-    assert_eq!(detail.id, "todo-review");
+    assert_eq!(detail.id, "todo-1");
     assert_eq!(detail.blueprint_id, "bp-01");
     assert!(detail.completion_criteria.iter().all(|item| item.completed));
     assert_eq!(detail.results, "评估完成");
     assert_eq!(detail.evidence.len(), 1);
     assert!(detail.evidence[0].markdown.contains("`cargo test`"));
-    assert_eq!(detail.revisions[0].id, "revision-review");
+    assert_eq!(detail.revisions[0].id, "revision-1");
     assert!(detail.notes.contains("<!-- preserve -->"));
 }
 
 #[test]
-fn rejects_todo_without_required_v2_frontmatter() {
-    let source = todo_v2("todo-review", "bp-01", "- [ ] 检查", "", evidence());
-    let invalid = source.replacen("schema: blueprint/todo/v2", "schema: blueprint/v2", 1);
-    let error = TodoDetail::parse("todos/todo-review.md", &invalid).unwrap_err();
+fn rejects_todo_without_required_v3_frontmatter() {
+    let source = todo_v3("todo-1", "bp-01", "- [ ] 检查", "", evidence());
+    let invalid = source.replacen("schema: blueprint/todo/v3", "schema: blueprint/v3", 1);
+    let error = TodoDetail::parse("todos/todo-1.md", &invalid).unwrap_err();
     assert!(
         error.to_string().contains("unsupported schema"),
         "{error:#}"
@@ -44,9 +44,8 @@ fn rejects_todo_without_required_v2_frontmatter() {
 
 #[test]
 fn preserves_crlf_and_boundary_blank_lines_in_evidence_and_revisions() {
-    let source =
-        todo_v2("todo-review", "bp-01", "- [ ] 检查", "", evidence()).replace('\n', "\r\n");
-    let detail = TodoDetail::parse("todos/todo-review.md", &source).unwrap();
+    let source = todo_v3("todo-1", "bp-01", "- [ ] 检查", "", evidence()).replace('\n', "\r\n");
+    let detail = TodoDetail::parse("todos/todo-1.md", &source).unwrap();
 
     assert_eq!(
         detail.evidence[0].markdown,
@@ -54,6 +53,6 @@ fn preserves_crlf_and_boundary_blank_lines_in_evidence_and_revisions() {
     );
     assert_eq!(
         detail.revisions[0].markdown,
-        "### 初始范围 ^revision-review\r\n\r\n- Changed By: planner\r\n\r\n"
+        "### 初始范围 ^revision-1\r\n\r\n- Changed By: planner\r\n\r\n"
     );
 }

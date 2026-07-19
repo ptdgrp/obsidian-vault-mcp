@@ -11,6 +11,7 @@ use markdown::{
 };
 
 use crate::blueprint::{
+    ExternalBody,
     document::{DocumentSchema, ParsedDocument, Section},
     model::{
         BlueprintState, CheckItem, EvidenceItem, RevisionEntry, Todo, TodoGraphNode, TodoStatus,
@@ -32,11 +33,11 @@ const REQUIRED_SECTIONS: [&str; 11] = [
 ];
 
 const BLUEPRINT_SOURCE_SCHEMA: DocumentSchema = DocumentSchema {
-    name: "blueprint/v2",
+    name: "blueprint/v3",
     required_sections: &REQUIRED_SECTIONS,
 };
 
-const V2_BLUEPRINT_REQUIRED_SECTIONS: [&str; 11] = [
+const V3_BLUEPRINT_REQUIRED_SECTIONS: [&str; 11] = [
     "Record",
     "Intent",
     "Constraints",
@@ -50,13 +51,13 @@ const V2_BLUEPRINT_REQUIRED_SECTIONS: [&str; 11] = [
     "Notes",
 ];
 
-const V2_BLUEPRINT_SCHEMA: DocumentSchema = DocumentSchema {
-    name: "blueprint/v2",
-    required_sections: &V2_BLUEPRINT_REQUIRED_SECTIONS,
+const V3_BLUEPRINT_SCHEMA: DocumentSchema = DocumentSchema {
+    name: "blueprint/v3",
+    required_sections: &V3_BLUEPRINT_REQUIRED_SECTIONS,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-/// Typed, aggregate view of a `blueprint/v2` document.
+/// Typed, aggregate view of a `blueprint/v3` document.
 pub struct BlueprintSource {
     pub id: String,
     pub state: BlueprintState,
@@ -74,19 +75,19 @@ pub struct BlueprintSource {
 }
 
 impl BlueprintSource {
-    /// Parses one `blueprint/v2` aggregate document.
+    /// Parses one `blueprint/v3` aggregate document.
     pub fn parse(path: &str, source: &str) -> anyhow::Result<Self> {
         parse_blueprint_source(path, source)
     }
 }
 
-/// Parses one `blueprint/v2` aggregate document.
+/// Parses one `blueprint/v3` aggregate document.
 pub fn parse_blueprint_source(path: &str, source: &str) -> anyhow::Result<BlueprintSource> {
-    let parsed = ParsedDocument::parse(path, source, V2_BLUEPRINT_SCHEMA)?;
+    let parsed = ParsedDocument::parse(path, source, V3_BLUEPRINT_SCHEMA)?;
     let id = required_frontmatter(&parsed, "id")?;
     let state = BlueprintState::try_from(required_frontmatter(&parsed, "state")?.as_str())?;
     let todos = parse_graph_nodes(source, parsed.section("Todos")?)?;
-    let rubric = section_text(&parsed, source, "Rubric")?;
+    let rubric = external_section_text(&parsed, source, "Rubric", true)?;
     if rubric.is_empty() {
         anyhow::bail!("Rubric must not be empty");
     }
@@ -94,17 +95,43 @@ pub fn parse_blueprint_source(path: &str, source: &str) -> anyhow::Result<Bluepr
         id,
         state,
         title: parsed.h1().to_string(),
-        intent: section_text(&parsed, source, "Intent")?,
-        constraints: section_text(&parsed, source, "Constraints")?,
+        intent: external_section_text(&parsed, source, "Intent", true)?,
+        constraints: external_section_text(&parsed, source, "Constraints", false)?,
         definition_of_done: parse_check_items(parsed.section("Definition of Done")?.body(source)),
-        plan: section_text(&parsed, source, "Plan")?,
+        plan: external_section_text(&parsed, source, "Plan", true)?,
         rubric,
         todos,
-        results: section_text(&parsed, source, "Results")?,
+        results: external_section_prefix_text(&parsed, source, "Results", false)?,
         evidence: evidence_items(parsed.section("Evidence")?.body(source)),
         revisions: revision_entries(parsed.section("Revision History")?.body(source)),
-        notes: section_text(&parsed, source, "Notes")?,
+        notes: external_section_text(&parsed, source, "Notes", false)?,
     })
+}
+
+fn external_section_text(
+    document: &ParsedDocument,
+    source: &str,
+    title: &str,
+    required: bool,
+) -> anyhow::Result<String> {
+    let body = document.section(title)?.body(source).trim();
+    let parsed = if required {
+        ExternalBody::parse(title, body)?
+    } else {
+        ExternalBody::parse_optional(title, body)?
+    };
+    Ok(parsed.text())
+}
+
+fn external_section_prefix_text(
+    document: &ParsedDocument,
+    source: &str,
+    title: &str,
+    required: bool,
+) -> anyhow::Result<String> {
+    let body = document.section(title)?.body(source).trim();
+    let (parsed, _) = ExternalBody::parse_leading(title, body, required)?;
+    Ok(parsed.text())
 }
 
 pub(crate) struct ParsedBlueprintSource {

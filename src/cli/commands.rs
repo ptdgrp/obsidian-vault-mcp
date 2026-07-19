@@ -721,8 +721,10 @@ pub(crate) enum BlueprintCommand {
         changed_by: Option<String>,
         #[arg(long)]
         change_reason: Option<String>,
-        #[arg(long)]
-        results: Option<String>,
+        #[arg(long = "result-line")]
+        result_lines: Vec<String>,
+        #[arg(long = "result-evidence")]
+        result_evidence: Vec<String>,
         #[arg(long)]
         notes: Option<String>,
         #[arg(long)]
@@ -768,18 +770,27 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         expected_etag: Option<String>,
     },
-    /// Append globally unique Evidence to a Blueprint or Todo detail document.
-    EvidenceAdd {
+    /// Submit Evidence to a Blueprint or Todo detail document.
+    EvidenceSubmit {
         #[arg(long)]
         blueprint_id: String,
         #[arg(long)]
         todo_id: Option<String>,
         #[arg(long)]
         title: String,
-        #[arg(long)]
-        markdown: String,
+        #[arg(long = "body-line", required = true)]
+        body_lines: Vec<String>,
         #[arg(long)]
         expected_etag: Option<String>,
+    },
+    /// List Evidence in a Blueprint or one Todo.
+    EvidenceList {
+        #[arg(long)]
+        blueprint_id: String,
+        #[arg(long)]
+        todo_id: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
     },
     /// Append an immutable Revision History record.
     RevisionAppend {
@@ -861,8 +872,10 @@ pub(crate) enum BlueprintCommand {
         completed_criterion: Vec<String>,
         #[arg(long)]
         handoff: Option<Vec<String>>,
-        #[arg(long)]
-        result_summary: Option<String>,
+        #[arg(long = "result-line")]
+        result_lines: Vec<String>,
+        #[arg(long = "result-evidence")]
+        result_evidence: Vec<String>,
         #[arg(long)]
         plan: Option<String>,
         #[arg(long)]
@@ -948,7 +961,8 @@ impl BlueprintCommand {
             Self::Close { .. } => "close",
             Self::Cancel { .. } => "cancel",
             Self::DodUpdate { .. } => "dod_update",
-            Self::EvidenceAdd { .. } => "evidence_add",
+            Self::EvidenceSubmit { .. } => "evidence_submit",
+            Self::EvidenceList { .. } => "evidence_list",
             Self::RevisionAppend { .. } => "revision_append",
             Self::TodoCreate { .. } => "todo_create",
             Self::TodoGet { .. } => "todo_get",
@@ -973,7 +987,7 @@ impl BlueprintCommand {
                 rubric,
             } => {
                 print_value(&service.blueprint_create(
-                    crate::blueprint::BlueprintCreateInput {
+                    crate::blueprint::BlueprintCreateRequest {
                         title,
                         created_by,
                         intent,
@@ -1001,7 +1015,8 @@ impl BlueprintCommand {
                 rubric,
                 changed_by,
                 change_reason,
-                results,
+                result_lines,
+                result_evidence,
                 notes,
                 expected_etag,
             } => {
@@ -1013,7 +1028,15 @@ impl BlueprintCommand {
                         constraints,
                         plan,
                         rubric,
-                        results,
+                        results:
+                            (!result_lines.is_empty() || !result_evidence.is_empty()).then_some(
+                                crate::blueprint::ResultsInput {
+                                    body: crate::blueprint::ExternalBody {
+                                        lines: result_lines,
+                                    },
+                                    evidence_ids: result_evidence,
+                                },
+                            ),
                         notes,
                     },
                     changed_by.as_deref(),
@@ -1065,20 +1088,29 @@ impl BlueprintCommand {
                     expected_etag.as_deref(),
                 )?)?;
             }
-            BlueprintCommand::EvidenceAdd {
+            BlueprintCommand::EvidenceSubmit {
                 blueprint_id,
                 todo_id,
                 title,
-                markdown,
+                body_lines,
                 expected_etag,
             } => {
-                print_value(&service.evidence_add(crate::blueprint::EvidenceAddInput {
-                    blueprint_id,
-                    todo_id,
-                    title,
-                    markdown,
-                    expected_etag,
-                })?)?;
+                print_value(
+                    &service.evidence_submit(crate::blueprint::EvidenceSubmitInput {
+                        blueprint_id,
+                        todo_id,
+                        title,
+                        body: crate::blueprint::ExternalBody { lines: body_lines },
+                        expected_etag,
+                    })?,
+                )?;
+            }
+            BlueprintCommand::EvidenceList {
+                blueprint_id,
+                todo_id,
+                page,
+            } => {
+                print_value(&service.evidence_list(&blueprint_id, todo_id.as_deref(), page)?)?;
             }
             BlueprintCommand::RevisionAppend {
                 blueprint_id,
@@ -1156,7 +1188,8 @@ impl BlueprintCommand {
                 completion_criterion,
                 completed_criterion,
                 handoff,
-                result_summary,
+                result_lines,
+                result_evidence,
                 plan,
                 notes,
                 changed_by,
@@ -1197,7 +1230,15 @@ impl BlueprintCommand {
                                 .collect::<Vec<_>>()
                                 .join("\n")
                         }),
-                        results: result_summary,
+                        results:
+                            (!result_lines.is_empty() || !result_evidence.is_empty()).then_some(
+                                crate::blueprint::ResultsInput {
+                                    body: crate::blueprint::ExternalBody {
+                                        lines: result_lines,
+                                    },
+                                    evidence_ids: result_evidence,
+                                },
+                            ),
                         notes,
                     },
                     crate::blueprint::TodoUpdateOptions {
@@ -1298,15 +1339,19 @@ mod tests {
         let command = BlueprintCommand::augment_subcommands(clap::Command::new("blueprint"));
         for (name, fields) in [
             (
-                "evidence-add",
+                "evidence-submit",
                 [
                     "blueprint-id",
                     "todo-id",
                     "title",
-                    "markdown",
+                    "body-line",
                     "expected-etag",
                 ]
                 .as_slice(),
+            ),
+            (
+                "evidence-list",
+                ["blueprint-id", "todo-id", "page"].as_slice(),
             ),
             (
                 "revision-append",
