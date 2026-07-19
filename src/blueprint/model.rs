@@ -511,6 +511,10 @@ pub struct TodoCompleteInput {
     pub summary: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
+    #[serde(default)]
+    pub expected_blueprint_etag: Option<String>,
+    #[serde(default)]
+    pub expected_todo_etag: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TodoBlockInput {
@@ -520,6 +524,10 @@ pub struct TodoBlockInput {
     pub handoff: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
+    #[serde(default)]
+    pub expected_blueprint_etag: Option<String>,
+    #[serde(default)]
+    pub expected_todo_etag: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TodoCancelInput {

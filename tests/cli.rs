@@ -51,6 +51,8 @@ fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
             "the command succeeds",
             "--plan",
             "run it",
+            "--rubric",
+            "verify the Definition of Done",
         ],
     );
     assert!(
@@ -104,6 +106,84 @@ fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
     assert!(
         status.get("data").is_none(),
         "generic response wrapper leaked"
+    );
+}
+
+#[test]
+fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
+    let dir = tempdir().expect("tempdir");
+    let blueprint = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "create",
+            "--title",
+            "CLI Todo",
+            "--created-by",
+            "tester",
+            "--intent",
+            "exercise Todo v2",
+            "--definition-of-done",
+            "done",
+            "--plan",
+            "run it",
+            "--rubric",
+            "verify CLI forwarding",
+        ],
+    );
+    assert!(blueprint.status.success(), "{:?}", blueprint);
+    let blueprint: Value = serde_json::from_slice(&blueprint.stdout).unwrap();
+    let blueprint_id = blueprint["id"].as_str().unwrap().to_string();
+
+    let created = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "todo-create",
+            "--blueprint-id",
+            &blueprint_id,
+            "--title",
+            "Todo v2",
+            "--created-by",
+            "tester",
+            "--intent",
+            "initial intent",
+            "--plan",
+            "initial plan",
+        ],
+    );
+    assert!(created.status.success(), "{:?}", created);
+    let created: Value = serde_json::from_slice(&created.stdout).unwrap();
+    let todo_id = created["graph"]["id"].as_str().unwrap().to_string();
+
+    let updated = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "todo-update",
+            "--blueprint-id",
+            &blueprint_id,
+            "--todo-id",
+            &todo_id,
+            "--intent",
+            "revised intent",
+            "--changed-by",
+            "tester",
+            "--change-reason",
+            "CLI semantic update",
+        ],
+    );
+    assert!(updated.status.success(), "{:?}", updated);
+    let updated: Value = serde_json::from_slice(&updated.stdout).unwrap();
+    assert_eq!(updated["detail"]["intent"], "revised intent");
+    assert!(
+        updated["detail"]["revisions"]
+            .as_array()
+            .is_some_and(|revisions| revisions.iter().any(|revision| {
+                revision["markdown"]
+                    .as_str()
+                    .is_some_and(|markdown| markdown.contains("CLI semantic update"))
+            }))
     );
 }
 

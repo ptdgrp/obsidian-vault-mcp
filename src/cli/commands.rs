@@ -775,6 +775,10 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         created_by: String,
         #[arg(long)]
+        intent: String,
+        #[arg(long)]
+        plan: String,
+        #[arg(long)]
         parent_id: Option<String>,
         #[arg(long)]
         owner: Option<String>,
@@ -783,7 +787,7 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         completion_criteria: Vec<String>,
         #[arg(long)]
-        expected_etag: Option<String>,
+        expected_blueprint_etag: Option<String>,
     },
     /// Get a todo.
     TodoGet {
@@ -816,6 +820,8 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         depends_on: Option<Vec<String>>,
         #[arg(long)]
+        intent: Option<String>,
+        #[arg(long)]
         completion_criterion: Vec<String>,
         #[arg(long)]
         completed_criterion: Vec<String>,
@@ -824,7 +830,17 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         result_summary: Option<String>,
         #[arg(long)]
-        expected_etag: Option<String>,
+        plan: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+        #[arg(long)]
+        changed_by: Option<String>,
+        #[arg(long)]
+        change_reason: Option<String>,
+        #[arg(long)]
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
     },
     /// Assign a todo.
     TodoAssign {
@@ -857,7 +873,9 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         summary: String,
         #[arg(long)]
-        expected_etag: Option<String>,
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
     },
     /// Block a todo.
     TodoBlock {
@@ -870,7 +888,9 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         handoff: String,
         #[arg(long)]
-        expected_etag: Option<String>,
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
     },
     /// Cancel a todo.
     TodoCancel {
@@ -1015,22 +1035,26 @@ impl BlueprintCommand {
                 blueprint_id,
                 title,
                 created_by,
+                intent,
+                plan,
                 parent_id,
                 owner,
                 depends_on,
                 completion_criteria,
-                expected_etag,
+                expected_blueprint_etag,
             } => {
-                print_value(&service.todo_create_legacy(
-                    &blueprint_id,
-                    &title,
-                    &created_by,
-                    parent_id.as_deref(),
-                    owner.as_deref(),
-                    &depends_on,
-                    &completion_criteria,
-                    expected_etag.as_deref(),
-                )?)?;
+                print_value(&service.todo_create(crate::blueprint::TodoCreateRequest {
+                    blueprint_id,
+                    title,
+                    created_by,
+                    intent,
+                    plan,
+                    parent_id,
+                    owner,
+                    depends_on,
+                    completion_criteria,
+                    expected_blueprint_etag,
+                })?)?;
             }
             BlueprintCommand::TodoGet {
                 blueprint_id,
@@ -1056,11 +1080,17 @@ impl BlueprintCommand {
                 todo_id,
                 title,
                 depends_on,
+                intent,
                 completion_criterion,
                 completed_criterion,
                 handoff,
                 result_summary,
-                expected_etag,
+                plan,
+                notes,
+                changed_by,
+                change_reason,
+                expected_blueprint_etag,
+                expected_todo_etag,
             } => {
                 let criteria = (!completion_criterion.is_empty()
                     || !completed_criterion.is_empty())
@@ -1079,15 +1109,29 @@ impl BlueprintCommand {
                         }))
                         .collect::<Vec<_>>()
                 });
-                print_value(&service.todo_update_legacy(
+                print_value(&service.todo_update(
                     &blueprint_id,
                     &todo_id,
-                    title.as_deref(),
-                    depends_on.as_deref(),
-                    criteria.as_deref(),
-                    handoff.as_deref(),
-                    result_summary.as_deref(),
-                    expected_etag.as_deref(),
+                    crate::blueprint::TodoPatch {
+                        title,
+                        depends_on,
+                        intent,
+                        completion_criteria: criteria,
+                        plan,
+                        handoff: handoff.map(|items| {
+                            items
+                                .into_iter()
+                                .map(|item| format!("- {}", item.trim()))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }),
+                        results: result_summary,
+                        notes,
+                    },
+                    changed_by.as_deref(),
+                    change_reason.as_deref(),
+                    expected_blueprint_etag.as_deref(),
+                    expected_todo_etag.as_deref(),
                 )?)?;
             }
             BlueprintCommand::TodoAssign {
@@ -1119,14 +1163,16 @@ impl BlueprintCommand {
                 todo_id,
                 completed_by,
                 summary,
-                expected_etag,
+                expected_blueprint_etag,
+                expected_todo_etag,
             } => {
                 print_value(&service.todo_complete(
                     &blueprint_id,
                     &todo_id,
                     &completed_by,
                     &summary,
-                    expected_etag.as_deref(),
+                    expected_blueprint_etag.as_deref(),
+                    expected_todo_etag.as_deref(),
                 )?)?;
             }
             BlueprintCommand::TodoBlock {
@@ -1134,14 +1180,16 @@ impl BlueprintCommand {
                 todo_id,
                 reason,
                 handoff,
-                expected_etag,
+                expected_blueprint_etag,
+                expected_todo_etag,
             } => {
                 print_value(&service.todo_block(
                     &blueprint_id,
                     &todo_id,
                     &reason,
                     &handoff,
-                    expected_etag.as_deref(),
+                    expected_blueprint_etag.as_deref(),
+                    expected_todo_etag.as_deref(),
                 )?)?;
             }
             BlueprintCommand::TodoCancel {

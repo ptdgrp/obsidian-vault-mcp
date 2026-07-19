@@ -267,26 +267,36 @@ impl BlueprintMcp {
         &self,
         Parameters(r): Parameters<TodoCompleteInput>,
     ) -> Result<Json<TodoView>, String> {
-        json(self.service.todo_complete(
-            &r.blueprint_id,
-            &r.todo_id,
-            &r.completed_by,
-            &r.summary,
-            r.expected_etag.as_deref(),
-        ))
+        json(
+            self.service.todo_complete(
+                &r.blueprint_id,
+                &r.todo_id,
+                &r.completed_by,
+                &r.summary,
+                r.expected_blueprint_etag
+                    .as_deref()
+                    .or(r.expected_etag.as_deref()),
+                r.expected_todo_etag.as_deref(),
+            ),
+        )
     }
     #[tool(description = "Block an in-progress Todo with a reason and handoff.")]
     fn todo_block(
         &self,
         Parameters(r): Parameters<TodoBlockInput>,
     ) -> Result<Json<TodoView>, String> {
-        json(self.service.todo_block(
-            &r.blueprint_id,
-            &r.todo_id,
-            &r.reason,
-            &r.handoff,
-            r.expected_etag.as_deref(),
-        ))
+        json(
+            self.service.todo_block(
+                &r.blueprint_id,
+                &r.todo_id,
+                &r.reason,
+                &r.handoff,
+                r.expected_blueprint_etag
+                    .as_deref()
+                    .or(r.expected_etag.as_deref()),
+                r.expected_todo_etag.as_deref(),
+            ),
+        )
     }
     #[tool(description = "Cancel a pending, in-progress, or blocked Todo with a reason.")]
     fn todo_cancel(

@@ -350,6 +350,7 @@ impl BlueprintService {
         fields(operation.kind = "mutation", operation.name = "todo_create"),
         err
     )]
+    #[cfg(test)]
     pub(crate) fn todo_create_legacy(
         &self,
         blueprint_id: &str,
@@ -361,90 +362,117 @@ impl BlueprintService {
         completion_criteria: &[String],
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
-        self.require_active(blueprint_id)?;
-        require_text("title", title)?;
-        require_text("created_by", created_by)?;
-        if let Some(parent_id) = parent_id {
-            self.todo_get(blueprint_id, parent_id)?;
-        }
-        let todo_id = format!("todo-{}", Ulid::new());
-        let mut block = format!(
-            "- [ ] [{}](todos/{}.md) ^{}\n  - Created By: {}\n",
-            title.trim(),
-            todo_id,
-            todo_id,
-            created_by.trim()
-        );
-        if let Some(owner) = owner.filter(|v| !v.trim().is_empty()) {
-            block.push_str(&format!("  - Owner: {}\n", owner.trim()));
-        }
-        if !depends_on.is_empty() {
-            block.push_str(&format!("  - Depends On: {}\n", depends_on.join(", ")));
-        }
-        for criterion in completion_criteria {
-            require_text("completion criterion", criterion)?;
-        }
-        self.store.with_lock(blueprint_id, |locked| {
-            locked.create_todo(
-                &todo_id,
-                &render_todo(blueprint_id, &todo_id, title, completion_criteria),
-            )?;
-            let result = locked.write_blueprint(expected_etag, |source| {
-                let source = if let Some(parent_id) = parent_id {
-                    ensure_children_label(source, parent_id)?
-                } else {
-                    source.to_string()
-                };
-                let insertion = if let Some(parent_id) = parent_id {
-                    todo_children_insertion(&source, parent_id)?
-                } else {
-                    section_insertion(&source, "Todos")?
-                };
-                let indent = if parent_id.is_some() { "    " } else { "" };
-                let block = block
-                    .lines()
-                    .map(|line| format!("{indent}{line}\n"))
-                    .collect::<String>();
-                let next = format!("{}{}{}", &source[..insertion], block, &source[insertion..]);
-                let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &next)?;
-                derive_readiness(&parsed.todos)?;
-                Ok(next)
-            });
-            if result.is_err() {
-                locked.remove_todo(&todo_id)?;
-            }
-            result.map(|_| ())
-        })?;
-        self.todo_get(blueprint_id, &todo_id)
+        self.todo_create_with_detail(TodoCreateRequest {
+            blueprint_id: blueprint_id.to_string(),
+            title: title.to_string(),
+            created_by: created_by.to_string(),
+            intent: title.to_string(),
+            plan: String::new(),
+            parent_id: parent_id.map(ToOwned::to_owned),
+            owner: owner.map(ToOwned::to_owned),
+            depends_on: depends_on.to_vec(),
+            completion_criteria: completion_criteria.to_vec(),
+            expected_blueprint_etag: expected_etag.map(ToOwned::to_owned),
+        })
     }
 
     /// Creates the Todo detail document before linking it from the central graph.
     pub fn todo_create(&self, request: TodoCreateRequest) -> anyhow::Result<TodoView> {
         require_text("intent", &request.intent)?;
         require_text("plan", &request.plan)?;
-        let todo = self.todo_create_legacy(
+        self.todo_create_with_detail(request)
+    }
+
+    fn todo_create_with_detail(&self, request: TodoCreateRequest) -> anyhow::Result<TodoView> {
+        require_text("title", &request.title)?;
+        require_text("created_by", &request.created_by)?;
+        for criterion in &request.completion_criteria {
+            require_text("completion criterion", criterion)?;
+        }
+        let todo_id = format!("todo-{}", Ulid::new());
+        let detail_source = render_todo(
             &request.blueprint_id,
+            &todo_id,
             &request.title,
-            &request.created_by,
-            request.parent_id.as_deref(),
-            request.owner.as_deref(),
-            &request.depends_on,
+            &request.intent,
+            &request.plan,
             &request.completion_criteria,
-            request.expected_blueprint_etag.as_deref(),
-        )?;
-        self.todo_update(
-            &request.blueprint_id,
-            &todo.graph.id,
-            TodoPatch {
-                intent: Some(request.intent),
-                plan: Some(request.plan),
-                ..Default::default()
-            },
-            Some(&request.created_by),
-            Some("initial Todo intent and plan"),
-            Some(&todo.blueprint_etag),
-            Some(&todo.todo_etag),
-        )
+        );
+        crate::blueprint::TodoDetail::parse(&format!("{todo_id}.md"), &detail_source)?;
+        self.store.with_lock(&request.blueprint_id, |locked| {
+            locked.require_active()?;
+            let blueprint = locked.read_blueprint()?;
+            if request
+                .expected_blueprint_etag
+                .as_deref()
+                .is_some_and(|etag| etag != blueprint.etag)
+            {
+                anyhow::bail!("Blueprint ETag does not match; re-read before writing");
+            }
+            let parsed = ParsedBlueprintSource::parse(
+                &format!("{}.md", request.blueprint_id),
+                &blueprint.source,
+            )?;
+            if let Some(parent_id) = request.parent_id.as_deref() {
+                find_todo(&parsed.todos, parent_id)
+                    .ok_or_else(|| anyhow::anyhow!("unknown Todo: {parent_id}"))?;
+            }
+            let mut block = format!(
+                "- [ ] [{}](todos/{}.md) ^{}\n  - Created By: {}\n",
+                request.title.trim(),
+                todo_id,
+                todo_id,
+                request.created_by.trim()
+            );
+            if let Some(owner) = request
+                .owner
+                .as_deref()
+                .filter(|owner| !owner.trim().is_empty())
+            {
+                block.push_str(&format!("  - Owner: {}\n", owner.trim()));
+            }
+            if !request.depends_on.is_empty() {
+                block.push_str(&format!(
+                    "  - Depends On: {}\n",
+                    request.depends_on.join(", ")
+                ));
+            }
+            let source = if let Some(parent_id) = request.parent_id.as_deref() {
+                ensure_children_label(&blueprint.source, parent_id)?
+            } else {
+                blueprint.source.clone()
+            };
+            let insertion = if let Some(parent_id) = request.parent_id.as_deref() {
+                todo_children_insertion(&source, parent_id)?
+            } else {
+                section_insertion(&source, "Todos")?
+            };
+            let indent = if request.parent_id.is_some() {
+                "    "
+            } else {
+                ""
+            };
+            let block = block
+                .lines()
+                .map(|line| format!("{indent}{line}\n"))
+                .collect::<String>();
+            let graph_candidate =
+                format!("{}{}{}", &source[..insertion], block, &source[insertion..]);
+            let parsed = ParsedBlueprintSource::parse(
+                &format!("{}.md", request.blueprint_id),
+                &graph_candidate,
+            )?;
+            derive_readiness(&parsed.todos)?;
+            locked.create_todo(&todo_id, &detail_source)?;
+            let result = locked.write_blueprint(request.expected_blueprint_etag.as_deref(), |_| {
+                Ok(graph_candidate)
+            });
+            if result.is_err() {
+                locked.remove_todo(&todo_id)?;
+            }
+            result.map(|_| ())
+        })?;
+        self.todo_get(&request.blueprint_id, &todo_id)
     }
     #[tracing::instrument(
         name = "blueprint.todo_start",
@@ -547,39 +575,38 @@ impl BlueprintService {
         owner: &str,
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
-        self.require_active(blueprint_id)?;
         require_text("owner", owner)?;
-        let current = self.todo_get(blueprint_id, todo_id)?;
-        if matches!(
-            current.status,
-            crate::blueprint::model::TodoStatus::Completed
-                | crate::blueprint::model::TodoStatus::Cancelled
-        ) {
-            anyhow::bail!("completed or cancelled Todo cannot be assigned");
-        }
-        if matches!(
-            current.status,
-            crate::blueprint::model::TodoStatus::InProgress
-                | crate::blueprint::model::TodoStatus::Blocked
-        ) && current.owner.as_deref() != Some(owner.trim())
-            && current.handoff.is_empty()
-        {
-            anyhow::bail!("in_progress or blocked Todo requires Handoff before reassignment");
-        }
-        let _stored = self
-            .store
-            .write_blueprint(blueprint_id, expected_etag, |source| {
-                let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
-                let current = find_todo(&parsed.todos, todo_id)
-                    .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
-                if matches!(
-                    current.status,
-                    TodoStatus::Completed | TodoStatus::Cancelled
-                ) {
-                    anyhow::bail!("Todo cannot be assigned in its current state");
-                }
-                replace_or_insert_todo_field(source, todo_id, "Owner", owner.trim())
-            })?;
+        self.store.with_lock(blueprint_id, |locked| {
+            locked.require_active()?;
+            let graph = locked.read_blueprint()?;
+            if expected_etag.is_some_and(|etag| etag != graph.etag) {
+                anyhow::bail!("Blueprint ETag does not match; re-read before writing");
+            }
+            let parsed =
+                ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph.source)?;
+            let current = find_todo(&parsed.todos, todo_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+            if matches!(
+                current.status,
+                TodoStatus::Completed | TodoStatus::Cancelled
+            ) {
+                anyhow::bail!("Todo cannot be assigned in its current state");
+            }
+            let detail = locked.read_todo(todo_id)?;
+            let detail = crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail.source)?;
+            if matches!(current.status, TodoStatus::InProgress | TodoStatus::Blocked)
+                && current.owner.as_deref() != Some(owner.trim())
+                && detail.handoff.trim().is_empty()
+            {
+                anyhow::bail!("in_progress or blocked Todo requires Handoff before reassignment");
+            }
+            let candidate =
+                replace_or_insert_todo_field(&graph.source, todo_id, "Owner", owner.trim())?;
+            let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &candidate)?;
+            derive_readiness(&parsed.todos)?;
+            locked.write_blueprint(expected_etag, |_| Ok(candidate))?;
+            Ok(())
+        })?;
         self.todo_get(blueprint_id, todo_id)
     }
     #[tracing::instrument(
@@ -588,7 +615,8 @@ impl BlueprintService {
         fields(operation.kind = "mutation", operation.name = "todo_block"),
         err
     )]
-    pub fn todo_block(
+    #[cfg(test)]
+    pub(crate) fn todo_block_legacy(
         &self,
         blueprint_id: &str,
         todo_id: &str,
@@ -596,13 +624,25 @@ impl BlueprintService {
         handoff: &str,
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
+        self.todo_block(blueprint_id, todo_id, reason, handoff, expected_etag, None)
+    }
+
+    pub fn todo_block(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        reason: &str,
+        handoff: &str,
+        expected_blueprint_etag: Option<&str>,
+        expected_todo_etag: Option<&str>,
+    ) -> anyhow::Result<TodoView> {
         require_text("reason", reason)?;
         require_text("handoff", handoff)?;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
-            if expected_etag.is_some_and(|etag| etag != graph.etag) {
-                anyhow::bail!("document etag does not match; re-read before writing");
+            if expected_blueprint_etag.is_some_and(|etag| etag != graph.etag) {
+                anyhow::bail!("Blueprint ETag does not match; re-read before writing");
             }
             let parsed =
                 ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph.source)?;
@@ -613,21 +653,22 @@ impl BlueprintService {
             {
                 anyhow::bail!("only in_progress Todo can be blocked");
             }
-            locked.write_todo(todo_id, None, |source| {
-                replace_section(source, "Handoff", &format!("- {}", handoff.trim()))
-            })?;
-            locked.write_blueprint(expected_etag, |source| {
-                let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
-                if find_todo(&parsed.todos, todo_id)
-                    .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?
-                    .status
-                    != TodoStatus::InProgress
-                {
-                    anyhow::bail!("only in_progress Todo can be blocked");
-                }
-                let source = replace_task_status(source, todo_id, TodoStatus::Blocked)?;
-                replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())
-            })?;
+            let detail = locked.read_todo(todo_id)?;
+            if expected_todo_etag.is_some_and(|etag| etag != detail.etag) {
+                anyhow::bail!("Todo ETag does not match; re-read before writing");
+            }
+            let detail_candidate =
+                replace_section(&detail.source, "Handoff", &format!("- {}", handoff.trim()))?;
+            crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail_candidate)?;
+            let graph_candidate = {
+                let source = replace_task_status(&graph.source, todo_id, TodoStatus::Blocked)?;
+                replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())?
+            };
+            let parsed =
+                ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph_candidate)?;
+            derive_readiness(&parsed.todos)?;
+            locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
+            locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -680,7 +721,8 @@ impl BlueprintService {
         fields(operation.kind = "mutation", operation.name = "todo_complete"),
         err
     )]
-    pub fn todo_complete(
+    #[cfg(test)]
+    pub(crate) fn todo_complete_legacy(
         &self,
         blueprint_id: &str,
         todo_id: &str,
@@ -688,19 +730,41 @@ impl BlueprintService {
         summary: &str,
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
+        self.todo_complete(
+            blueprint_id,
+            todo_id,
+            completed_by,
+            summary,
+            expected_etag,
+            None,
+        )
+    }
+
+    pub fn todo_complete(
+        &self,
+        blueprint_id: &str,
+        todo_id: &str,
+        completed_by: &str,
+        summary: &str,
+        expected_blueprint_etag: Option<&str>,
+        expected_todo_etag: Option<&str>,
+    ) -> anyhow::Result<TodoView> {
         require_text("completed_by", completed_by)?;
         require_text("summary", summary)?;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
-            if expected_etag.is_some_and(|etag| etag != graph.etag) {
-                anyhow::bail!("document etag does not match; re-read before writing");
+            if expected_blueprint_etag.is_some_and(|etag| etag != graph.etag) {
+                anyhow::bail!("Blueprint ETag does not match; re-read before writing");
             }
             let parsed =
                 ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph.source)?;
             let current = find_todo(&parsed.todos, todo_id)
                 .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
             let detail_source = locked.read_todo(todo_id)?;
+            if expected_todo_etag.is_some_and(|etag| etag != detail_source.etag) {
+                anyhow::bail!("Todo ETag does not match; re-read before writing");
+            }
             let detail = crate::blueprint::TodoDetail::parse(
                 detail_source.path.as_str(),
                 &detail_source.source,
@@ -722,8 +786,8 @@ impl BlueprintService {
             {
                 anyhow::bail!("all non-cancelled child Todos must be completed");
             }
-            locked.write_todo(todo_id, None, |source| {
-                let next = replace_section(source, "Results", summary.trim())?;
+            let detail_candidate = {
+                let next = replace_section(&detail_source.source, "Results", summary.trim())?;
                 let evidence = section_body(&next, "Evidence");
                 let evidence = if evidence.is_empty() {
                     format!(
@@ -735,11 +799,17 @@ impl BlueprintService {
                     evidence
                 };
                 replace_section(&next, "Evidence", &evidence)
-            })?;
-            locked.write_blueprint(expected_etag, |source| {
-                let source = replace_task_status(source, todo_id, TodoStatus::Completed)?;
-                replace_or_insert_todo_field(&source, todo_id, "Completed By", completed_by.trim())
-            })?;
+            }?;
+            crate::blueprint::TodoDetail::parse(detail_source.path.as_str(), &detail_candidate)?;
+            let graph_candidate = {
+                let source = replace_task_status(&graph.source, todo_id, TodoStatus::Completed)?;
+                replace_or_insert_todo_field(&source, todo_id, "Completed By", completed_by.trim())?
+            };
+            let parsed =
+                ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph_candidate)?;
+            derive_readiness(&parsed.todos)?;
+            locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
+            locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -752,6 +822,7 @@ impl BlueprintService {
         fields(operation.kind = "mutation", operation.name = "todo_update"),
         err
     )]
+    #[cfg(test)]
     pub(crate) fn todo_update_legacy(
         &self,
         blueprint_id: &str,
@@ -1632,14 +1703,21 @@ fn render_blueprint(id: &str, request: &BlueprintCreateRequest) -> String {
     )
 }
 
-fn render_todo(blueprint_id: &str, todo_id: &str, title: &str, criteria: &[String]) -> String {
+fn render_todo(
+    blueprint_id: &str,
+    todo_id: &str,
+    title: &str,
+    intent: &str,
+    plan: &str,
+    criteria: &[String],
+) -> String {
     let criteria = criteria
         .iter()
         .map(|item| format!("- [ ] {}", item.trim()))
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "---\nschema: blueprint/todo/v2\nid: {todo_id}\nblueprint: {blueprint_id}\n---\n\n# {title}\n\n## Intent\n\n{title}\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n\n## Handoff\n\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n"
+        "---\nschema: blueprint/todo/v2\nid: {todo_id}\nblueprint: {blueprint_id}\n---\n\n# {title}\n\n## Intent\n\n{intent}\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n{plan}\n\n## Handoff\n\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n"
     )
 }
 

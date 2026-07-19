@@ -112,6 +112,101 @@ fn todo_patch_checks_both_etags_syncs_title_and_records_semantic_revision() {
 }
 
 #[test]
+fn todo_create_invalid_graph_request_leaves_no_detail_document() {
+    let (directory, service, blueprint) = create_blueprint();
+    assert!(
+        service
+            .todo_create(TodoCreateRequest {
+                blueprint_id: blueprint.id.clone(),
+                title: "不会留下半成品".into(),
+                created_by: "planner".into(),
+                intent: "验证回滚".into(),
+                plan: "触发无效依赖".into(),
+                depends_on: vec!["todo-missing".into()],
+                ..Default::default()
+            })
+            .is_err()
+    );
+    let todos = Utf8PathBuf::from_path_buf(directory.path().to_path_buf())
+        .unwrap()
+        .join(".blueprint/blueprints")
+        .join(&blueprint.id)
+        .join("todos");
+    assert!(fs::read_dir(todos).unwrap().next().is_none());
+}
+
+#[test]
+fn stale_todo_etag_does_not_block_or_complete_any_document() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "受保护写入".into(),
+            created_by: "planner".into(),
+            intent: "验证 ETag".into(),
+            plan: "先开始".into(),
+            owner: Some("agent".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let started = service
+        .todo_start(&blueprint.id, &todo.graph.id, Some(&todo.blueprint_etag))
+        .unwrap();
+    let before = service.todo_get(&blueprint.id, &todo.graph.id).unwrap();
+    assert!(
+        service
+            .todo_update(
+                &blueprint.id,
+                &todo.graph.id,
+                TodoPatch {
+                    handoff: Some("would be lost".into()),
+                    ..Default::default()
+                },
+                None,
+                None,
+                Some(&before.blueprint_etag),
+                Some("stale-todo-etag"),
+            )
+            .is_err()
+    );
+    let after_update = service.todo_get(&blueprint.id, &todo.graph.id).unwrap();
+    assert_eq!(after_update.todo_etag, before.todo_etag);
+    assert_eq!(after_update.blueprint_etag, before.blueprint_etag);
+    assert!(
+        service
+            .todo_block(
+                &blueprint.id,
+                &todo.graph.id,
+                "external",
+                "resume later",
+                Some(&before.blueprint_etag),
+                Some("stale-todo-etag"),
+            )
+            .is_err()
+    );
+    let after_block = service.todo_get(&blueprint.id, &todo.graph.id).unwrap();
+    assert_eq!(after_block.graph.status, TodoStatus::InProgress);
+    assert_eq!(after_block.todo_etag, before.todo_etag);
+
+    assert!(
+        service
+            .todo_complete(
+                &blueprint.id,
+                &todo.graph.id,
+                "agent",
+                "finished",
+                Some(&before.blueprint_etag),
+                Some("stale-todo-etag"),
+            )
+            .is_err()
+    );
+    let after_complete = service.todo_get(&blueprint.id, &todo.graph.id).unwrap();
+    assert_eq!(after_complete.graph.status, TodoStatus::InProgress);
+    assert_eq!(after_complete.todo_etag, before.todo_etag);
+    assert_ne!(started.blueprint_etag, todo.blueprint_etag);
+}
+
+#[test]
 fn semantic_update_requires_and_appends_revision() {
     let (_directory, service, created) = create_blueprint();
     let error = service
@@ -615,7 +710,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
     service.todo_start(&blueprint.id, &todo.id, None).unwrap();
     assert!(
         service
-            .todo_complete(&blueprint.id, &todo.id, "agent", "完成", None)
+            .todo_complete_legacy(&blueprint.id, &todo.id, "agent", "完成", None)
             .is_err()
     );
     service
@@ -634,7 +729,7 @@ fn todo_completion_requires_criteria_then_close_moves_the_document() {
         )
         .unwrap();
     let completed = service
-        .todo_complete(&blueprint.id, &todo.id, "agent", "完成", None)
+        .todo_complete_legacy(&blueprint.id, &todo.id, "agent", "完成", None)
         .unwrap();
     assert_eq!(completed.status, super::super::model::TodoStatus::Completed);
     let closed = service
@@ -729,7 +824,7 @@ fn blueprint_views_return_full_source_or_resume_context() {
         .todo_start(&blueprint.id, &blocked.id, None)
         .expect("start blocked Todo");
     service
-        .todo_block(
+        .todo_block_legacy(
             &blueprint.id,
             &blocked.id,
             "waiting for user",
@@ -816,7 +911,7 @@ fn blueprint_status_classifies_ready_blocked_unassigned_and_open_work() {
         .todo_start(&blueprint.id, &blocked.id, None)
         .expect("start Todo");
     service
-        .todo_block(
+        .todo_block_legacy(
             &blueprint.id,
             &blocked.id,
             "external decision",
@@ -909,7 +1004,7 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
         .todo_start(&complete.id, &todo.id, None)
         .expect("start Todo");
     service
-        .todo_complete(&complete.id, &todo.id, "agent", "finished", None)
+        .todo_complete_legacy(&complete.id, &todo.id, "agent", "finished", None)
         .expect("complete Todo");
     service
         .dod_update(
@@ -1003,7 +1098,7 @@ fn todo_assignment_requires_handoff_for_active_reassignment_and_rejects_terminal
         .expect("reassign with Handoff");
     assert_eq!(reassigned.owner.as_deref(), Some("agent-c"));
     service
-        .todo_complete(&blueprint.id, &todo.id, "agent-c", "done", None)
+        .todo_complete_legacy(&blueprint.id, &todo.id, "agent-c", "done", None)
         .expect("complete Todo");
     let error = service
         .todo_assign(&blueprint.id, &todo.id, "agent-d", None)
@@ -1084,7 +1179,7 @@ fn todo_start_requires_owner_pending_status_and_completed_dependencies() {
         .todo_start(&blueprint.id, &prerequisite.id, None)
         .expect("start prerequisite");
     service
-        .todo_complete(&blueprint.id, &prerequisite.id, "agent", "done", None)
+        .todo_complete_legacy(&blueprint.id, &prerequisite.id, "agent", "done", None)
         .expect("complete prerequisite");
     let started = service
         .todo_start(&blueprint.id, &dependent.id, None)
@@ -1113,7 +1208,7 @@ fn todo_block_and_cancel_enforce_transition_fields_and_states() {
         .expect("create Todo");
     assert!(
         service
-            .todo_block(&blueprint.id, &todo.id, "reason", "handoff", None)
+            .todo_block_legacy(&blueprint.id, &todo.id, "reason", "handoff", None)
             .expect_err("pending Todo cannot be blocked")
             .to_string()
             .contains("only in_progress")
@@ -1123,20 +1218,20 @@ fn todo_block_and_cancel_enforce_transition_fields_and_states() {
         .expect("start Todo");
     assert!(
         service
-            .todo_block(&blueprint.id, &todo.id, " ", "handoff", None)
+            .todo_block_legacy(&blueprint.id, &todo.id, " ", "handoff", None)
             .expect_err("empty reason must fail")
             .to_string()
             .contains("reason must not be empty")
     );
     assert!(
         service
-            .todo_block(&blueprint.id, &todo.id, "reason", " ", None)
+            .todo_block_legacy(&blueprint.id, &todo.id, "reason", " ", None)
             .expect_err("empty Handoff must fail")
             .to_string()
             .contains("handoff must not be empty")
     );
     let blocked = service
-        .todo_block(
+        .todo_block_legacy(
             &blueprint.id,
             &todo.id,
             " external decision ",
@@ -1188,7 +1283,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
         .expect("create child");
     assert!(
         service
-            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .todo_complete_legacy(&blueprint.id, &parent.id, "agent", "done", None)
             .expect_err("pending Todo cannot complete")
             .to_string()
             .contains("only in_progress")
@@ -1198,7 +1293,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
         .expect("start parent");
     assert!(
         service
-            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .todo_complete_legacy(&blueprint.id, &parent.id, "agent", "done", None)
             .expect_err("unchecked criteria must prevent completion")
             .to_string()
             .contains("Completion Criteria")
@@ -1220,7 +1315,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
         .expect("check criterion");
     assert!(
         service
-            .todo_complete(&blueprint.id, &parent.id, "agent", "done", None)
+            .todo_complete_legacy(&blueprint.id, &parent.id, "agent", "done", None)
             .expect_err("open child must prevent completion")
             .to_string()
             .contains("child Todos")
@@ -1229,7 +1324,7 @@ fn todo_completion_requires_checked_criteria_and_terminal_children() {
         .todo_cancel(&blueprint.id, &child.id, "covered elsewhere", None)
         .expect("cancel child");
     let completed = service
-        .todo_complete(&blueprint.id, &parent.id, " agent ", " finished ", None)
+        .todo_complete_legacy(&blueprint.id, &parent.id, " agent ", " finished ", None)
         .expect("complete parent");
     assert_eq!(completed.status, TodoStatus::Completed);
     assert_eq!(completed.completed_by.as_deref(), Some("agent"));
@@ -1433,7 +1528,7 @@ fn todo_list_combines_status_owner_and_readiness_filters() {
         .todo_start(&blueprint.id, &blocked.id, None)
         .expect("start blocked Todo");
     service
-        .todo_block(&blueprint.id, &blocked.id, "reason", "handoff", None)
+        .todo_block_legacy(&blueprint.id, &blocked.id, "reason", "handoff", None)
         .expect("block Todo");
 
     let filtered = service
