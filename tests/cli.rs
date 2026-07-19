@@ -187,6 +187,130 @@ fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
     );
 }
 
+#[test]
+fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() {
+    let dir = tempdir().expect("tempdir");
+    let created = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "create",
+            "--title",
+            "CLI append forwarding",
+            "--created-by",
+            "tester",
+            "--intent",
+            "exercise append DTO forwarding",
+            "--definition-of-done",
+            "done",
+            "--plan",
+            "run it",
+            "--rubric",
+            "inspect forwarding",
+        ],
+    );
+    assert!(created.status.success(), "{created:?}");
+    let created: Value = serde_json::from_slice(&created.stdout).expect("create JSON");
+    let blueprint_id = created["id"].as_str().expect("Blueprint ID");
+
+    let evidence = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "evidence-add",
+            "--blueprint-id",
+            blueprint_id,
+            "--title",
+            "CLI evidence",
+            "--markdown=- Collected By: cli-test\n- Observation: forwarded intact",
+        ],
+    );
+    assert!(evidence.status.success(), "{evidence:?}");
+    let evidence: Value = serde_json::from_slice(&evidence.stdout).expect("evidence JSON");
+    assert!(
+        evidence["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("evidence-"))
+    );
+    assert!(
+        evidence["markdown"]
+            .as_str()
+            .is_some_and(|markdown| markdown.contains("forwarded intact"))
+    );
+
+    let revision = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "revision-append",
+            "--blueprint-id",
+            blueprint_id,
+            "--changed-by",
+            "tester",
+            "--reason",
+            "verify CLI forwarding",
+            "--change",
+            "record append-only revision",
+            "--affected",
+            "Rubric",
+            "--evidence-impact",
+            "none",
+        ],
+    );
+    assert!(revision.status.success(), "{revision:?}");
+    let revision: Value = serde_json::from_slice(&revision.stdout).expect("revision JSON");
+    assert!(
+        revision["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("revision-"))
+    );
+    assert!(
+        revision["markdown"]
+            .as_str()
+            .is_some_and(|markdown| markdown.contains("verify CLI forwarding"))
+    );
+}
+
+#[test]
+fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() {
+    let dir = tempdir().expect("tempdir");
+    let output = dir.path().join("tools.md");
+    let output = output.to_str().expect("UTF-8 temp path");
+
+    let generated = run_raw_cli(&["generate-docs", "--output", output]);
+    assert!(
+        generated.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let tools = fs::read_to_string(output).expect("generated tools document");
+    let blueprint_headings = tools
+        .lines()
+        .filter(|line| {
+            [
+                "blueprint_",
+                "dod_update",
+                "evidence_add",
+                "revision_append",
+                "todo_",
+            ]
+            .iter()
+            .any(|prefix| line.starts_with(&format!("## 🔧 `{prefix}")))
+        })
+        .count();
+    assert_eq!(blueprint_headings, 19, "Blueprint tool count");
+    for expected in ["`blueprint_create`", "`evidence_add`", "`revision_append`"] {
+        assert!(tools.contains(expected), "missing {expected}");
+    }
+
+    let checked = run_raw_cli(&["generate-docs", "--check", "--output", output]);
+    assert!(
+        checked.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+}
+
 fn write_note(dir: &TempDir, path: &str, content: &str) {
     let full_path = dir.path().join(path);
     if let Some(parent) = full_path.parent() {

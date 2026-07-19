@@ -115,6 +115,8 @@ fn v2_tool_descriptions_explain_agent_owned_semantics() {
 
     assert!(description("blueprint_create").contains("Agent"));
     assert!(description("blueprint_create").contains("Rubric"));
+    assert!(description("blueprint_update").contains("Rubric"));
+    assert!(description("blueprint_update").contains("Agent"));
     assert!(description("evidence_add").contains("structural"));
     assert!(description("revision_append").contains("append-only"));
 }

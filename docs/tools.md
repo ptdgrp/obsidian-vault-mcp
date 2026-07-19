@@ -39,7 +39,7 @@ server supports structural section edits as well as read operations.
 | `blueprint_get` | Read one Blueprint. The optional resume view is a focused recovery view. |
 | `blueprint_list` | List Blueprint IDs in one lifecycle state. |
 | `blueprint_status` | Return derived Todo readiness for one Blueprint. |
-| `blueprint_update` | Update title, Intent, Constraints, Plan, Results, or Notes of an active Blueprint. |
+| `blueprint_update` | Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it. |
 | `dod_update` | Explicitly mark a Definition of Done item complete or incomplete. |
 | `evidence_add` | Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric. |
 | `revision_append` | Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted. |
@@ -1164,7 +1164,7 @@ Nested types:
 
 ## 🔧 `blueprint_update`
 
-Update title, Intent, Constraints, Plan, Results, or Notes of an active Blueprint.
+Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it.
 
 Input:
 

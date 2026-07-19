@@ -104,7 +104,7 @@ impl BlueprintMcp {
         )
     }
     #[tool(
-        description = "Update title, Intent, Constraints, Plan, Results, or Notes of an active Blueprint."
+        description = "Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it."
     )]
     fn blueprint_update(
         &self,
