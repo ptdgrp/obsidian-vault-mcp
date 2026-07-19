@@ -1,8 +1,8 @@
-use std::ops::Deref;
-use std::str::FromStr;
-
+use crate::query::McpNonNegativeInteger;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -161,8 +161,11 @@ pub struct EvidenceSummary {
 
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct EvidencePagination {
+    #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_pages: usize,
+    #[schemars(with = "McpNonNegativeInteger")]
     pub total_evidence: usize,
 }
 
