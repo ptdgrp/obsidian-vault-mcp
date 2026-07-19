@@ -536,7 +536,6 @@ pub struct TodoCompleteInput {
     pub blueprint_id: String,
     pub todo_id: String,
     pub completed_by: String,
-    pub summary: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
     #[serde(default)]

@@ -137,6 +137,11 @@ impl ParsedDocument {
             .ok_or_else(|| anyhow::anyhow!("missing required section: {title}"))
     }
 
+    pub(crate) fn section_body_range(&self, title: &str) -> anyhow::Result<Range<usize>> {
+        let section = self.section(title)?;
+        Ok(section.body_start..section.body_end)
+    }
+
     pub(crate) fn replace_section(
         &self,
         source: &str,

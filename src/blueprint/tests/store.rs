@@ -20,7 +20,7 @@ impl PartialEq<&str> for BlueprintState {
 }
 
 fn blueprint_source() -> String {
-    "---\nschema: blueprint/v2\nid: bp-01\nstate: active\n---\n\n# Test\n\n## Record\n\n- Created By: tester\n\n## Intent\n\nTest the store\n\n## Constraints\n\nNone\n\n## Definition of Done\n\n- [ ] Store works ^dod-store\n\n## Plan\n\nWrite tests\n\n## Rubric\n\nKeep aggregate files stable\n\n## Todos\n\n- [ ] [Todo A](todos/todo-a.md) ^todo-a\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n<!-- preserve -->\n".to_string()
+    "---\nschema: blueprint/v2\nid: bp-01\nstate: active\n---\n\n# Test\n\n## Record\n\n- Created By: tester\n\n## Intent\n\nTest the store\n\n## Constraints\n\nNone\n\n## Definition of Done\n\n- [ ] Store works ^dod-store\n\n## Plan\n\nWrite tests\n\n## Rubric\n\nKeep aggregate files stable\n\n## Todos\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n<!-- preserve -->\n".to_string()
 }
 
 fn todo_source() -> String {
@@ -123,6 +123,10 @@ fn stores_todo_documents_with_independent_etags_and_detects_orphans() {
 #[test]
 fn detects_missing_todo_documents_and_rejects_v1_workspaces() {
     let (_dir, store) = store_with_blueprint();
+    store
+        .create_todo("bp-01", "todo-a", &todo_source())
+        .unwrap();
+    fs::remove_file(store.todo_path("bp-01", "todo-a")).unwrap();
     assert!(
         store
             .validate_aggregate("bp-01")

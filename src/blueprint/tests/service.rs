@@ -32,6 +32,146 @@ fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
 }
 
 #[test]
+fn aggregate_reads_and_close_reject_missing_orphan_and_title_mismatched_todo_documents() {
+    let (directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "linked title".into(),
+            created_by: "planner".into(),
+            intent: "check aggregate".into(),
+            plan: "read aggregate".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let todo_path = root.join(format!(
+        ".blueprint/blueprints/{}/todos/{}.md",
+        blueprint.id, todo.graph.id
+    ));
+    fs::remove_file(&todo_path).unwrap();
+    assert!(
+        service
+            .blueprint_get(&blueprint.id)
+            .unwrap_err()
+            .to_string()
+            .contains("missing Todo document")
+    );
+
+    let (directory, service, blueprint) = create_blueprint();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let todos = root.join(format!(".blueprint/blueprints/{}/todos", blueprint.id));
+    fs::write(
+        todos.join("todo-orphan.md"),
+        "---\nschema: blueprint/todo/v2\nid: todo-orphan\nblueprint: PLACEHOLDER\n---\n\n# orphan\n\n## Intent\n\nx\n\n## Completion Criteria\n\n\n## Plan\n\nx\n\n## Handoff\n\n\n## Results\n\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n"
+            .replace("PLACEHOLDER", &blueprint.id),
+    )
+    .unwrap();
+    assert!(
+        service
+            .blueprint_status(&blueprint.id)
+            .unwrap_err()
+            .to_string()
+            .contains("orphan Todo document")
+    );
+
+    let (directory, service, blueprint) = create_blueprint();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "matching title".into(),
+            created_by: "planner".into(),
+            intent: "check title".into(),
+            plan: "read aggregate".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let path = root.join(format!(
+        ".blueprint/blueprints/{}/todos/{}.md",
+        blueprint.id, todo.graph.id
+    ));
+    fs::write(
+        &path,
+        fs::read_to_string(&path)
+            .unwrap()
+            .replacen("# matching title", "# mismatched", 1),
+    )
+    .unwrap();
+    assert!(
+        service
+            .blueprint_close(&blueprint.id, "closer", Some("incomplete"), None)
+            .unwrap_err()
+            .to_string()
+            .contains("title differs")
+    );
+}
+
+#[test]
+fn evidence_validation_uses_the_setext_evidence_section_not_literal_heading_text() {
+    let (directory, service, blueprint) = create_blueprint();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let path = root.join(format!(
+        ".blueprint/blueprints/{}/blueprint.md",
+        blueprint.id
+    ));
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace(
+            "## Evidence\n",
+            "Evidence\n--------\n\n### first ^evidence-duplicate\n\n- Observation: one\n\n### second ^evidence-duplicate\n\n- Observation: two\n",
+        )
+        .replace("## Notes", "```md\n## Evidence\n```\n\n## Notes");
+    fs::write(path, source).unwrap();
+
+    let error = service
+        .evidence_add(EvidenceAddInput {
+            blueprint_id: blueprint.id,
+            todo_id: None,
+            title: "new evidence".into(),
+            markdown: "- Observation: three".into(),
+            expected_etag: None,
+        })
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("duplicate Evidence ID"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn section_edits_preserve_unknown_setext_h2_bytes() {
+    let (directory, service, blueprint) = create_blueprint();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let path = root.join(format!(
+        ".blueprint/blueprints/{}/blueprint.md",
+        blueprint.id
+    ));
+    let unknown = "Unknown Setext\n==============\n\n> retain these exact bytes\n\n";
+    fs::write(
+        &path,
+        fs::read_to_string(&path)
+            .unwrap()
+            .replace("## Notes", &format!("{unknown}## Notes")),
+    )
+    .unwrap();
+
+    let updated = service
+        .blueprint_update_semantic(
+            &blueprint.id,
+            BlueprintPatch {
+                results: Some("updated results".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    assert!(updated.source.contains(unknown));
+}
+
+#[test]
 fn todo_create_writes_graph_link_and_independent_detail_document() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service
@@ -166,7 +306,6 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             &blueprint.id,
             &todo.graph.id,
             "agent",
-            "不能凭摘要绕过",
             Some(&checked.blueprint_etag),
             Some(&checked.todo_etag),
         )
@@ -193,7 +332,6 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             &blueprint.id,
             &todo.graph.id,
             "agent",
-            "仍不能凭伪链接完成",
             Some(&fake_link.blueprint_etag),
             Some(&fake_link.todo_etag),
         )
@@ -422,7 +560,6 @@ fn stale_todo_etag_does_not_block_or_complete_any_document() {
                 &blueprint.id,
                 &todo.graph.id,
                 "agent",
-                "finished",
                 Some(&before.blueprint_etag),
                 Some("stale-todo-etag"),
             )
@@ -464,6 +601,12 @@ fn semantic_update_requires_and_appends_revision() {
         .unwrap();
     assert!(updated.source.contains("## Revision History"));
     assert!(updated.source.contains("- Reason: 用户调整方向"));
+    assert!(
+        updated
+            .source
+            .contains("- Change: Blueprint semantic update")
+    );
+    assert!(updated.source.contains("- Affected: Intent"));
 }
 
 #[test]
@@ -594,6 +737,12 @@ fn close_and_cancel_append_revisions() {
     let closed = service.blueprint_get(&complete.id).unwrap();
     assert!(closed.source.contains("^revision-"));
     assert!(closed.source.contains("- Reason: stopped"));
+    assert!(closed.source.contains("- Change: Blueprint closure"));
+    assert!(
+        closed
+            .source
+            .contains("- Affected: Results, Record, frontmatter state")
+    );
 
     let (_directory, service, cancelled) = create_blueprint();
     service
@@ -602,6 +751,16 @@ fn close_and_cancel_append_revisions() {
     let cancelled = service.blueprint_get(&cancelled.id).unwrap();
     assert!(cancelled.source.contains("^revision-"));
     assert!(cancelled.source.contains("- Reason: obsolete"));
+    assert!(
+        cancelled
+            .source
+            .contains("- Change: Blueprint cancellation")
+    );
+    assert!(
+        cancelled
+            .source
+            .contains("- Affected: Results, Record, frontmatter state")
+    );
 }
 
 #[test]
@@ -1272,7 +1431,7 @@ fn incomplete_and_complete_closure_record_their_distinct_outcomes() {
 }
 
 #[test]
-fn blueprint_cancel_records_actor_and_reason_then_moves_the_document() {
+fn blueprint_cancel_records_actor_and_reason_at_the_stable_document_path() {
     let (_directory, service, blueprint) = create_blueprint();
     let cancelled = service
         .blueprint_cancel(&blueprint.id, " agent ", " abandoned direction ", None)

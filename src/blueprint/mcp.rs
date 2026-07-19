@@ -298,7 +298,6 @@ impl BlueprintMcp {
                 &r.blueprint_id,
                 &r.todo_id,
                 &r.completed_by,
-                &r.summary,
                 r.expected_blueprint_etag
                     .as_deref()
                     .or(r.expected_etag.as_deref()),

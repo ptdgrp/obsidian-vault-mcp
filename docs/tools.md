@@ -1645,7 +1645,6 @@ Input:
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
 | `expected_todo_etag` | `string \| null` | no |  |
-| `summary` | `string` | yes |  |
 | `todo_id` | `string` | yes |  |
 
 

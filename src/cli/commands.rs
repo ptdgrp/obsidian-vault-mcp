@@ -905,8 +905,6 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         completed_by: String,
         #[arg(long)]
-        summary: String,
-        #[arg(long)]
         expected_blueprint_etag: Option<String>,
         #[arg(long)]
         expected_todo_etag: Option<String>,
@@ -1238,7 +1236,6 @@ impl BlueprintCommand {
                 blueprint_id,
                 todo_id,
                 completed_by,
-                summary,
                 expected_blueprint_etag,
                 expected_todo_etag,
             } => {
@@ -1246,7 +1243,6 @@ impl BlueprintCommand {
                     &blueprint_id,
                     &todo_id,
                     &completed_by,
-                    &summary,
                     expected_blueprint_etag.as_deref(),
                     expected_todo_etag.as_deref(),
                 )?)?;

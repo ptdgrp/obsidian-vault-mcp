@@ -92,9 +92,7 @@ impl BlueprintStore {
     }
 
     pub fn read(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
-        validate_blueprint_id(id)?;
-        self.ensure_workspace()?;
-        self.read_unlocked(id)
+        self.with_lock(id, |locked| locked.read_aggregate())
     }
 
     pub fn list(&self, state: &str) -> anyhow::Result<Vec<String>> {
@@ -111,7 +109,7 @@ impl BlueprintStore {
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("Blueprint directory has no name"))?;
             validate_blueprint_id(id)?;
-            if self.read_unlocked(id)?.state == state {
+            if self.read(id)?.state == state {
                 ids.push(id.to_string());
             }
         }
@@ -155,7 +153,35 @@ impl BlueprintStore {
         id: &str,
         source: &str,
     ) -> anyhow::Result<StoredTodo> {
-        self.with_lock(blueprint_id, |locked| locked.create_todo(id, source))
+        self.with_lock(blueprint_id, |locked| {
+            let todo = locked.create_todo(id, source)?;
+            let title = TodoDetail::parse(todo.path.as_str(), &todo.source)?.title;
+            locked.write_blueprint_after_staging_todo(None, |blueprint| {
+                let parsed = parse_blueprint(blueprint_id, blueprint)?;
+                let insertion = crate::blueprint::document::ParsedDocument::parse(
+                    "blueprint.md",
+                    blueprint,
+                    DocumentSchema {
+                        name: "",
+                        required_sections: &[],
+                    },
+                )?
+                .section_body_range("Todos")?
+                .end;
+                if flatten_todos(&parsed.todos)
+                    .iter()
+                    .any(|node| node.id == id)
+                {
+                    anyhow::bail!("Todo already exists: {id}");
+                }
+                Ok(format!(
+                    "{}- [ ] [{title}](todos/{id}.md) ^{id}\n  - Created By: test\n{}",
+                    &blueprint[..insertion],
+                    &blueprint[insertion..]
+                ))
+            })?;
+            Ok(todo)
+        })
     }
 
     pub fn read_todo(&self, blueprint_id: &str, id: &str) -> anyhow::Result<StoredTodo> {
@@ -179,10 +205,13 @@ impl BlueprintStore {
     }
 
     pub fn validate_aggregate(&self, id: &str) -> anyhow::Result<()> {
-        let blueprint = self.read(id)?;
-        let linked = flatten_todos(&parse_blueprint(id, &blueprint.source)?.todos)
+        self.with_lock(id, |locked| locked.read_aggregate().map(|_| ()))
+    }
+
+    fn validate_aggregate_source(&self, id: &str, source: &str) -> anyhow::Result<()> {
+        let linked = flatten_todos(&parse_blueprint(id, source)?.todos)
             .into_iter()
-            .map(|todo| (todo.id, todo.document))
+            .map(|todo| (todo.id, (todo.document, todo.title)))
             .collect::<HashMap<_, _>>();
         let documents = self
             .todo_indexes(id)?
@@ -190,12 +219,17 @@ impl BlueprintStore {
             .map(|todo| todo.id)
             .collect::<HashSet<_>>();
 
-        for (todo_id, document) in &linked {
+        for (todo_id, (document, title)) in &linked {
             if document != &format!("todos/{todo_id}.md") {
                 anyhow::bail!("Todo {todo_id} must link to todos/{todo_id}.md");
             }
             if !documents.contains(todo_id) {
                 anyhow::bail!("missing Todo document: {todo_id}");
+            }
+            let detail = self.read_todo_unlocked(id, todo_id)?;
+            let detail = TodoDetail::parse(detail.path.as_str(), &detail.source)?;
+            if detail.title != *title {
+                anyhow::bail!("Todo {todo_id} title differs between graph and detail document");
             }
         }
         for todo_id in documents {
@@ -334,13 +368,22 @@ impl BlueprintStore {
 
 impl LockedBlueprintStore<'_> {
     pub(crate) fn require_active(&self) -> anyhow::Result<()> {
-        if self.read_blueprint()?.state != BlueprintState::Active {
+        if self.read_aggregate()?.state != BlueprintState::Active {
             anyhow::bail!("Blueprint is not active");
         }
         Ok(())
     }
     pub(crate) fn read_blueprint(&self) -> anyhow::Result<StoredBlueprint> {
         self.store.read_unlocked(self.id)
+    }
+
+    /// Reads the complete aggregate under the existing Blueprint lock. This deliberately does
+    /// not call the public Store reader, which would attempt to acquire the same lock again.
+    pub(crate) fn read_aggregate(&self) -> anyhow::Result<StoredBlueprint> {
+        let blueprint = self.read_blueprint()?;
+        self.store
+            .validate_aggregate_source(self.id, &blueprint.source)?;
+        Ok(blueprint)
     }
 
     pub(crate) fn create_blueprint(&self, source: &str) -> anyhow::Result<StoredBlueprint> {
@@ -352,7 +395,7 @@ impl LockedBlueprintStore<'_> {
         fs::create_dir_all(directory.join("todos"))?;
         self.store
             .write_file_atomic(&self.store.blueprint_path(self.id), source)?;
-        self.read_blueprint()
+        self.read_aggregate()
     }
 
     pub(crate) fn write_blueprint(
@@ -361,19 +404,40 @@ impl LockedBlueprintStore<'_> {
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredBlueprint> {
         self.require_active()?;
-        let current = self.read_blueprint()?;
+        let current = self.read_aggregate()?;
         check_etag(expected_etag, &current.etag)?;
         let source = mutate(&current.source)?;
         validate_blueprint_source(self.id, &source)?;
+        self.store.validate_aggregate_source(self.id, &source)?;
         self.store.write_file_atomic(&current.path, &source)?;
-        self.read_blueprint()
+        self.read_aggregate()
+    }
+
+    /// Commits the central graph after a new detail file has been staged. The ordinary writer
+    /// rejects that temporary orphan; this narrow path validates the candidate aggregate before
+    /// making the graph link visible.
+    pub(crate) fn write_blueprint_after_staging_todo(
+        &self,
+        expected_etag: Option<&str>,
+        mutate: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        let current = self.read_blueprint()?;
+        if current.state != BlueprintState::Active {
+            anyhow::bail!("Blueprint is not active");
+        }
+        check_etag(expected_etag, &current.etag)?;
+        let source = mutate(&current.source)?;
+        validate_blueprint_source(self.id, &source)?;
+        self.store.validate_aggregate_source(self.id, &source)?;
+        self.store.write_file_atomic(&current.path, &source)?;
+        self.read_aggregate()
     }
 
     pub(crate) fn create_todo(&self, id: &str, source: &str) -> anyhow::Result<StoredTodo> {
         self.require_active()?;
         validate_todo_id(id)?;
         validate_todo_source(self.id, id, &self.store.todo_path(self.id, id), source)?;
-        self.read_blueprint()?;
+        self.read_aggregate()?;
         let path = self.store.todo_path(self.id, id);
         if path.exists() {
             anyhow::bail!("Todo already exists: {id}");
@@ -403,6 +467,7 @@ impl LockedBlueprintStore<'_> {
         mutate: impl FnOnce(&str) -> anyhow::Result<String>,
     ) -> anyhow::Result<StoredTodo> {
         self.require_active()?;
+        self.read_aggregate()?;
         validate_todo_id(id)?;
         let current = self.read_todo(id)?;
         check_etag(expected_etag, &current.etag)?;

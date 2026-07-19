@@ -180,11 +180,11 @@ impl BlueprintService {
                     source: None,
                     todo_index,
                     resume: Some(BlueprintResumeOutput {
-                        intent: section_body(&stored.source, "Intent"),
-                        constraints: section_body(&stored.source, "Constraints"),
-                        plan: section_body(&stored.source, "Plan"),
-                        rubric: section_body(&stored.source, "Rubric"),
-                        results: section_body(&stored.source, "Results"),
+                        intent: section_body(&stored.source, "Intent")?,
+                        constraints: section_body(&stored.source, "Constraints")?,
+                        plan: section_body(&stored.source, "Plan")?,
+                        rubric: section_body(&stored.source, "Rubric")?,
+                        results: section_body(&stored.source, "Results")?,
                         open_definition_of_done: status.open_definition_of_done,
                         active_todos,
                         ready_todos: status.ready_todos,
@@ -300,14 +300,15 @@ impl BlueprintService {
                 .flatten()
                 .collect::<Vec<_>>()
                 .join(", ");
-                let revision = format!(
-                    "### Blueprint update ^revision-{}\n\n- Changed By: {}\n- Reason: {}\n- Changed Sections: {}\n",
-                    Ulid::new(),
-                    changed_by.expect("validated").trim(),
-                    change_reason.expect("validated").trim(),
-                    sections,
+                let revision = render_revision(
+                    &format!("revision-{}", Ulid::new()),
+                    changed_by.expect("validated"),
+                    change_reason.expect("validated"),
+                    "Blueprint semantic update",
+                    &sections,
+                    None,
                 );
-                let history = section_body(&next, "Revision History");
+                let history = section_body(&next, "Revision History")?;
                 next = replace_section(
                     &next,
                     "Revision History",
@@ -440,9 +441,10 @@ impl BlueprintService {
             )?;
             derive_readiness(&parsed.todos)?;
             locked.create_todo(&todo_id, &detail_source)?;
-            let result = locked.write_blueprint(request.expected_blueprint_etag.as_deref(), |_| {
-                Ok(graph_candidate)
-            });
+            let result = locked.write_blueprint_after_staging_todo(
+                request.expected_blueprint_etag.as_deref(),
+                |_| Ok(graph_candidate),
+            );
             if result.is_err() {
                 locked.remove_todo(&todo_id)?;
             }
@@ -581,25 +583,14 @@ impl BlueprintService {
             anyhow::bail!("affected must contain at least one non-empty item");
         }
         let id = format!("revision-{}", Ulid::new());
-        let mut entry = format!(
-            "### Revision ^{id}\n\n- Changed By: {}\n- Reason: {}\n- Change: {}\n- Affected: {}\n",
-            input.changed_by.trim(),
-            input.reason.trim(),
-            input.change.trim(),
-            input
-                .affected
-                .iter()
-                .map(|item| item.trim())
-                .collect::<Vec<_>>()
-                .join(", ")
+        let entry = render_revision(
+            &id,
+            &input.changed_by,
+            &input.reason,
+            &input.change,
+            &input.affected.join(", "),
+            input.evidence_impact.as_deref(),
         );
-        if let Some(impact) = input
-            .evidence_impact
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            entry.push_str(&format!("- Evidence Impact: {}\n", impact.trim()));
-        }
         self.store.with_lock(&input.blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
@@ -781,7 +772,9 @@ impl BlueprintService {
                 ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph_candidate)?;
             derive_readiness(&parsed.todos)?;
             locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
-            locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
+            locked.write_blueprint_after_staging_todo(expected_blueprint_etag, |_| {
+                Ok(graph_candidate)
+            })?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -867,14 +860,7 @@ impl BlueprintService {
             }
             Ok(())
         })?;
-        self.todo_complete(
-            blueprint_id,
-            todo_id,
-            completed_by,
-            summary,
-            expected_etag,
-            None,
-        )
+        self.todo_complete(blueprint_id, todo_id, completed_by, expected_etag, None)
     }
 
     pub fn todo_complete(
@@ -882,12 +868,10 @@ impl BlueprintService {
         blueprint_id: &str,
         todo_id: &str,
         completed_by: &str,
-        summary: &str,
         expected_blueprint_etag: Option<&str>,
         expected_todo_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
         require_text("completed_by", completed_by)?;
-        let _ = summary;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
@@ -985,7 +969,7 @@ impl BlueprintService {
                 depends_on,
             )?;
             locked.write_todo(todo_id, None, |_| Ok(detail_candidate))?;
-            locked.write_blueprint(expected_etag, |_| Ok(graph_candidate))?;
+            locked.write_blueprint_after_staging_todo(expected_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -1043,6 +1027,7 @@ impl BlueprintService {
                     options.changed_by.expect("validated"),
                     options.change_reason.expect("validated"),
                     &format!("Todo {todo_id} update ({sections})"),
+                    &format!("Todo {todo_id}: {sections}"),
                 )?;
             }
             crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail_candidate)?;
@@ -1061,7 +1046,9 @@ impl BlueprintService {
             locked.write_todo(todo_id, options.expected_todo_etag, |_| {
                 Ok(detail_candidate)
             })?;
-            locked.write_blueprint(options.expected_blueprint_etag, |_| Ok(graph_candidate))?;
+            locked.write_blueprint_after_staging_todo(options.expected_blueprint_etag, |_| {
+                Ok(graph_candidate)
+            })?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -1167,13 +1154,14 @@ impl BlueprintService {
                         closure.push_str(&format!("  - {id}\n"));
                     }
                 }
-                let results = section_body(&next, "Results");
+                let results = section_body(&next, "Results")?;
                 next = replace_section(&next, "Results", &format!("{results}\n\n{closure}"))?;
                 next = append_revision(
                     &next,
                     closed_by,
                     reason.unwrap_or("closure"),
                     "Blueprint closure",
+                    "Results, Record, frontmatter state",
                 )?;
                 replace_state(&next, BlueprintState::Closed)
             })
@@ -1199,7 +1187,7 @@ impl BlueprintService {
             locked.write_blueprint(expected_etag, |source| {
                 let next =
                     replace_or_insert_record_field(source, "Cancelled By", cancelled_by.trim())?;
-                let results = section_body(&next, "Results");
+                let results = section_body(&next, "Results")?;
                 let next = replace_section(
                     &next,
                     "Results",
@@ -1209,7 +1197,13 @@ impl BlueprintService {
                         reason.trim()
                     ),
                 )?;
-                let next = append_revision(&next, cancelled_by, reason, "Blueprint cancellation")?;
+                let next = append_revision(
+                    &next,
+                    cancelled_by,
+                    reason,
+                    "Blueprint cancellation",
+                    "Results, Record, frontmatter state",
+                )?;
                 replace_state(&next, BlueprintState::Cancelled)
             })
         })
@@ -1319,74 +1313,37 @@ fn open_dod_ids(source: &str) -> Vec<String> {
         .collect()
 }
 
-fn section_body(source: &str, section: &str) -> String {
-    let heading = format!("## {section}");
-    let Some(heading_start) = source
-        .lines()
-        .find(|line| **line == heading)
-        .map(|line| line.as_ptr() as usize - source.as_ptr() as usize)
-    else {
-        return String::new();
-    };
-    let start = source[heading_start + heading.len()..]
-        .find('\n')
-        .map(|offset| heading_start + heading.len() + offset + 1)
-        .unwrap_or(source.len());
-    let end = source[start..]
-        .find("\n## ")
-        .map(|offset| start + offset)
-        .unwrap_or(source.len());
-    source[start..end].trim().to_string()
+fn parsed_sections(source: &str) -> anyhow::Result<crate::blueprint::document::ParsedDocument> {
+    crate::blueprint::document::ParsedDocument::parse(
+        "document.md",
+        source,
+        crate::blueprint::document::DocumentSchema {
+            name: "",
+            required_sections: &[],
+        },
+    )
+}
+
+fn section_body(source: &str, section: &str) -> anyhow::Result<String> {
+    let document = parsed_sections(source)?;
+    Ok(document.section(section)?.body(source).trim().to_string())
 }
 
 fn section_bounds(source: &str, section: &str) -> anyhow::Result<(usize, usize)> {
-    let heading = format!("## {section}");
-    let start = source
-        .lines()
-        .find(|line| **line == heading)
-        .map(|line| line.as_ptr() as usize - source.as_ptr() as usize)
-        .ok_or_else(|| anyhow::anyhow!("missing required section: {section}"))?;
-    let body = source[start + heading.len()..]
-        .find('\n')
-        .map(|offset| start + heading.len() + offset + 1)
-        .unwrap_or(source.len());
-    let end = source[body..]
-        .find("\n## ")
-        .map(|offset| body + offset + 1)
-        .unwrap_or(source.len());
-    Ok((body, end))
+    let range = parsed_sections(source)?.section_body_range(section)?;
+    Ok((range.start, range.end))
 }
 
 fn section_insertion(source: &str, section: &str) -> anyhow::Result<usize> {
-    let (start, _) = section_bounds(source, section)?;
-    Ok(start)
+    Ok(parsed_sections(source)?.section_body_range(section)?.end)
 }
 
 fn replace_section(source: &str, section: &str, content: &str) -> anyhow::Result<String> {
-    let (start, end) = section_bounds(source, section)?;
-    let content = content.trim_end();
-    Ok(format!(
-        "{}\n{}\n{}",
-        &source[..start],
-        content,
-        &source[end..]
-    ))
+    parsed_sections(source)?.replace_section(source, section, content)
 }
 
 fn append_to_section(source: &str, section: &str, content: &str) -> anyhow::Result<String> {
-    let (_, end) = section_bounds(source, section)?;
-    let prefix = if source[..end].ends_with('\n') {
-        "\n"
-    } else {
-        "\n\n"
-    };
-    Ok(format!(
-        "{}{}{}\n{}",
-        &source[..end],
-        prefix,
-        content.trim_end(),
-        &source[end..]
-    ))
+    parsed_sections(source)?.append_section(source, section, content)
 }
 
 fn todo_update_detail_candidate(
@@ -1775,15 +1732,18 @@ fn append_revision(
     source: &str,
     changed_by: &str,
     reason: &str,
-    summary: &str,
+    change: &str,
+    affected: &str,
 ) -> anyhow::Result<String> {
-    let revision = format!(
-        "### {summary} ^revision-{}\n\n- Changed By: {}\n- Reason: {}\n",
-        Ulid::new(),
-        changed_by.trim(),
-        reason.trim()
+    let revision = render_revision(
+        &format!("revision-{}", Ulid::new()),
+        changed_by,
+        reason,
+        change,
+        affected,
+        None,
     );
-    let history = section_body(source, "Revision History");
+    let history = section_body(source, "Revision History")?;
     replace_section(
         source,
         "Revision History",
@@ -1791,11 +1751,32 @@ fn append_revision(
     )
 }
 
+fn render_revision(
+    id: &str,
+    changed_by: &str,
+    reason: &str,
+    change: &str,
+    affected: &str,
+    evidence_impact: Option<&str>,
+) -> String {
+    let mut revision = format!(
+        "### Revision ^{id}\n\n- Changed By: {}\n- Reason: {}\n- Change: {}\n- Affected: {}\n",
+        changed_by.trim(),
+        reason.trim(),
+        change.trim(),
+        affected.trim(),
+    );
+    if let Some(impact) = evidence_impact.filter(|value| !value.trim().is_empty()) {
+        revision.push_str(&format!("- Evidence Impact: {}\n", impact.trim()));
+    }
+    revision
+}
+
 fn validate_complete_close_evidence(
     locked: &LockedBlueprintStore<'_>,
     source: &str,
 ) -> anyhow::Result<()> {
-    let results = section_body(source, "Results");
+    let results = section_body(source, "Results")?;
     let references = evidence_references(&results)?;
     if results.is_empty() || references.is_empty() {
         anyhow::bail!("complete Blueprint close requires Results with a valid Evidence reference");
