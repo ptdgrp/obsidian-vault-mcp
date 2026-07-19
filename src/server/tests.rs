@@ -348,7 +348,7 @@ fn backlinks_tool_returns_compact_results_for_reference() {
 }
 
 #[test]
-fn note_stats_tool_returns_word_character_and_backlink_counts() {
+fn note_stats_tool_returns_local_counts() {
     let (_dir, server) = fixture();
 
     let Json(result) = server
@@ -360,7 +360,6 @@ fn note_stats_tool_returns_word_character_and_backlink_counts() {
     assert_eq!(result.scope, "林动.md");
     assert_eq!(result.word_count, 7);
     assert_eq!(result.line_count, 7);
-    assert_eq!(result.backlink_count, 1);
     assert!(result.character_count > result.word_count);
 }
 
@@ -381,7 +380,7 @@ fn note_stats_tool_returns_normalized_scope_for_a_scoped_reference() {
 }
 
 #[test]
-fn note_stats_schema_does_not_expose_word_count_mode() {
+fn note_stats_schema_exposes_only_local_count_fields() {
     let tool = ObsidianVaultMcp::tool_definitions()
         .into_iter()
         .find(|tool| tool.name == "get_note_stats")
@@ -392,6 +391,14 @@ fn note_stats_schema_does_not_expose_word_count_mode() {
 
     assert!(properties.contains_key("note"));
     assert!(!properties.contains_key("word_count_mode"));
+
+    let output_properties = tool
+        .output_schema
+        .as_ref()
+        .expect("note stats output schema")["properties"]
+        .as_object()
+        .expect("note stats output properties");
+    assert!(!output_properties.contains_key("backlink_count"));
 }
 
 #[test]

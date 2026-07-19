@@ -236,7 +236,7 @@ fn note_structure_returns_bounded_compact_inspection_groups() {
 }
 
 #[test]
-fn get_note_stats_counts_words_characters_and_total_backlinks() {
+fn get_note_stats_counts_only_the_selected_note() {
     let (_dir, queries) = fixture();
     let content = "---\naliases:\n  - 动林\ntags:\n  - 主角\n  - 状态/身体\nphase: active\narc: 引擎线\n---\n# 林动\n\n身体 #状态/身体\n\n[[发动机#原理|发动机]]\n\n[[缺失设定]]\n";
 
@@ -245,14 +245,14 @@ fn get_note_stats_counts_words_characters_and_total_backlinks() {
     assert_eq!(result.word_count, 36);
     assert_eq!(result.character_count, content.chars().count());
     assert_eq!(result.line_count, content.lines().count());
-    assert_eq!(result.backlink_count, 1);
     let value = serde_json::to_value(result).expect("stats json");
+    assert!(value.get("backlink_count").is_none());
     assert!(value.get("word_count_mode").is_none());
     assert!(value.get("source").is_none());
 }
 
 #[test]
-fn note_stats_scopes_text_and_backlinks_to_normalized_ref() {
+fn note_stats_scopes_text_to_normalized_ref() {
     let (dir, queries) = fixture();
     fs::write(
         dir.path().join("Target.md"),
@@ -270,7 +270,6 @@ fn note_stats_scopes_text_and_backlinks_to_normalized_ref() {
     assert_eq!(heading.scope, "Target.md#Section");
     assert_eq!(heading.word_count, 4);
     assert_eq!(heading.line_count, 5);
-    assert_eq!(heading.backlink_count, 1);
 
     let block = queries
         .get_note_stats("Target#^state")
@@ -278,11 +277,9 @@ fn note_stats_scopes_text_and_backlinks_to_normalized_ref() {
     assert_eq!(block.scope, "Target.md#^state");
     assert_eq!(block.word_count, 1);
     assert_eq!(block.line_count, 1);
-    assert_eq!(block.backlink_count, 1);
 
     let whole = queries.get_note_stats("Target").expect("whole-note stats");
     assert_eq!(whole.scope, "Target.md");
-    assert_eq!(whole.backlink_count, 3);
     let value = serde_json::to_value(heading).expect("heading stats json");
     assert!(value.get("source").is_none());
     assert!(value.get("mode").is_none());

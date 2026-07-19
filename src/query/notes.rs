@@ -125,12 +125,6 @@ impl VaultQueries {
             .map(|source| slice_text(&content, source.byte_start, source.byte_end))
             .unwrap_or(content);
         let word_count = count_words(&selected);
-        let backlink_count = match (&selector, &source) {
-            (Some(selector), Some(source)) => {
-                self.backlink_count_for_scope(&relative_path, &parsed, selector, source)?
-            }
-            _ => self.backlink_count_for_path(&relative_path)?,
-        };
         let scope = match (&selector, &source) {
             (Some(SectionSelector::Heading { .. }), Some(source)) => ResolvedReference::heading(
                 relative_path.clone(),
@@ -151,7 +145,6 @@ impl VaultQueries {
             word_count,
             character_count: selected.chars().count(),
             line_count: selected.lines().count(),
-            backlink_count,
         })
     }
 

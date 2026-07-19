@@ -101,9 +101,6 @@ pub struct NoteStatsResult {
     /// Line count computed from the note's Markdown source text.
     #[schemars(with = "McpNonNegativeInteger")]
     pub line_count: usize,
-    /// Total number of inbound links to this note across the visible vault.
-    #[schemars(with = "McpNonNegativeInteger")]
-    pub backlink_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

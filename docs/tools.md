@@ -17,7 +17,7 @@ server supports structural section edits as well as read operations.
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
 | `get_note_outline` | Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note. |
-| `get_note_stats` | Return one note or bare heading/block reference's word, character, line, and backlink counts |
+| `get_note_stats` | Return one note or bare heading/block reference's word, character, and line counts |
 | `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
 | `get_outlinks` | Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups |
 | `get_tag` | Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
@@ -322,7 +322,7 @@ Nested types:
 
 ## 🔧 `get_note_stats`
 
-Return one note or bare heading/block reference's word, character, line, and backlink counts
+Return one note or bare heading/block reference's word, character, and line counts
 
 Input:
 
@@ -335,7 +335,6 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `backlink_count` | `integer` | yes | Total number of inbound links to this note across the visible vault. |
 | `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
 | `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
 | `scope` | `string` | yes | Resolved note, heading, or block scope. |

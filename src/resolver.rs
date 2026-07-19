@@ -131,13 +131,6 @@ impl RefResolver {
         }
     }
 
-    pub fn link_matches(link_target: &str, wanted_path: &str, notes: &[IndexedNote]) -> bool {
-        match Self::resolve(link_target, notes) {
-            ResolveResult::Resolved { path, .. } => path == wanted_path,
-            _ => normalize_key(link_target) == normalize_key(wanted_path),
-        }
-    }
-
     pub(crate) fn reference_exists(note: &IndexedNote, reference: &Option<ReferenceInfo>) -> bool {
         Self::canonical_reference(note, reference).is_some()
     }

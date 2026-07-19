@@ -1,12 +1,10 @@
 use std::collections::BTreeSet;
 
-use crate::parser::{LinkInfo, ParsedNote, ReferenceInfo, SourceSpan};
-use crate::resolver::{IndexedNote, RefResolver, ResolveResult};
+use crate::parser::SourceSpan;
+use crate::resolver::{RefResolver, ResolveResult};
 
 use super::path_filter::PathFilter;
 use super::public::{Locator, PageSlice, ResolvedReference};
-use super::section::{ParsedHeadingSelector, find_selectable_heading, selector_from_reference};
-
 use super::{
     AmbiguousOutlinkTarget, BacklinkReference, BacklinksPagination, BacklinksResult,
     FrontmatterMatchMode, FrontmatterQueryOptions, FrontmatterQueryPagination,
@@ -191,27 +189,6 @@ impl VaultQueries {
                 total_backlinks: slice.total_items(),
             },
         })
-    }
-
-    pub(crate) fn backlink_count_for_path(&self, wanted_path: &str) -> anyhow::Result<usize> {
-        let notes = self.index_notes()?;
-        Ok(count_matching_backlinks(&notes, wanted_path))
-    }
-
-    pub(crate) fn backlink_count_for_scope(
-        &self,
-        wanted_path: &str,
-        target: &ParsedNote,
-        selector: &super::SectionSelector,
-        source: &SourceSpan,
-    ) -> anyhow::Result<usize> {
-        let notes = self.index_notes()?;
-        Ok(notes
-            .iter()
-            .flat_map(|note| note.parsed.links.iter())
-            .filter(|link| RefResolver::link_matches(&link.target, wanted_path, &notes))
-            .filter(|link| link_targets_selected_scope(link, target, selector, source))
-            .count())
     }
 
     #[tracing::instrument(
@@ -408,38 +385,6 @@ impl VaultQueries {
                 total_notes,
             },
         })
-    }
-}
-
-fn count_matching_backlinks(notes: &[IndexedNote], wanted_path: &str) -> usize {
-    notes
-        .iter()
-        .flat_map(|note| note.parsed.links.iter())
-        .filter(|link| RefResolver::link_matches(&link.target, wanted_path, notes))
-        .count()
-}
-
-fn link_targets_selected_scope(
-    link: &LinkInfo,
-    target: &ParsedNote,
-    selector: &super::SectionSelector,
-    selected_source: &SourceSpan,
-) -> bool {
-    match (selector, &link.reference) {
-        (super::SectionSelector::Block { block_id }, Some(ReferenceInfo::BlockId { value })) => {
-            value == block_id
-        }
-        (super::SectionSelector::Heading { .. }, Some(reference)) => {
-            let Ok(Some(super::SectionSelector::Heading { heading })) =
-                selector_from_reference(&Some(reference.clone()))
-            else {
-                return false;
-            };
-            let requested = ParsedHeadingSelector::parse(&heading);
-            find_selectable_heading(target, &requested)
-                .is_some_and(|heading| heading.source.line_start == selected_source.line_start)
-        }
-        _ => false,
     }
 }
 

@@ -169,14 +169,6 @@ fn resolve_returns_ambiguous_candidates_for_duplicate_stems() {
 }
 
 #[test]
-fn link_matches_falls_back_to_normalized_path_comparison() {
-    let (_dir, notes) = fixture();
-
-    assert!(RefResolver::link_matches("林动", "林动.md", &notes));
-    assert!(!RefResolver::link_matches("未知", "林动.md", &notes));
-}
-
-#[test]
 fn resolve_matches_numeric_prefix_stems_after_exact_stem() {
     let (dir, mut notes) = fixture();
     fs::write(dir.path().join("001-排序标题.md"), "# 排序标题\n").expect("write numbered note");

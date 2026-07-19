@@ -527,7 +527,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Return one note or bare heading/block reference's word, character, line, and backlink counts"
+        description = "Return one note or bare heading/block reference's word, character, and line counts"
     )]
     fn get_note_stats(
         &self,

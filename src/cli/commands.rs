@@ -87,7 +87,7 @@ pub(crate) enum Command {
         page: usize,
     },
 
-    /// Return one note's word count, character count, and total backlink count
+    /// Return one note's word, character, and line counts
     GetNoteStats { note: String },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
