@@ -1,3 +1,4 @@
+use super::super::source::validate_evidence_aggregate;
 use super::super::{BlueprintSource, BlueprintState, TodoStatus};
 
 fn blueprint_v2(todos: &str) -> String {
@@ -24,6 +25,31 @@ fn parses_v2_graph_links_without_loading_todo_details() {
     assert!(parsed.evidence[0].markdown.contains("Observation: 可用。"));
     assert_eq!(parsed.revisions[0].id, "revision-source");
     assert!(parsed.notes.contains("<!-- preserve -->"));
+}
+
+#[test]
+fn evidence_link_resolver_rejects_duplicate_ids_and_targets_outside_the_aggregate() {
+    let duplicate = blueprint_v2("").replace(
+        "### 已确认素材 ^evidence-source",
+        "### 已确认素材 ^evidence-source\n\n### 重复 ^evidence-source",
+    );
+    assert!(
+        validate_evidence_aggregate(&duplicate, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate Evidence ID")
+    );
+
+    let invalid = blueprint_v2("").replace(
+        "### 已确认素材 ^evidence-source",
+        "[bad](../../outside.md#^evidence-source)\n\n### 已确认素材 ^evidence-source",
+    );
+    assert!(
+        validate_evidence_aggregate(&invalid, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("invalid Evidence target")
+    );
 }
 
 #[test]

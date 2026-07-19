@@ -129,6 +129,34 @@ pub struct RevisionEntry {
     pub markdown: String,
 }
 
+/// Appends one Evidence block to the Blueprint or a Todo detail document.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EvidenceAddInput {
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub todo_id: Option<String>,
+    pub title: String,
+    pub markdown: String,
+    #[serde(default)]
+    pub expected_etag: Option<String>,
+}
+
+/// Appends one immutable semantic-change record to the Blueprint or a Todo detail document.
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RevisionAppendInput {
+    pub blueprint_id: String,
+    #[serde(default)]
+    pub todo_id: Option<String>,
+    pub changed_by: String,
+    pub reason: String,
+    pub change: String,
+    pub affected: Vec<String>,
+    #[serde(default)]
+    pub evidence_impact: Option<String>,
+    #[serde(default)]
+    pub expected_etag: Option<String>,
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// Typed content of a standalone Todo detail document.

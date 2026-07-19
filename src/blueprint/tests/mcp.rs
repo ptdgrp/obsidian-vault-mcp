@@ -1,12 +1,12 @@
 use crate::blueprint::mcp::BlueprintMcp;
 
 #[test]
-fn exposes_only_the_seventeen_blueprint_protocol_tools() {
+fn exposes_the_nineteen_blueprint_protocol_tools() {
     let names = BlueprintMcp::tool_definitions()
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 17);
+    assert_eq!(names.len(), 19);
     for name in [
         "blueprint_create",
         "blueprint_get",
@@ -16,6 +16,8 @@ fn exposes_only_the_seventeen_blueprint_protocol_tools() {
         "blueprint_close",
         "blueprint_cancel",
         "dod_update",
+        "evidence_add",
+        "revision_append",
         "todo_create",
         "todo_get",
         "todo_list",

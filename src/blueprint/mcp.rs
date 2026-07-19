@@ -17,9 +17,9 @@ use crate::blueprint::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput,
     BlueprintService, BlueprintStatus, BlueprintUpdateInput, CheckUpdate, CompletionCriterionInput,
-    DodUpdateInput, StoredBlueprint, TodoAssignInput, TodoBlockInput, TodoCancelInput,
-    TodoCompleteInput, TodoCreateInput, TodoCreateRequest, TodoInput, TodoListInput,
-    TodoListOutput, TodoPatch, TodoUpdateInput, TodoView,
+    DodUpdateInput, EvidenceAddInput, RevisionAppendInput, StoredBlueprint, TodoAssignInput,
+    TodoBlockInput, TodoCancelInput, TodoCompleteInput, TodoCreateInput, TodoCreateRequest,
+    TodoInput, TodoListInput, TodoListOutput, TodoPatch, TodoUpdateInput, TodoView,
 };
 
 pub async fn run_blueprint_mcp_server(service: BlueprintService) -> anyhow::Result<()> {
@@ -252,6 +252,20 @@ impl BlueprintMcp {
             &r.owner,
             r.expected_etag.as_deref(),
         ))
+    }
+    #[tool(description = "Append globally unique Evidence to a Blueprint or Todo detail document.")]
+    fn evidence_add(
+        &self,
+        Parameters(input): Parameters<EvidenceAddInput>,
+    ) -> Result<Json<crate::blueprint::EvidenceItem>, String> {
+        json(self.service.evidence_add(input))
+    }
+    #[tool(description = "Append an immutable fixed-field Revision History record.")]
+    fn revision_append(
+        &self,
+        Parameters(input): Parameters<RevisionAppendInput>,
+    ) -> Result<Json<crate::blueprint::RevisionEntry>, String> {
+        json(self.service.revision_append(input))
     }
     #[tool(description = "Start a pending Todo once it has an owner and completed dependencies.")]
     fn todo_start(&self, Parameters(r): Parameters<TodoInput>) -> Result<Json<TodoView>, String> {

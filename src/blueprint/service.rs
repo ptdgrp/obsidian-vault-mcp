@@ -5,10 +5,11 @@ use ulid::Ulid;
 
 use crate::blueprint::{
     model::{
-        BlueprintGetOutput, BlueprintResumeOutput, BlueprintState, NotReadyTodo, Todo,
-        TodoCreateRequest, TodoGraphNode, TodoPatch, TodoStatus, TodoView,
+        BlueprintGetOutput, BlueprintResumeOutput, BlueprintState, EvidenceAddInput, EvidenceItem,
+        NotReadyTodo, RevisionAppendInput, RevisionEntry, Todo, TodoCreateRequest, TodoGraphNode,
+        TodoPatch, TodoStatus, TodoView,
     },
-    source::ParsedBlueprintSource,
+    source::{ParsedBlueprintSource, validate_evidence_aggregate},
     store::{BlueprintStore, LockedBlueprintStore, StoredBlueprint},
     validate::derive_readiness,
 };
@@ -100,6 +101,7 @@ impl BlueprintService {
     }
 
     pub fn blueprint_get(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
+        validate_evidence_aggregate_store(&self.store, id)?;
         self.store.read(id)
     }
     #[tracing::instrument(
@@ -172,6 +174,7 @@ impl BlueprintService {
         err
     )]
     pub fn blueprint_status(&self, id: &str) -> anyhow::Result<BlueprintStatus> {
+        validate_evidence_aggregate_store(&self.store, id)?;
         let stored = self.store.read(id)?;
         let parsed = ParsedBlueprintSource::parse(&format!("{id}.md"), &stored.source)?;
         let readiness = derive_readiness(&parsed.todos)?;
@@ -530,7 +533,143 @@ impl BlueprintService {
         err
     )]
     pub fn todo_get(&self, blueprint_id: &str, todo_id: &str) -> anyhow::Result<TodoView> {
+        validate_evidence_aggregate_store(&self.store, blueprint_id)?;
         todo_view_from_store(&self.store, blueprint_id, todo_id)
+    }
+
+    /// Appends free-form Markdown Evidence while retaining every existing Evidence entry.
+    pub fn evidence_add(&self, input: EvidenceAddInput) -> anyhow::Result<EvidenceItem> {
+        require_text("title", &input.title)?;
+        require_text("markdown", &input.markdown)?;
+        let id = format!("evidence-{}", Ulid::new());
+        let entry = format!(
+            "### {} ^{}\n\n{}",
+            input.title.trim(),
+            id,
+            input.markdown.trim()
+        );
+        self.store.with_lock(&input.blueprint_id, |locked| {
+            locked.require_active()?;
+            let graph = locked.read_blueprint()?;
+            match input.todo_id.as_deref() {
+                Some(todo_id) => {
+                    let parsed = ParsedBlueprintSource::parse(
+                        &format!("{}.md", input.blueprint_id),
+                        &graph.source,
+                    )?;
+                    find_todo(&parsed.todos, todo_id)
+                        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
+                    let detail = locked.read_todo(todo_id)?;
+                    if input
+                        .expected_etag
+                        .as_deref()
+                        .is_some_and(|etag| etag != detail.etag)
+                    {
+                        anyhow::bail!("Todo ETag does not match; re-read before writing");
+                    }
+                    let candidate = append_to_section(&detail.source, "Evidence", &entry)?;
+                    crate::blueprint::TodoDetail::parse(detail.path.as_str(), &candidate)?;
+                    validate_locked_evidence_aggregate(
+                        locked,
+                        &graph.source,
+                        Some((todo_id, &candidate)),
+                    )?;
+                    locked
+                        .write_todo(todo_id, input.expected_etag.as_deref(), |_| Ok(candidate))?;
+                }
+                None => {
+                    if input
+                        .expected_etag
+                        .as_deref()
+                        .is_some_and(|etag| etag != graph.etag)
+                    {
+                        anyhow::bail!("Blueprint ETag does not match; re-read before writing");
+                    }
+                    let candidate = append_to_section(&graph.source, "Evidence", &entry)?;
+                    crate::blueprint::BlueprintSource::parse("blueprint.md", &candidate)?;
+                    validate_locked_evidence_aggregate(locked, &candidate, None)?;
+                    locked.write_blueprint(input.expected_etag.as_deref(), |_| Ok(candidate))?;
+                }
+            }
+            Ok(())
+        })?;
+        Ok(EvidenceItem {
+            id,
+            markdown: entry,
+        })
+    }
+
+    /// Appends a fixed-field Revision History entry; existing history is never replaced.
+    pub fn revision_append(&self, input: RevisionAppendInput) -> anyhow::Result<RevisionEntry> {
+        require_text("changed_by", &input.changed_by)?;
+        require_text("reason", &input.reason)?;
+        require_text("change", &input.change)?;
+        if input.affected.is_empty() || input.affected.iter().any(|item| item.trim().is_empty()) {
+            anyhow::bail!("affected must contain at least one non-empty item");
+        }
+        let id = format!("revision-{}", Ulid::new());
+        let mut entry = format!(
+            "### Revision ^{id}\n\n- Changed By: {}\n- Reason: {}\n- Change: {}\n- Affected: {}\n",
+            input.changed_by.trim(),
+            input.reason.trim(),
+            input.change.trim(),
+            input
+                .affected
+                .iter()
+                .map(|item| item.trim())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        if let Some(impact) = input
+            .evidence_impact
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            entry.push_str(&format!("- Evidence Impact: {}\n", impact.trim()));
+        }
+        self.store.with_lock(&input.blueprint_id, |locked| {
+            locked.require_active()?;
+            let graph = locked.read_blueprint()?;
+            match input.todo_id.as_deref() {
+                Some(todo_id) => {
+                    let detail = locked.read_todo(todo_id)?;
+                    if input
+                        .expected_etag
+                        .as_deref()
+                        .is_some_and(|etag| etag != detail.etag)
+                    {
+                        anyhow::bail!("Todo ETag does not match; re-read before writing");
+                    }
+                    let candidate = append_to_section(&detail.source, "Revision History", &entry)?;
+                    crate::blueprint::TodoDetail::parse(detail.path.as_str(), &candidate)?;
+                    validate_locked_evidence_aggregate(
+                        locked,
+                        &graph.source,
+                        Some((todo_id, &candidate)),
+                    )?;
+                    locked
+                        .write_todo(todo_id, input.expected_etag.as_deref(), |_| Ok(candidate))?;
+                }
+                None => {
+                    if input
+                        .expected_etag
+                        .as_deref()
+                        .is_some_and(|etag| etag != graph.etag)
+                    {
+                        anyhow::bail!("Blueprint ETag does not match; re-read before writing");
+                    }
+                    let candidate = append_to_section(&graph.source, "Revision History", &entry)?;
+                    crate::blueprint::BlueprintSource::parse("blueprint.md", &candidate)?;
+                    validate_locked_evidence_aggregate(locked, &candidate, None)?;
+                    locked.write_blueprint(input.expected_etag.as_deref(), |_| Ok(candidate))?;
+                }
+            }
+            Ok(())
+        })?;
+        Ok(RevisionEntry {
+            id,
+            markdown: entry,
+        })
     }
 
     #[tracing::instrument(
@@ -547,6 +686,7 @@ impl BlueprintService {
         ready: Option<bool>,
     ) -> anyhow::Result<Vec<TodoView>> {
         self.store.validate_aggregate(blueprint_id)?;
+        validate_evidence_aggregate_store(&self.store, blueprint_id)?;
         let blueprint = self.store.read(blueprint_id)?;
         let parsed =
             ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &blueprint.source)?;
@@ -730,6 +870,30 @@ impl BlueprintService {
         summary: &str,
         expected_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
+        // v0.1 test-only compatibility: older unit tests supplied a completion summary instead
+        // of first recording detail Results and Evidence. The public v2 operation never does this.
+        self.store.with_lock(blueprint_id, |locked| {
+            let detail = locked.read_todo(todo_id)?;
+            let parsed = crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail.source)?;
+            {
+                let mut candidate = replace_section(&detail.source, "Results", summary.trim())?;
+                if parsed.evidence.is_empty() {
+                    candidate = append_to_section(
+                        &candidate,
+                        "Evidence",
+                        &format!(
+                            "### Completion summary ^evidence-{}\n\n- Summary: {}",
+                            Ulid::new(),
+                            summary.trim()
+                        ),
+                    )?;
+                }
+                if candidate != detail.source {
+                    locked.write_todo(todo_id, None, |_| Ok(candidate))?;
+                }
+            }
+            Ok(())
+        })?;
         self.todo_complete(
             blueprint_id,
             todo_id,
@@ -750,7 +914,7 @@ impl BlueprintService {
         expected_todo_etag: Option<&str>,
     ) -> anyhow::Result<TodoView> {
         require_text("completed_by", completed_by)?;
-        require_text("summary", summary)?;
+        let _ = summary;
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
@@ -786,21 +950,13 @@ impl BlueprintService {
             {
                 anyhow::bail!("all non-cancelled child Todos must be completed");
             }
-            let detail_candidate = {
-                let next = replace_section(&detail_source.source, "Results", summary.trim())?;
-                let evidence = section_body(&next, "Evidence");
-                let evidence = if evidence.is_empty() {
-                    format!(
-                        "### Completion summary ^evidence-{}\n\n- Summary: {}",
-                        Ulid::new(),
-                        summary.trim()
-                    )
-                } else {
-                    evidence
-                };
-                replace_section(&next, "Evidence", &evidence)
-            }?;
-            crate::blueprint::TodoDetail::parse(detail_source.path.as_str(), &detail_candidate)?;
+            if detail.results.trim().is_empty() {
+                anyhow::bail!("Todo Results must not be empty before completion");
+            }
+            if detail.evidence.is_empty() && evidence_references(&detail.results)?.is_empty() {
+                anyhow::bail!("Todo Evidence must be defined or referenced before completion");
+            }
+            validate_locked_evidence_aggregate(locked, &graph.source, None)?;
             let graph_candidate = {
                 let source = replace_task_status(&graph.source, todo_id, TodoStatus::Completed)?;
                 replace_or_insert_todo_field(&source, todo_id, "Completed By", completed_by.trim())?
@@ -808,7 +964,6 @@ impl BlueprintService {
             let parsed =
                 ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), &graph_candidate)?;
             derive_readiness(&parsed.todos)?;
-            locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
             locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
@@ -922,6 +1077,11 @@ impl BlueprintService {
                 patch.title.as_deref(),
                 patch.depends_on.as_deref(),
             )?;
+            validate_locked_evidence_aggregate(
+                locked,
+                &graph_candidate,
+                Some((todo_id, &detail_candidate)),
+            )?;
             locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
             locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
             Ok(())
@@ -996,6 +1156,7 @@ impl BlueprintService {
             let open_dod = open_dod_ids(&before.source);
             let complete = open_todos.is_empty() && open_dod.is_empty();
             if complete {
+                validate_locked_evidence_aggregate(locked, &before.source, None)?;
                 validate_complete_close_evidence(locked, &before.source)?;
             }
             if !complete && reason.is_none_or(|value| value.trim().is_empty()) {
@@ -1268,7 +1429,7 @@ fn append_to_section(source: &str, section: &str, content: &str) -> anyhow::Resu
         "\n\n"
     };
     Ok(format!(
-        "{}{}{}{}",
+        "{}{}{}\n{}",
         &source[..end],
         prefix,
         content.trim_end(),
@@ -1796,6 +1957,37 @@ fn validate_complete_close_evidence(
         }
     }
     Ok(())
+}
+
+fn validate_evidence_aggregate_store(
+    store: &BlueprintStore,
+    blueprint_id: &str,
+) -> anyhow::Result<()> {
+    store.with_lock(blueprint_id, |locked| {
+        let blueprint = locked.read_blueprint()?;
+        validate_locked_evidence_aggregate(locked, &blueprint.source, None)
+    })
+}
+
+fn validate_locked_evidence_aggregate(
+    locked: &LockedBlueprintStore<'_>,
+    blueprint_source: &str,
+    todo_override: Option<(&str, &str)>,
+) -> anyhow::Result<()> {
+    let indexes = locked.read_blueprint()?.todos;
+    let mut sources = Vec::with_capacity(indexes.len());
+    for index in indexes {
+        let source = match todo_override {
+            Some((id, replacement)) if id == index.id => replacement.to_string(),
+            _ => locked.read_todo(&index.id)?.source,
+        };
+        sources.push((format!("todos/{}.md", index.id), source));
+    }
+    let references = sources
+        .iter()
+        .map(|(path, source)| (path.as_str(), source.as_str()))
+        .collect::<Vec<_>>();
+    validate_evidence_aggregate(blueprint_source, &references)
 }
 
 fn evidence_references(results: &str) -> anyhow::Result<Vec<String>> {

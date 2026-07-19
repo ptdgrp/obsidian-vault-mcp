@@ -4,7 +4,10 @@ use camino::Utf8PathBuf;
 use tempfile::{TempDir, tempdir};
 
 use super::super::{
-    model::{BlueprintPatch, TodoCreateRequest, TodoPatch, TodoStatus},
+    model::{
+        BlueprintPatch, EvidenceAddInput, RevisionAppendInput, TodoCreateRequest, TodoPatch,
+        TodoStatus,
+    },
     service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate},
 };
 
@@ -51,6 +54,171 @@ fn todo_create_writes_graph_link_and_independent_detail_document() {
     assert_eq!(fetched.graph.status, TodoStatus::Pending);
     assert_eq!(fetched.blueprint_etag, todo.blueprint_etag);
     assert!(!fetched.todo_etag.is_empty());
+}
+
+#[test]
+fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let first = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "收集证据".into(),
+            created_by: "planner".into(),
+            intent: "记录测试输出".into(),
+            plan: "运行测试".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let second = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "引用证据".into(),
+            created_by: "planner".into(),
+            intent: "使用前置结果".into(),
+            plan: "检查链接".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let evidence = service
+        .evidence_add(EvidenceAddInput {
+            blueprint_id: blueprint.id.clone(),
+            todo_id: Some(first.graph.id.clone()),
+            title: "测试输出".into(),
+            markdown: "- Observation: 全部通过".into(),
+            expected_etag: Some(first.todo_etag.clone()),
+        })
+        .unwrap();
+    let second_view = service.todo_get(&blueprint.id, &second.graph.id).unwrap();
+    service
+        .todo_update(
+            &blueprint.id,
+            &second.graph.id,
+            TodoPatch {
+                results: Some(format!(
+                    "- Related: [前置证据]({}.md#^{})",
+                    first.graph.id, evidence.id
+                )),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&second_view.blueprint_etag),
+            Some(&second_view.todo_etag),
+        )
+        .unwrap();
+    service.blueprint_status(&blueprint.id).unwrap();
+
+    let duplicate = service
+        .evidence_add(EvidenceAddInput {
+            blueprint_id: blueprint.id.clone(),
+            todo_id: Some(second.graph.id.clone()),
+            title: "重复".into(),
+            markdown: format!("### 重复 ^{}\n", evidence.id),
+            expected_etag: None,
+        })
+        .unwrap_err();
+    assert!(duplicate.to_string().contains("duplicate Evidence ID"));
+}
+
+#[test]
+fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_results_and_evidence() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "完成门槛".into(),
+            created_by: "planner".into(),
+            intent: "验证详情门槛".into(),
+            plan: "检查详情".into(),
+            owner: Some("agent".into()),
+            completion_criteria: vec!["已检查".into()],
+            ..Default::default()
+        })
+        .unwrap();
+    let started = service
+        .todo_start(&blueprint.id, &todo.graph.id, Some(&todo.blueprint_etag))
+        .unwrap();
+    let checked = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                completion_criteria: Some(vec![CheckUpdate {
+                    text: "已检查".into(),
+                    completed: true,
+                }]),
+                ..Default::default()
+            },
+            Some("agent"),
+            Some("完成检查"),
+            Some(&started.blueprint_etag),
+            Some(&started.todo_etag),
+        )
+        .unwrap();
+    let error = service
+        .todo_complete(
+            &blueprint.id,
+            &todo.graph.id,
+            "agent",
+            "不能凭摘要绕过",
+            Some(&checked.blueprint_etag),
+            Some(&checked.todo_etag),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Results"), "{error:#}");
+
+    let with_bad_link = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                results: Some("[坏链接](outside.md#^evidence-missing)".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&checked.blueprint_etag),
+            Some(&checked.todo_etag),
+        )
+        .unwrap_err();
+    assert!(with_bad_link.to_string().contains("Evidence target"));
+}
+
+#[test]
+fn revision_append_is_append_only_with_fixed_fields() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let first = service
+        .revision_append(RevisionAppendInput {
+            blueprint_id: blueprint.id.clone(),
+            todo_id: None,
+            changed_by: "planner".into(),
+            reason: "范围变化".into(),
+            change: "调整计划".into(),
+            affected: vec!["Plan".into()],
+            evidence_impact: Some("既有 Evidence 仍适用".into()),
+            expected_etag: Some(blueprint.etag.clone()),
+        })
+        .unwrap();
+    let after_first = service.blueprint_get(&blueprint.id).unwrap();
+    let second = service
+        .revision_append(RevisionAppendInput {
+            blueprint_id: blueprint.id.clone(),
+            todo_id: None,
+            changed_by: "reviewer".into(),
+            reason: "补充限制".into(),
+            change: "补充审查".into(),
+            affected: vec!["Rubric".into()],
+            evidence_impact: None,
+            expected_etag: Some(after_first.etag),
+        })
+        .unwrap();
+    let source = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert_ne!(first.id, second.id);
+    assert!(source.contains(&first.markdown));
+    assert!(source.contains(&second.markdown));
+    assert!(second.markdown.contains("- Change: 补充审查"));
+    assert!(second.markdown.contains("- Affected: Rubric"));
 }
 
 #[test]

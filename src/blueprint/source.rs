@@ -515,6 +515,114 @@ pub(crate) fn markdown_entries(source: &str, prefix: &str) -> Vec<(String, Strin
         .collect()
 }
 
+/// Validates Evidence identity and standard Markdown references within one Blueprint aggregate.
+/// External links without an Evidence block fragment deliberately remain outside this protocol.
+pub(crate) fn validate_evidence_aggregate(
+    blueprint_source: &str,
+    todo_sources: &[(&str, &str)],
+) -> anyhow::Result<()> {
+    let mut documents = std::collections::HashMap::new();
+    documents.insert("blueprint.md", blueprint_source);
+    for (path, source) in todo_sources {
+        documents.insert(*path, *source);
+    }
+
+    let mut evidence_by_document = std::collections::HashMap::new();
+    let mut ids = std::collections::HashSet::new();
+    BlueprintSource::parse("blueprint.md", blueprint_source)?;
+    let blueprint_ids = evidence_ids_in_section(blueprint_source);
+    for id in &blueprint_ids {
+        if !ids.insert(id.clone()) {
+            anyhow::bail!("duplicate Evidence ID: {id}");
+        }
+    }
+    evidence_by_document.insert("blueprint.md", blueprint_ids);
+    for (path, source) in todo_sources {
+        crate::blueprint::TodoDetail::parse(path, source)?;
+        let document_ids = evidence_ids_in_section(source);
+        for id in &document_ids {
+            if !ids.insert(id.clone()) {
+                anyhow::bail!("duplicate Evidence ID: {id}");
+            }
+        }
+        evidence_by_document.insert(*path, document_ids);
+    }
+
+    for (path, source) in documents {
+        for (target, id) in standard_evidence_links(source)? {
+            let resolved = resolve_evidence_target(path, &target)?;
+            let Some(defined) = evidence_by_document.get(resolved.as_str()) else {
+                anyhow::bail!("invalid Evidence target: {target}");
+            };
+            if !defined.contains(&id) {
+                anyhow::bail!("dangling Evidence reference: {id}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn evidence_ids_in_section(source: &str) -> Vec<String> {
+    let Some(start) = source.find("## Evidence") else {
+        return Vec::new();
+    };
+    let body = &source[start + "## Evidence".len()..];
+    let body = body.split("\n## ").next().unwrap_or(body);
+    body.split_whitespace()
+        .filter_map(|word| word.strip_prefix("^evidence-"))
+        .map(|id| {
+            format!(
+                "evidence-{}",
+                id.trim_end_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+            )
+        })
+        .filter(|id| id != "evidence-")
+        .collect()
+}
+
+fn standard_evidence_links(source: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let mut links = Vec::new();
+    let mut rest = source;
+    while let Some(start) = rest.find("](") {
+        let after_open = &rest[start + 2..];
+        let Some(end) = after_open.find(')') else {
+            anyhow::bail!("malformed Evidence reference");
+        };
+        let destination = &after_open[..end];
+        if let Some((target, id)) = destination.rsplit_once("#^") {
+            if !id.starts_with("evidence-") || id.contains(char::is_whitespace) {
+                anyhow::bail!("malformed Evidence reference");
+            }
+            links.push((target.to_string(), id.to_string()));
+        }
+        rest = &after_open[end + 1..];
+    }
+    Ok(links)
+}
+
+fn resolve_evidence_target(from: &str, target: &str) -> anyhow::Result<String> {
+    if target.is_empty() {
+        return Ok(from.to_string());
+    }
+    let resolved = match (from, target) {
+        ("blueprint.md", target) if target.starts_with("todos/") => target.to_string(),
+        ("blueprint.md", "blueprint.md") => "blueprint.md".to_string(),
+        (from, target) if from.starts_with("todos/") && target.starts_with("todo-") => {
+            format!("todos/{target}")
+        }
+        (from, target) if from.starts_with("todos/") && target.starts_with("./todo-") => {
+            format!("todos/{}", &target[2..])
+        }
+        (from, "../blueprint.md") if from.starts_with("todos/") => "blueprint.md".to_string(),
+        (from, target) if from.starts_with("todos/") && target == from => target.to_string(),
+        _ => anyhow::bail!("invalid Evidence target: {target}"),
+    };
+    if !resolved.starts_with("todos/todo-") && resolved != "blueprint.md" {
+        anyhow::bail!("invalid Evidence target: {target}");
+    }
+    Ok(resolved)
+}
+
 fn location_to_byte(source: &str, location: Location) -> usize {
     let mut line = 1;
     let mut start = 0;
