@@ -12,7 +12,7 @@ pub use model::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintPatch,
     BlueprintState, BlueprintUpdateInput, CompletionCriterionInput, DodUpdateInput,
-    EvidenceAddInput, EvidenceItem, RevisionAppendInput, RevisionEntry, Todo, TodoAssignInput,
+    EvidenceAddInput, EvidenceItem, RevisionAppendInput, RevisionEntry, TodoAssignInput,
     TodoBlockInput, TodoCancelInput, TodoCompleteInput, TodoCreateInput, TodoCreateRequest,
     TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput, TodoPatch, TodoStatus,
     TodoUpdateInput, TodoView,
@@ -20,9 +20,8 @@ pub use model::{
 pub use service::{
     BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate, TodoUpdateOptions,
 };
-pub use source::{BlueprintSource, parse_blueprint_source};
+pub use source::BlueprintSource;
 pub use store::StoredBlueprint;
-pub use todo::parse_todo_source;
 
 #[cfg(test)]
 mod tests;

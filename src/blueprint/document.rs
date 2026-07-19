@@ -13,7 +13,6 @@ pub(crate) struct DocumentSchema {
 #[derive(Clone, Debug)]
 pub(crate) struct Section {
     pub title: String,
-    heading_start: usize,
     body_start: usize,
     body_end: usize,
 }
@@ -22,6 +21,7 @@ pub(crate) struct Section {
 pub(crate) struct ParsedDocument {
     h1: String,
     frontmatter: serde_json::Map<String, serde_json::Value>,
+    #[cfg(test)]
     frontmatter_range: Range<usize>,
     sections: Vec<Section>,
 }
@@ -72,7 +72,7 @@ impl ParsedDocument {
         let h1 = h1
             .filter(|title| !title.is_empty())
             .ok_or_else(|| anyhow::anyhow!("document must contain an H1"))?;
-        let (frontmatter, frontmatter_range) = match frontmatter {
+        let (frontmatter, _frontmatter_range) = match frontmatter {
             Some(frontmatter) => frontmatter,
             None if schema.name.is_empty() => (serde_json::Map::new(), 0..0),
             None => anyhow::bail!("document must contain frontmatter"),
@@ -90,9 +90,8 @@ impl ParsedDocument {
         let sections = headings
             .iter()
             .enumerate()
-            .map(|(index, (title, heading_start, body_start))| Section {
+            .map(|(index, (title, _, body_start))| Section {
                 title: title.clone(),
-                heading_start: *heading_start,
                 body_start: *body_start,
                 body_end: headings
                     .get(index + 1)
@@ -115,7 +114,8 @@ impl ParsedDocument {
         Ok(Self {
             h1,
             frontmatter,
-            frontmatter_range,
+            #[cfg(test)]
+            frontmatter_range: _frontmatter_range,
             sections,
         })
     }
@@ -172,6 +172,7 @@ impl ParsedDocument {
         Ok(next)
     }
 
+    #[cfg(test)]
     pub(crate) fn replace_frontmatter_field(
         &self,
         source: &str,
@@ -291,6 +292,7 @@ fn line_start_after(source: &str, line: u64) -> usize {
     line_start(source, line.saturating_add(1))
 }
 
+#[cfg(test)]
 fn frontmatter_field_value_range<'a>(
     frontmatter: &'a str,
     field: &str,
@@ -321,6 +323,7 @@ fn frontmatter_field_value_range<'a>(
     None
 }
 
+#[cfg(test)]
 fn yaml_mapping_colon(line: &str) -> Option<usize> {
     let mut quote = None;
     let mut escaped = false;
@@ -343,6 +346,7 @@ fn yaml_mapping_colon(line: &str) -> Option<usize> {
     None
 }
 
+#[cfg(test)]
 fn yaml_key(key: &str) -> Option<&str> {
     let key = key.trim();
     key.strip_prefix('"')
@@ -354,6 +358,7 @@ fn yaml_key(key: &str) -> Option<&str> {
         .or((!key.is_empty()).then_some(key))
 }
 
+#[cfg(test)]
 fn yaml_value_length(value: &str) -> (usize, Option<char>) {
     let Some(quote) = value
         .chars()
@@ -389,6 +394,7 @@ fn yaml_value_length(value: &str) -> (usize, Option<char>) {
     (value.len(), Some(quote))
 }
 
+#[cfg(test)]
 fn escape_yaml_string(value: &str, quote: char) -> String {
     match quote {
         '"' => value.replace('\\', "\\\\").replace('"', "\\\""),
