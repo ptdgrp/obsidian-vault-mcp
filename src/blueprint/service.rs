@@ -106,7 +106,7 @@ impl BlueprintService {
         if request.definition_of_done.is_empty() {
             anyhow::bail!("definition_of_done must not be empty");
         }
-        let id = format!("bp-{}", Ulid::new());
+        let id = format!("bp-{}", Ulid::generate());
         let source = render_blueprint(&id, &request);
         let StoredBlueprint {
             id, etag, source, ..
@@ -303,7 +303,7 @@ impl BlueprintService {
                 .collect::<Vec<_>>()
                 .join(", ");
                 let revision = render_revision(
-                    &format!("revision-{}", Ulid::new()),
+                    &format!("revision-{}", Ulid::generate()),
                     changed_by.expect("validated"),
                     change_reason.expect("validated"),
                     "Blueprint semantic update",
@@ -368,7 +368,7 @@ impl BlueprintService {
         for criterion in &request.completion_criteria {
             require_text("completion criterion", criterion)?;
         }
-        let todo_id = format!("todo-{}", Ulid::new());
+        let todo_id = format!("todo-{}", Ulid::generate());
         let detail_source = render_todo(
             &request.blueprint_id,
             &todo_id,
@@ -513,7 +513,7 @@ impl BlueprintService {
     pub fn evidence_add(&self, input: EvidenceAddInput) -> anyhow::Result<EvidenceItem> {
         require_text("title", &input.title)?;
         require_text("markdown", &input.markdown)?;
-        let id = format!("evidence-{}", Ulid::new());
+        let id = format!("evidence-{}", Ulid::generate());
         let entry = format!(
             "### {} ^{}\n\n{}",
             input.title.trim(),
@@ -579,7 +579,7 @@ impl BlueprintService {
         if input.affected.is_empty() || input.affected.iter().any(|item| item.trim().is_empty()) {
             anyhow::bail!("affected must contain at least one non-empty item");
         }
-        let id = format!("revision-{}", Ulid::new());
+        let id = format!("revision-{}", Ulid::generate());
         let entry = render_revision(
             &id,
             &input.changed_by,
@@ -856,7 +856,7 @@ impl BlueprintService {
                         "Evidence",
                         &format!(
                             "### Completion summary ^evidence-{}\n\n- Summary: {}",
-                            Ulid::new(),
+                            Ulid::generate(),
                             summary.trim()
                         ),
                     )?;
@@ -1641,7 +1641,7 @@ fn render_blueprint(id: &str, request: &BlueprintCreateRequest) -> String {
     let definition_of_done = request
         .definition_of_done
         .iter()
-        .map(|item| format!("- [ ] {item} ^dod-{}", Ulid::new()))
+        .map(|item| format!("- [ ] {item} ^dod-{}", Ulid::generate()))
         .collect::<Vec<_>>()
         .join("\n");
     format!(
@@ -1706,7 +1706,7 @@ fn append_revision(
     affected: &str,
 ) -> anyhow::Result<String> {
     let revision = render_revision(
-        &format!("revision-{}", Ulid::new()),
+        &format!("revision-{}", Ulid::generate()),
         changed_by,
         reason,
         change,
