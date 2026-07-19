@@ -7,7 +7,7 @@ mod store;
 mod todo;
 mod validate;
 
-pub use mcp::run_blueprint_mcp_server;
+pub use mcp::{blueprint_tool_definitions, run_blueprint_mcp_server};
 #[allow(unused_imports)]
 pub use model::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,

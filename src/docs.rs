@@ -3,6 +3,12 @@ use std::{collections::BTreeSet, fs, path::Path};
 use rmcp::model::Tool;
 use serde_json::Value;
 
+pub fn all_tool_definitions() -> Vec<Tool> {
+    let mut tools = crate::server::ObsidianVaultMcp::tool_definitions();
+    tools.extend(crate::blueprint::blueprint_tool_definitions());
+    tools
+}
+
 pub fn render_docs(tools: &[Tool]) -> anyhow::Result<String> {
     let mut output = String::new();
     output.push_str("# MCP Tools\n\n");

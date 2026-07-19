@@ -20,6 +20,15 @@ use crate::vault::{Vault, VaultConfig};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
+    if let Some(cli::commands::Command::GenerateDocs { check, output }) = cli.command_ref() {
+        let content = docs::render_docs(&docs::all_tool_definitions())?;
+        if *check {
+            docs::check_tools_markdown(output, &content)?;
+        } else {
+            docs::write_tools_markdown(output, &content)?;
+        }
+        return Ok(());
+    }
     let vault_path = cli.vault.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
             "--vault is required for this command; set OBSIDIAN_VAULT_MCP_ROOT or pass --vault"

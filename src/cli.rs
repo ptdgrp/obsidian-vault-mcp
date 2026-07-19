@@ -1,4 +1,4 @@
-mod commands;
+pub(crate) mod commands;
 
 use crate::vault::DEFAULT_MAX_READ_NOTE_CHARS;
 use camino::Utf8PathBuf;
@@ -59,6 +59,10 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
+    pub(crate) fn command_ref(&self) -> Option<&commands::Command> {
+        self.command.as_ref()
+    }
+
     pub(crate) fn command(self) -> commands::Command {
         self.command.unwrap_or(commands::Command::Serve)
     }

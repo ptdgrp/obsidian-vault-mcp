@@ -44,16 +44,32 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
         .iter()
         .find(|tool| tool.name == "blueprint_create")
         .expect("blueprint_create schema");
+    let properties = create
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("create schema properties");
+    for field in [
+        "title",
+        "created_by",
+        "intent",
+        "definition_of_done",
+        "plan",
+        "rubric",
+    ] {
+        assert!(
+            properties.contains_key(field),
+            "missing create field {field}"
+        );
+    }
+    let required = create
+        .input_schema
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .expect("create required fields");
     assert!(
-        create
-            .input_schema
-            .get("properties")
-            .is_some_and(|properties| {
-                properties
-                    .as_object()
-                    .is_some_and(|properties| properties.contains_key("created_by"))
-            }),
-        "create schema must expose named request fields"
+        required.iter().any(|value| value == "rubric"),
+        "rubric must be required"
     );
     let output = create.output_schema.as_ref().expect("create output schema");
     assert!(
@@ -64,4 +80,41 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
         }),
         "create output schema must be concrete instead of a generic data wrapper"
     );
+
+    for tool_name in ["todo_update", "todo_complete", "todo_block"] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool.name == tool_name)
+            .unwrap_or_else(|| panic!("{tool_name} schema"));
+        let properties = tool
+            .input_schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .expect("todo mutation properties");
+        assert!(
+            properties.contains_key("expected_blueprint_etag"),
+            "{tool_name} must expose the graph ETag"
+        );
+        assert!(
+            properties.contains_key("expected_todo_etag"),
+            "{tool_name} must expose the detail ETag"
+        );
+    }
+}
+
+#[test]
+fn v2_tool_descriptions_explain_agent_owned_semantics() {
+    let tools = BlueprintMcp::tool_definitions();
+    let description = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .and_then(|tool| tool.description.as_deref())
+            .unwrap_or_else(|| panic!("{name} description"))
+    };
+
+    assert!(description("blueprint_create").contains("Agent"));
+    assert!(description("blueprint_create").contains("Rubric"));
+    assert!(description("evidence_add").contains("structural"));
+    assert!(description("revision_append").contains("append-only"));
 }

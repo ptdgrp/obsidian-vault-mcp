@@ -372,8 +372,7 @@ impl Command {
     pub(crate) async fn run(self, vault: Vault) -> anyhow::Result<()> {
         let vault = Arc::new(vault);
         if let Command::GenerateDocs { check, output } = self {
-            let content =
-                crate::docs::render_docs(&crate::server::ObsidianVaultMcp::tool_definitions())?;
+            let content = crate::docs::render_docs(&crate::docs::all_tool_definitions())?;
             if check {
                 crate::docs::check_tools_markdown(output, &content)?;
             } else {
@@ -766,6 +765,38 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         expected_etag: Option<String>,
     },
+    /// Append globally unique Evidence to a Blueprint or Todo detail document.
+    EvidenceAdd {
+        #[arg(long)]
+        blueprint_id: String,
+        #[arg(long)]
+        todo_id: Option<String>,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        markdown: String,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// Append an immutable Revision History record.
+    RevisionAppend {
+        #[arg(long)]
+        blueprint_id: String,
+        #[arg(long)]
+        todo_id: Option<String>,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        change: String,
+        #[arg(long, required = true)]
+        affected: Vec<String>,
+        #[arg(long)]
+        evidence_impact: Option<String>,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
     /// Create a todo.
     TodoCreate {
         #[arg(long)]
@@ -916,6 +947,8 @@ impl BlueprintCommand {
             Self::Close { .. } => "close",
             Self::Cancel { .. } => "cancel",
             Self::DodUpdate { .. } => "dod_update",
+            Self::EvidenceAdd { .. } => "evidence_add",
+            Self::RevisionAppend { .. } => "revision_append",
             Self::TodoCreate { .. } => "todo_create",
             Self::TodoGet { .. } => "todo_get",
             Self::TodoList { .. } => "todo_list",
@@ -1030,6 +1063,44 @@ impl BlueprintCommand {
                     note.as_deref(),
                     expected_etag.as_deref(),
                 )?)?;
+            }
+            BlueprintCommand::EvidenceAdd {
+                blueprint_id,
+                todo_id,
+                title,
+                markdown,
+                expected_etag,
+            } => {
+                print_value(&service.evidence_add(crate::blueprint::EvidenceAddInput {
+                    blueprint_id,
+                    todo_id,
+                    title,
+                    markdown,
+                    expected_etag,
+                })?)?;
+            }
+            BlueprintCommand::RevisionAppend {
+                blueprint_id,
+                todo_id,
+                changed_by,
+                reason,
+                change,
+                affected,
+                evidence_impact,
+                expected_etag,
+            } => {
+                print_value(
+                    &service.revision_append(crate::blueprint::RevisionAppendInput {
+                        blueprint_id,
+                        todo_id,
+                        changed_by,
+                        reason,
+                        change,
+                        affected,
+                        evidence_impact,
+                        expected_etag,
+                    })?,
+                )?;
             }
             BlueprintCommand::TodoCreate {
                 blueprint_id,
@@ -1213,4 +1284,55 @@ impl BlueprintCommand {
 pub(crate) fn print_value<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Subcommand;
+
+    use super::BlueprintCommand;
+
+    #[test]
+    fn blueprint_direct_operations_expose_evidence_and_revision_dto_fields() {
+        let command = BlueprintCommand::augment_subcommands(clap::Command::new("blueprint"));
+        for (name, fields) in [
+            (
+                "evidence-add",
+                [
+                    "blueprint-id",
+                    "todo-id",
+                    "title",
+                    "markdown",
+                    "expected-etag",
+                ]
+                .as_slice(),
+            ),
+            (
+                "revision-append",
+                [
+                    "blueprint-id",
+                    "todo-id",
+                    "changed-by",
+                    "reason",
+                    "change",
+                    "affected",
+                    "evidence-impact",
+                    "expected-etag",
+                ]
+                .as_slice(),
+            ),
+        ] {
+            let operation = command
+                .find_subcommand(name)
+                .unwrap_or_else(|| panic!("missing {name} direct operation"));
+            for field in fields {
+                assert!(
+                    operation
+                        .get_arguments()
+                        .any(|argument| argument.get_long() == Some(*field)),
+                    "{name} must forward --{field}"
+                );
+            }
+        }
+    }
 }

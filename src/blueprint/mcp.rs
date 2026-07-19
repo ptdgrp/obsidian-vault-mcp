@@ -44,10 +44,13 @@ impl BlueprintMcp {
         }
     }
 
-    #[cfg(test)]
     pub fn tool_definitions() -> Vec<rmcp::model::Tool> {
         Self::tool_router().list_all()
     }
+}
+
+pub fn blueprint_tool_definitions() -> Vec<rmcp::model::Tool> {
+    BlueprintMcp::tool_definitions()
 }
 
 fn json<T: Serialize + JsonSchema>(result: anyhow::Result<T>) -> Result<Json<T>, String> {
@@ -68,7 +71,9 @@ fn json<T: Serialize + JsonSchema>(result: anyhow::Result<T>) -> Result<Json<T>,
 
 #[tool_router]
 impl BlueprintMcp {
-    #[tool(description = "Create a Blueprint in this vault's automatic .blueprint workspace.")]
+    #[tool(
+        description = "Create a Blueprint in this vault's automatic .blueprint workspace. Rubric is required: the executing Agent reads and performs that evaluation procedure; this tool only stores it."
+    )]
     fn blueprint_create(
         &self,
         Parameters(r): Parameters<BlueprintCreateInput>,
@@ -253,14 +258,18 @@ impl BlueprintMcp {
             r.expected_etag.as_deref(),
         ))
     }
-    #[tool(description = "Append globally unique Evidence to a Blueprint or Todo detail document.")]
+    #[tool(
+        description = "Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric."
+    )]
     fn evidence_add(
         &self,
         Parameters(input): Parameters<EvidenceAddInput>,
     ) -> Result<Json<crate::blueprint::EvidenceItem>, String> {
         json(self.service.evidence_add(input))
     }
-    #[tool(description = "Append an immutable fixed-field Revision History record.")]
+    #[tool(
+        description = "Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted."
+    )]
     fn revision_append(
         &self,
         Parameters(input): Parameters<RevisionAppendInput>,
