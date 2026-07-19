@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+};
 
 use markdown::{
     Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem, link::Link,
@@ -121,6 +124,7 @@ impl ParsedBlueprintSource {
             .into_iter()
             .filter_map(|index| task_node(&document, index))
             .filter(|task| todos_section.contains_line(source, task.line))
+            .filter(|task| is_protocol_task(&document, task.index, "Todos"))
             .collect::<Vec<_>>();
         let mut todos = tasks
             .iter()
@@ -376,6 +380,7 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
         .into_iter()
         .filter_map(|index| task_node(&document, index))
         .filter(|task| todos_section.contains_line(source, task.line))
+        .filter(|task| is_protocol_task(&document, task.index, "Todos"))
         .filter(|task| task.id.as_deref().is_some_and(|id| id.starts_with("todo-")))
         .collect::<Vec<_>>();
 
@@ -514,6 +519,297 @@ pub(crate) fn markdown_entries(source: &str, prefix: &str) -> Vec<(String, Strin
             (id.clone(), source[*start..end].to_string())
         })
         .collect()
+}
+
+/// A mutation-safe view of one real OFM task node.
+///
+/// All ranges are sourced from the parsed Markdown tree.  In particular, the
+/// block id belongs to the task's inline node, rather than to text which merely
+/// resembles a task inside a code fence or an ordinary list.
+#[derive(Clone, Debug)]
+pub(crate) struct TaskLocator {
+    pub(crate) task_line: Range<usize>,
+    pub(crate) task: Range<usize>,
+    pub(crate) marker: Range<usize>,
+    pub(crate) title: Range<usize>,
+    pub(crate) indent: usize,
+    pub(crate) status: TodoStatus,
+    pub(crate) title_text: String,
+    pub(crate) fields: Vec<TaskFieldLocator>,
+    pub(crate) children: Option<TaskChildrenLocator>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TaskFieldLocator {
+    pub(crate) name: String,
+    pub(crate) value: String,
+    pub(crate) value_range: Range<usize>,
+    pub(crate) line: Range<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TaskChildrenLocator {
+    pub(crate) label: Range<usize>,
+    pub(crate) contents: Range<usize>,
+    pub(crate) child_indent: usize,
+}
+
+/// Locates exactly one OFM task with `id` in `section`.
+///
+/// This deliberately walks `ListItem::Task` nodes and their direct child list
+/// items.  It does not inspect Markdown lines, so fenced text and ordinary
+/// lists cannot be mistaken for Blueprint tasks or fields.
+pub(crate) fn locate_task(source: &str, section: &str, id: &str) -> anyhow::Result<TaskLocator> {
+    let parsed = ParsedDocument::parse(
+        "document.md",
+        source,
+        DocumentSchema {
+            name: "",
+            required_sections: &[],
+        },
+    )?;
+    let section_range = parsed.section_body_range(section)?;
+    let document =
+        Parser::new_with_options(source, ParserOptions::default().enabled_gfm().enabled_ofm())
+            .parse_checked()
+            .map_err(|error| anyhow::anyhow!("invalid Markdown: {error:?}"))?;
+
+    let matches = active_node_indices(&document)
+        .into_iter()
+        .filter(|index| is_task_node(&document, *index))
+        .filter(|index| list_item_block_id(&document, *index).as_deref() == Some(id))
+        .filter(|index| {
+            let start = location_to_byte(source, document.tree[*index].start);
+            section_range.contains(&start)
+        })
+        .filter(|index| is_protocol_task(&document, *index, section))
+        .collect::<Vec<_>>();
+    let [index] = matches.as_slice() else {
+        if matches.is_empty() {
+            anyhow::bail!("unknown {section} task: {id}");
+        }
+        anyhow::bail!("duplicate {section} task ID: {id}");
+    };
+    task_locator(source, &document, *index)
+}
+
+fn is_task_node(document: &Document, index: usize) -> bool {
+    matches!(
+        &document.tree[index].body,
+        MarkdownNode::ListItem(item) if matches!(item.as_ref(), ListItem::Task(_))
+    )
+}
+
+fn is_protocol_task(document: &Document, index: usize, section: &str) -> bool {
+    let parent_list = document.tree.get_parent(index);
+    let is_top_level = document.tree.get_parent(parent_list) == 0;
+    match section {
+        "Todos" => is_top_level || has_ancestor_label(document, index, "Children:"),
+        "Definition of Done" => is_top_level,
+        _ => true,
+    }
+}
+
+fn task_locator(source: &str, document: &Document, index: usize) -> anyhow::Result<TaskLocator> {
+    let node = &document.tree[index];
+    let MarkdownNode::ListItem(item) = &node.body else {
+        unreachable!("task_locator is called only for task nodes")
+    };
+    let ListItem::Task(task) = item.as_ref() else {
+        unreachable!("task_locator is called only for task nodes")
+    };
+    let status = TodoStatus::from_marker(
+        task.task
+            .ok_or_else(|| anyhow::anyhow!("task has no marker"))?,
+    )
+    .ok_or_else(|| anyhow::anyhow!("task has no supported marker"))?;
+    let task_start = location_to_byte(source, node.start);
+    let task_line_end = line_start_after(source, node.start.line);
+    let task_end = subtree_end(source, document, index).max(task_line_end);
+    let marker = task_start + 2..task_start + 5;
+    if source.get(marker.clone()) != Some(&format!("[{}]", status.marker())) {
+        anyhow::bail!("task marker location is invalid")
+    }
+    let title = task_title_range(source, document, index)?;
+    let mut fields = Vec::new();
+    let mut children = None;
+    let mut child = document.tree.get_first_child(index);
+    while let Some(child_index) = child {
+        if matches!(document.tree[child_index].body, MarkdownNode::List(_)) {
+            let mut field = document.tree.get_first_child(child_index);
+            while let Some(field_index) = field {
+                if let Some((name, value, value_range)) =
+                    direct_field(source, document, field_index)
+                {
+                    let field_node = &document.tree[field_index];
+                    let line = location_to_byte(source, field_node.start)
+                        ..line_start_after(source, field_node.start.line);
+                    if name == "Children" {
+                        let mut nested = document.tree.get_first_child(field_index);
+                        while let Some(nested_index) = nested {
+                            if matches!(document.tree[nested_index].body, MarkdownNode::List(_)) {
+                                let nested_node = &document.tree[nested_index];
+                                let contents = location_to_byte(source, nested_node.start)
+                                    ..subtree_end(source, document, nested_index);
+                                let child_indent = indentation_at(source, contents.start);
+                                children = Some(TaskChildrenLocator {
+                                    label: line.clone(),
+                                    contents,
+                                    child_indent,
+                                });
+                                break;
+                            }
+                            nested = document.tree.get_next(nested_index);
+                        }
+                    }
+                    fields.push(TaskFieldLocator {
+                        name,
+                        value,
+                        value_range,
+                        line,
+                    });
+                }
+                field = document.tree.get_next(field_index);
+            }
+        }
+        child = document.tree.get_next(child_index);
+    }
+    Ok(TaskLocator {
+        task_line: task_start..task_line_end,
+        task: task_start..task_end,
+        marker,
+        title,
+        indent: indentation_at(source, task_start),
+        status,
+        title_text: direct_text(document, index).trim().to_string(),
+        fields,
+        children,
+    })
+}
+
+fn task_title_range(
+    source: &str,
+    document: &Document,
+    index: usize,
+) -> anyhow::Result<Range<usize>> {
+    fn text(source: &str, document: &Document, index: usize) -> Option<Range<usize>> {
+        if matches!(document.tree[index].body, MarkdownNode::List(_)) {
+            return None;
+        }
+        if matches!(document.tree[index].body, MarkdownNode::Text(_)) {
+            let node = &document.tree[index];
+            return Some(location_to_byte(source, node.start)..location_to_byte(source, node.end));
+        }
+        let mut child = document.tree.get_first_child(index);
+        while let Some(child_index) = child {
+            if let Some(range) = text(source, document, child_index) {
+                return Some(range);
+            }
+            child = document.tree.get_next(child_index);
+        }
+        None
+    }
+
+    fn find(source: &str, document: &Document, index: usize) -> Option<Range<usize>> {
+        if matches!(document.tree[index].body, MarkdownNode::List(_)) {
+            return None;
+        }
+        if matches!(document.tree[index].body, MarkdownNode::Text(_)) {
+            let node = &document.tree[index];
+            return Some(location_to_byte(source, node.start)..location_to_byte(source, node.end));
+        }
+        if matches!(document.tree[index].body, MarkdownNode::Link(_)) {
+            return text(source, document, index);
+        }
+        let mut child = document.tree.get_first_child(index);
+        while let Some(child_index) = child {
+            if let Some(range) = find(source, document, child_index) {
+                return Some(range);
+            }
+            child = document.tree.get_next(child_index);
+        }
+        None
+    }
+
+    find(source, document, index).ok_or_else(|| anyhow::anyhow!("task has no Markdown link title"))
+}
+
+fn direct_field(
+    source: &str,
+    document: &Document,
+    index: usize,
+) -> Option<(String, String, Range<usize>)> {
+    let MarkdownNode::ListItem(item) = &document.tree[index].body else {
+        return None;
+    };
+    if !matches!(item.as_ref(), ListItem::Bullet(_)) {
+        return None;
+    }
+    let text = direct_text(document, index);
+    let text = text.trim();
+    let (name, value) = text.split_once(':')?;
+    let name = name.trim();
+    let value = value.trim();
+    let text_start = first_text_start(source, document, index)?;
+    let colon = text.find(':')?;
+    let raw_value = &text[colon + 1..];
+    let leading = raw_value.len() - raw_value.trim_start().len();
+    let value_start = text_start + colon + 1 + leading;
+    (!name.is_empty()).then(|| {
+        (
+            name.to_string(),
+            value.to_string(),
+            value_start..value_start + value.len(),
+        )
+    })
+}
+
+fn first_text_start(source: &str, document: &Document, index: usize) -> Option<usize> {
+    if matches!(document.tree[index].body, MarkdownNode::Text(_)) {
+        return Some(location_to_byte(source, document.tree[index].start));
+    }
+    let mut child = document.tree.get_first_child(index);
+    while let Some(child_index) = child {
+        if !matches!(document.tree[child_index].body, MarkdownNode::List(_))
+            && let Some(start) = first_text_start(source, document, child_index)
+        {
+            return Some(start);
+        }
+        child = document.tree.get_next(child_index);
+    }
+    None
+}
+
+fn indentation_at(source: &str, offset: usize) -> usize {
+    let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    source[line_start..offset].chars().count()
+}
+
+fn subtree_end(source: &str, document: &Document, index: usize) -> usize {
+    let mut end = line_start_after(source, document.tree[index].start.line);
+    let mut child = document.tree.get_first_child(index);
+    while let Some(child_index) = child {
+        end = end.max(subtree_end(source, document, child_index));
+        child = document.tree.get_next(child_index);
+    }
+    end
+}
+
+fn line_start_after(source: &str, line: u64) -> usize {
+    let target = line.saturating_add(1);
+    if target <= 1 {
+        return 0;
+    }
+    let mut current = 1;
+    for (index, character) in source.char_indices() {
+        if character == '\n' {
+            current += 1;
+            if current == target {
+                return index + 1;
+            }
+        }
+    }
+    source.len()
 }
 
 /// Validates Evidence identity and standard Markdown references within one Blueprint aggregate.

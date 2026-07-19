@@ -172,7 +172,7 @@ fn section_edits_preserve_unknown_setext_h2_bytes() {
 }
 
 #[test]
-fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
+fn task_mutations_ignore_ast_and_fenced_block_id_decoys() {
     let (directory, service, blueprint) = create_blueprint();
     let todo = service
         .todo_create(TodoCreateRequest {
@@ -191,7 +191,11 @@ fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
         blueprint.id
     ));
     let fake_task = format!(
-        "```md\n- [ ] [fake](todos/{}.md) ^{}\n```\n\n",
+        "````md\n```md\n- [ ] [fake](todos/{}.md) ^{}\n```\n````\n\n",
+        todo.graph.id, todo.graph.id
+    );
+    let nested_todo_decoy = format!(
+        "- Unknown metadata:\n  - [ ] [nested fake](todos/{}.md) ^{}\n\n",
         todo.graph.id, todo.graph.id
     );
     let fake_notes = format!(
@@ -200,7 +204,10 @@ fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
     );
     let source = fs::read_to_string(&path)
         .unwrap()
-        .replace("## Todos\n", &format!("{fake_task}## Todos\n"))
+        .replace(
+            "## Results\n",
+            &format!("{fake_task}{nested_todo_decoy}## Results\n"),
+        )
         .replace("## Notes\n", &format!("## Notes\n\n{fake_notes}"));
     fs::write(&path, source).unwrap();
 
@@ -209,6 +216,7 @@ fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
         .unwrap();
     let after = service.blueprint_get(&blueprint.id).unwrap().source;
     assert!(after.contains(&fake_task));
+    assert!(after.contains(&nested_todo_decoy));
     assert!(after.contains(&fake_notes));
     assert_eq!(started.graph.status, TodoStatus::InProgress);
     assert!(after.contains(&format!(
@@ -234,12 +242,16 @@ fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
         )
         .unwrap();
     let after = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert!(after.contains(&fake_task));
+    assert!(after.contains(&nested_todo_decoy));
     assert!(after.contains(&fake_notes));
     assert!(after.contains("[notes fake]"));
     assert_eq!(updated.graph.title, "renamed real");
 
     let dod = first_dod_id(&after);
-    let fake_dod = format!("```md\n- [ ] fake ^{dod}\n```\n\n");
+    let fake_dod = format!(
+        "- Unknown check metadata:\n  - [ ] fake AST decoy ^{dod}\n\n````md\n```md\n- [ ] fake fence decoy ^{dod}\n```\n````\n\n"
+    );
     fs::write(
         &path,
         after.replace(
