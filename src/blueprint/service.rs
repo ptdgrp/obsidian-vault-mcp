@@ -37,6 +37,15 @@ pub struct BlueprintStatus {
     pub todos: Vec<Todo>,
 }
 
+/// Revision and concurrency inputs for a Todo mutation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TodoUpdateOptions<'a> {
+    pub changed_by: Option<&'a str>,
+    pub change_reason: Option<&'a str>,
+    pub expected_blueprint_etag: Option<&'a str>,
+    pub expected_todo_etag: Option<&'a str>,
+}
+
 pub use crate::blueprint::model::CheckUpdate;
 
 #[derive(Clone, Debug)]
@@ -224,61 +233,6 @@ impl BlueprintService {
                 .collect(),
             open_definition_of_done: open_dod_ids(&stored.source),
             todos: parsed.todos,
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(
-        name = "blueprint.update",
-        skip_all,
-        fields(operation.kind = "mutation", operation.name = "update"),
-        err
-    )]
-    pub(crate) fn blueprint_update(
-        &self,
-        id: &str,
-        title: Option<&str>,
-        intent: Option<&str>,
-        constraints: Option<&[String]>,
-        plan: Option<&str>,
-        results: Option<&str>,
-        notes: Option<&str>,
-        expected_etag: Option<&str>,
-    ) -> anyhow::Result<StoredBlueprint> {
-        self.require_active(id)?;
-        self.write_blueprint_validated(id, expected_etag, |source| {
-            let mut next = source.to_string();
-            if let Some(title) = title {
-                require_text("title", title)?;
-                next = replace_title(&next, title)?;
-            }
-            if let Some(intent) = intent {
-                require_text("intent", intent)?;
-                next = replace_section(&next, "Intent", intent)?;
-            }
-            if let Some(constraints) = constraints {
-                next = replace_section(
-                    &next,
-                    "Constraints",
-                    &constraints
-                        .iter()
-                        .map(|v| format!("- {}", v.trim()))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                )?;
-            }
-            if let Some(plan) = plan {
-                require_text("plan", plan)?;
-                next = replace_section(&next, "Plan", plan)?;
-            }
-            if let Some(results) = results {
-                next = replace_section(&next, "Results", results)?;
-            }
-            if let Some(notes) = notes {
-                next = replace_section(&next, "Notes", notes)?;
-            }
-            ParsedBlueprintSource::parse(&format!("{id}.md"), &next)?;
-            Ok(next)
         })
     }
 
@@ -1043,27 +997,30 @@ impl BlueprintService {
         blueprint_id: &str,
         todo_id: &str,
         patch: TodoPatch,
-        changed_by: Option<&str>,
-        change_reason: Option<&str>,
-        expected_blueprint_etag: Option<&str>,
-        expected_todo_etag: Option<&str>,
+        options: TodoUpdateOptions<'_>,
     ) -> anyhow::Result<TodoView> {
         let semantic = patch.depends_on.is_some()
             || patch.intent.is_some()
             || patch.completion_criteria.is_some()
             || patch.plan.is_some();
         if semantic {
-            require_text("changed_by", changed_by.unwrap_or(""))?;
-            require_text("change_reason", change_reason.unwrap_or(""))?;
+            require_text("changed_by", options.changed_by.unwrap_or(""))?;
+            require_text("change_reason", options.change_reason.unwrap_or(""))?;
         }
         self.store.with_lock(blueprint_id, |locked| {
             locked.require_active()?;
             let graph = locked.read_blueprint()?;
-            if expected_blueprint_etag.is_some_and(|etag| etag != graph.etag) {
+            if options
+                .expected_blueprint_etag
+                .is_some_and(|etag| etag != graph.etag)
+            {
                 anyhow::bail!("Blueprint ETag does not match; re-read before writing");
             }
             let detail = locked.read_todo(todo_id)?;
-            if expected_todo_etag.is_some_and(|etag| etag != detail.etag) {
+            if options
+                .expected_todo_etag
+                .is_some_and(|etag| etag != detail.etag)
+            {
                 anyhow::bail!("Todo ETag does not match; re-read before writing");
             }
             let mut detail_candidate = todo_patch_detail_candidate(&detail.source, &patch)?;
@@ -1083,8 +1040,8 @@ impl BlueprintService {
                 .join(", ");
                 detail_candidate = append_revision(
                     &detail_candidate,
-                    changed_by.expect("validated"),
-                    change_reason.expect("validated"),
+                    options.changed_by.expect("validated"),
+                    options.change_reason.expect("validated"),
                     &format!("Todo {todo_id} update ({sections})"),
                 )?;
             }
@@ -1101,8 +1058,10 @@ impl BlueprintService {
                 &graph_candidate,
                 Some((todo_id, &detail_candidate)),
             )?;
-            locked.write_todo(todo_id, expected_todo_etag, |_| Ok(detail_candidate))?;
-            locked.write_blueprint(expected_blueprint_etag, |_| Ok(graph_candidate))?;
+            locked.write_todo(todo_id, options.expected_todo_etag, |_| {
+                Ok(detail_candidate)
+            })?;
+            locked.write_blueprint(options.expected_blueprint_etag, |_| Ok(graph_candidate))?;
             Ok(())
         })?;
         self.todo_get(blueprint_id, todo_id)
@@ -1257,13 +1216,6 @@ impl BlueprintService {
     }
 }
 
-fn todo_from_source(blueprint_id: &str, source: &str, todo_id: &str) -> anyhow::Result<Todo> {
-    let parsed = ParsedBlueprintSource::parse(&format!("{blueprint_id}.md"), source)?;
-    find_todo(&parsed.todos, todo_id)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Todo was not found after write: {todo_id}"))
-}
-
 fn hydrate_todo(store: &BlueprintStore, blueprint_id: &str, todo: &Todo) -> anyhow::Result<Todo> {
     let detail_source = store.read_todo(blueprint_id, &todo.id)?;
     let detail =
@@ -1282,16 +1234,6 @@ fn hydrate_todo(store: &BlueprintStore, blueprint_id: &str, todo: &Todo) -> anyh
         .map(|child| hydrate_todo(store, blueprint_id, child))
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(hydrated)
-}
-
-fn todo_from_store(
-    store: &BlueprintStore,
-    blueprint_id: &str,
-    todo_id: &str,
-) -> anyhow::Result<Todo> {
-    let stored = store.read(blueprint_id)?;
-    let central = todo_from_source(blueprint_id, &stored.source, todo_id)?;
-    hydrate_todo(store, blueprint_id, &central)
 }
 
 fn todo_view_from_store(
@@ -1355,15 +1297,6 @@ fn todo_graph_node(todo: &Todo) -> TodoGraphNode {
         cancel_reason: todo.cancel_reason.clone(),
         children: todo.children.iter().map(todo_graph_node).collect(),
     }
-}
-
-fn todo_from_active_source(
-    store: &BlueprintStore,
-    blueprint_id: &str,
-    todo_id: &str,
-) -> anyhow::Result<Todo> {
-    let stored = store.read(blueprint_id)?;
-    todo_from_source(blueprint_id, &stored.source, todo_id)
 }
 
 fn flatten_todos(todos: &[Todo]) -> Vec<&Todo> {
@@ -1634,92 +1567,6 @@ fn replace_task_title(source: &str, todo_id: &str, title: &str) -> anyhow::Resul
     let mut result = source.to_string();
     result.replace_range(start + title_start..start + title_end, title.trim());
     Ok(result)
-}
-
-fn replace_repeated_todo_field(
-    source: &str,
-    todo_id: &str,
-    field: &str,
-    values: &[String],
-) -> anyhow::Result<String> {
-    for value in values {
-        require_text(field, value)?;
-    }
-    replace_todo_field_values(
-        source,
-        todo_id,
-        field,
-        &values.iter().map(|value| value.trim()).collect::<Vec<_>>(),
-    )
-}
-
-fn replace_completion_criteria(
-    source: &str,
-    todo_id: &str,
-    criteria: &[CheckUpdate],
-) -> anyhow::Result<String> {
-    let line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{todo_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
-    let start = line.as_ptr() as usize - source.as_ptr() as usize;
-    let indent = line.len() - line.trim_start().len();
-    let end = source[start + line.len()..]
-        .find("\n- [")
-        .map(|offset| start + line.len() + offset + 1)
-        .or_else(|| {
-            source[start + line.len()..]
-                .find("\n## ")
-                .map(|offset| start + line.len() + offset + 1)
-        })
-        .unwrap_or(source.len());
-    let existing = &source[start..end];
-    let marker = "Completion Criteria:";
-    let replacement = if existing.contains(marker) {
-        let before = existing.split(marker).next().unwrap();
-        let suffix = existing.split(marker).nth(1).unwrap();
-        let tail = suffix
-            .find("\n  - ")
-            .map(|offset| &suffix[offset..])
-            .unwrap_or("");
-        format!(
-            "{before}{marker}\n{}{}",
-            criteria
-                .iter()
-                .map(|c| {
-                    let _ = require_text("completion criterion", &c.text);
-                    format!(
-                        "{}    - [{}] {}\n",
-                        " ".repeat(indent),
-                        if c.completed { 'x' } else { ' ' },
-                        c.text.trim()
-                    )
-                })
-                .collect::<String>(),
-            tail
-        )
-    } else {
-        format!(
-            "{}\n{}  - Completion Criteria:\n{}",
-            existing.trim_end(),
-            " ".repeat(indent),
-            criteria
-                .iter()
-                .map(|c| format!(
-                    "{}    - [{}] {}\n",
-                    " ".repeat(indent),
-                    if c.completed { 'x' } else { ' ' },
-                    c.text.trim()
-                ))
-                .collect::<String>()
-        )
-    };
-    Ok(format!(
-        "{}{}\n{}",
-        &source[..start],
-        replacement.trim_end(),
-        &source[end..]
-    ))
 }
 
 fn replace_or_insert_record_field(

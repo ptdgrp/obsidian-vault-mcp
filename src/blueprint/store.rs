@@ -128,6 +128,7 @@ impl BlueprintStore {
         self.with_lock(id, |locked| locked.write_blueprint(expected_etag, mutate))
     }
 
+    #[cfg(test)]
     pub fn set_state(
         &self,
         id: &str,
@@ -135,10 +136,10 @@ impl BlueprintStore {
         expected_etag: Option<&str>,
     ) -> anyhow::Result<StoredBlueprint> {
         self.write_blueprint(id, expected_etag, |source| {
-            let parsed = ParsedDocument::parse(
+            let parsed = crate::blueprint::document::ParsedDocument::parse(
                 &format!("blueprints/{id}/blueprint.md"),
                 source,
-                DocumentSchema {
+                crate::blueprint::document::DocumentSchema {
                     name: "blueprint/v2",
                     required_sections: &[],
                 },
@@ -147,6 +148,7 @@ impl BlueprintStore {
         })
     }
 
+    #[cfg(test)]
     pub fn create_todo(
         &self,
         blueprint_id: &str,
@@ -163,6 +165,7 @@ impl BlueprintStore {
         self.read_todo_unlocked(blueprint_id, id)
     }
 
+    #[cfg(test)]
     pub fn write_todo(
         &self,
         blueprint_id: &str,
@@ -222,31 +225,6 @@ impl BlueprintStore {
             _lock: self.lock(id)?,
         };
         operation(&locked)
-    }
-
-    // These legacy v1 Service entry points are intentionally isolated. A v2 Store must not hand
-    // a v2 document to ParsedBlueprintSource, whose schema does not identify v2 documents.
-    pub fn read_active(&self, _id: &str) -> anyhow::Result<StoredBlueprint> {
-        anyhow::bail!("legacy Blueprint v1 Service cannot read blueprint/v2 documents")
-    }
-
-    pub fn write(
-        &self,
-        _id: &str,
-        _expected_etag: Option<&str>,
-        _mutate: impl FnOnce(&str) -> anyhow::Result<String>,
-    ) -> anyhow::Result<StoredBlueprint> {
-        anyhow::bail!("legacy Blueprint v1 Service cannot write blueprint/v2 documents")
-    }
-
-    pub fn move_to(
-        &self,
-        _id: &str,
-        _destination: &str,
-        _expected_etag: Option<&str>,
-        _mutate: impl FnOnce(&str) -> anyhow::Result<String>,
-    ) -> anyhow::Result<StoredBlueprint> {
-        anyhow::bail!("legacy Blueprint v1 Service cannot write blueprint/v2 documents")
     }
 
     fn read_unlocked(&self, id: &str) -> anyhow::Result<StoredBlueprint> {
@@ -494,6 +472,7 @@ fn validate_todo_id(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn state_name(state: BlueprintState) -> &'static str {
     match state {
         BlueprintState::Active => "active",

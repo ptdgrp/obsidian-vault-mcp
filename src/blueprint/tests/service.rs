@@ -8,7 +8,9 @@ use super::super::{
         BlueprintPatch, EvidenceAddInput, RevisionAppendInput, TodoCreateRequest, TodoPatch,
         TodoStatus,
     },
-    service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate},
+    service::{
+        BlueprintCreateRequest, BlueprintCreated, BlueprintService, CheckUpdate, TodoUpdateOptions,
+    },
 };
 
 fn create_blueprint() -> (TempDir, BlueprintService, BlueprintCreated) {
@@ -101,10 +103,11 @@ fn evidence_add_is_globally_unique_and_resolves_across_todo_documents() {
                 )),
                 ..Default::default()
             },
-            None,
-            None,
-            Some(&second_view.blueprint_etag),
-            Some(&second_view.todo_etag),
+            TodoUpdateOptions {
+                expected_blueprint_etag: Some(&second_view.blueprint_etag),
+                expected_todo_etag: Some(&second_view.todo_etag),
+                ..Default::default()
+            },
         )
         .unwrap();
     service.blueprint_status(&blueprint.id).unwrap();
@@ -150,10 +153,12 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
                 }]),
                 ..Default::default()
             },
-            Some("agent"),
-            Some("完成检查"),
-            Some(&started.blueprint_etag),
-            Some(&started.todo_etag),
+            TodoUpdateOptions {
+                changed_by: Some("agent"),
+                change_reason: Some("完成检查"),
+                expected_blueprint_etag: Some(&started.blueprint_etag),
+                expected_todo_etag: Some(&started.todo_etag),
+            },
         )
         .unwrap();
     let error = service
@@ -176,10 +181,11 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
                 results: Some("not-a-link](#^evidence-fake)".into()),
                 ..Default::default()
             },
-            None,
-            None,
-            Some(&checked.blueprint_etag),
-            Some(&checked.todo_etag),
+            TodoUpdateOptions {
+                expected_blueprint_etag: Some(&checked.blueprint_etag),
+                expected_todo_etag: Some(&checked.todo_etag),
+                ..Default::default()
+            },
         )
         .unwrap();
     let error = service
@@ -202,10 +208,11 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
                 results: Some("[坏链接](outside.md#^evidence-missing)".into()),
                 ..Default::default()
             },
-            None,
-            None,
-            Some(&fake_link.blueprint_etag),
-            Some(&fake_link.todo_etag),
+            TodoUpdateOptions {
+                expected_blueprint_etag: Some(&fake_link.blueprint_etag),
+                expected_todo_etag: Some(&fake_link.todo_etag),
+                ..Default::default()
+            },
         )
         .unwrap_err();
     assert!(with_bad_link.to_string().contains("Evidence target"));
@@ -291,10 +298,12 @@ fn todo_patch_checks_both_etags_syncs_title_and_records_semantic_revision() {
                 intent: Some("新目标".into()),
                 ..Default::default()
             },
-            Some("planner"),
-            Some("目标调整"),
-            Some("stale"),
-            Some(&todo.todo_etag),
+            TodoUpdateOptions {
+                changed_by: Some("planner"),
+                change_reason: Some("目标调整"),
+                expected_blueprint_etag: Some("stale"),
+                expected_todo_etag: Some(&todo.todo_etag),
+            },
         )
         .unwrap_err();
     assert!(error.to_string().contains("Blueprint ETag"));
@@ -309,10 +318,12 @@ fn todo_patch_checks_both_etags_syncs_title_and_records_semantic_revision() {
                 plan: Some("新计划".into()),
                 ..Default::default()
             },
-            Some("planner"),
-            Some("目标调整"),
-            Some(&todo.blueprint_etag),
-            Some(&todo.todo_etag),
+            TodoUpdateOptions {
+                changed_by: Some("planner"),
+                change_reason: Some("目标调整"),
+                expected_blueprint_etag: Some(&todo.blueprint_etag),
+                expected_todo_etag: Some(&todo.todo_etag),
+            },
         )
         .unwrap();
     assert_eq!(updated.graph.title, "更新标题");
@@ -378,10 +389,11 @@ fn stale_todo_etag_does_not_block_or_complete_any_document() {
                     handoff: Some("would be lost".into()),
                     ..Default::default()
                 },
-                None,
-                None,
-                Some(&before.blueprint_etag),
-                Some("stale-todo-etag"),
+                TodoUpdateOptions {
+                    expected_blueprint_etag: Some(&before.blueprint_etag),
+                    expected_todo_etag: Some("stale-todo-etag"),
+                    ..Default::default()
+                },
             )
             .is_err()
     );
@@ -723,13 +735,13 @@ fn blueprint_update_preserves_unknown_markdown() {
     fs::write(path, source).unwrap();
 
     let updated = service
-        .blueprint_update(
+        .blueprint_update_semantic(
             &created.id,
+            BlueprintPatch {
+                results: Some("### Current Outcome\n\n完成。".into()),
+                ..Default::default()
+            },
             None,
-            None,
-            None,
-            None,
-            Some("### Current Outcome\n\n完成。"),
             None,
             None,
         )
@@ -806,14 +818,19 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
     .expect("add unknown section");
 
     let updated = service
-        .blueprint_update(
+        .blueprint_update_semantic(
             &blueprint.id,
-            Some(" renamed "),
-            Some("revised intent"),
-            Some(&[" first ".into(), "second".into()]),
-            Some("revised plan"),
-            Some("### Current Outcome\n\nworking"),
-            Some("note text"),
+            BlueprintPatch {
+                title: Some(" renamed ".into()),
+                intent: Some("revised intent".into()),
+                constraints: Some(vec![" first ".into(), "second".into()]),
+                plan: Some("revised plan".into()),
+                results: Some("### Current Outcome\n\nworking".into()),
+                notes: Some("note text".into()),
+                ..Default::default()
+            },
+            Some("creator"),
+            Some("update Blueprint sections"),
             None,
         )
         .expect("update Blueprint sections");
@@ -843,14 +860,16 @@ fn blueprint_update_changes_allowed_sections_and_rejects_blank_required_text() {
             .blueprint_get(&blueprint.id)
             .expect("current Blueprint");
         let error = service
-            .blueprint_update(
+            .blueprint_update_semantic(
                 &blueprint.id,
-                title,
-                intent,
-                None,
-                plan,
-                None,
-                None,
+                BlueprintPatch {
+                    title: title.map(str::to_owned),
+                    intent: intent.map(str::to_owned),
+                    plan: plan.map(str::to_owned),
+                    ..Default::default()
+                },
+                Some("creator"),
+                Some("validate required text"),
                 Some(&before.etag),
             )
             .expect_err("blank required update must fail");

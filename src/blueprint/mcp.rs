@@ -237,12 +237,15 @@ impl BlueprintMcp {
                     results: r.result_summary,
                     notes: r.notes,
                 },
-                r.changed_by.as_deref(),
-                r.change_reason.as_deref(),
-                r.expected_blueprint_etag
-                    .as_deref()
-                    .or(r.expected_etag.as_deref()),
-                r.expected_todo_etag.as_deref(),
+                crate::blueprint::TodoUpdateOptions {
+                    changed_by: r.changed_by.as_deref(),
+                    change_reason: r.change_reason.as_deref(),
+                    expected_blueprint_etag: r
+                        .expected_blueprint_etag
+                        .as_deref()
+                        .or(r.expected_etag.as_deref()),
+                    expected_todo_etag: r.expected_todo_etag.as_deref(),
+                },
             ),
         )
     }

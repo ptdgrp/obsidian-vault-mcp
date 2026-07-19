@@ -18,7 +18,9 @@ pub use model::{
     TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput, TodoPatch, TodoStatus,
     TodoUpdateInput, TodoView,
 };
-pub use service::{BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate};
+pub use service::{
+    BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate, TodoUpdateOptions,
+};
 #[allow(unused_imports)]
 pub use source::{BlueprintSource, parse_blueprint_source};
 pub use store::StoredBlueprint;

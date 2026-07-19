@@ -13,7 +13,7 @@ pub(crate) enum Command {
     /// Run the independent Blueprint MCP service, or execute a Blueprint operation directly
     Blueprint {
         #[command(subcommand)]
-        command: Option<BlueprintCommand>,
+        command: Option<Box<BlueprintCommand>>,
     },
 
     /// Generate docs from the MCP tool schemas
@@ -393,7 +393,10 @@ impl Command {
                     let command_span =
                         tracing::info_span!("cli.blueprint_command", command = command_name);
                     tracing::info!(parent: &command_span, command = command_name, "cli.blueprint_command.start");
-                    let result = command.run(&service).instrument(command_span.clone()).await;
+                    let result = (*command)
+                        .run(&service)
+                        .instrument(command_span.clone())
+                        .await;
                     match result {
                         Ok(()) => {
                             tracing::info!(parent: &command_span, command = command_name, "cli.blueprint_command.ok");
@@ -1199,10 +1202,12 @@ impl BlueprintCommand {
                         results: result_summary,
                         notes,
                     },
-                    changed_by.as_deref(),
-                    change_reason.as_deref(),
-                    expected_blueprint_etag.as_deref(),
-                    expected_todo_etag.as_deref(),
+                    crate::blueprint::TodoUpdateOptions {
+                        changed_by: changed_by.as_deref(),
+                        change_reason: change_reason.as_deref(),
+                        expected_blueprint_etag: expected_blueprint_etag.as_deref(),
+                        expected_todo_etag: expected_todo_etag.as_deref(),
+                    },
                 )?)?;
             }
             BlueprintCommand::TodoAssign {

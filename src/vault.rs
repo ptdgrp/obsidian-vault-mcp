@@ -33,7 +33,7 @@ impl Vault {
     }
 
     #[cfg(test)]
-    pub fn modify_config(&self, modifier: impl FnOnce(&mut VaultConfig) -> ()) {
+    pub fn modify_config(&self, modifier: impl FnOnce(&mut VaultConfig)) {
         let guard = self.config.load();
         let mut new_config = (*guard).as_ref().clone();
         drop(guard);

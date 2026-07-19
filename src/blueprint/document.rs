@@ -303,10 +303,12 @@ fn frontmatter_field_value_range<'a>(
         if yaml_key(&content[..colon]) == Some(field) {
             let value = &content[colon + 1..];
             let leading_whitespace = value.len() - value.trim_start().len();
-            let comment_separator = (leading_whitespace > 0
-                && value[leading_whitespace..].starts_with('#'))
-            .then_some(&value[..leading_whitespace])
-            .unwrap_or("");
+            let comment_separator =
+                if leading_whitespace > 0 && value[leading_whitespace..].starts_with('#') {
+                    &value[..leading_whitespace]
+                } else {
+                    ""
+                };
             let start = offset + colon + 1 + leading_whitespace;
             let value = &value[leading_whitespace..];
             let (length, quote) = yaml_value_length(value);
