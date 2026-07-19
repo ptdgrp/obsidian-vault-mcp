@@ -26,32 +26,16 @@ pub fn validate_dependency_graph(todos: &[Todo]) -> anyhow::Result<()> {
 
 fn validate_todo_invariants(todos: &[&Todo]) -> anyhow::Result<()> {
     for todo in todos {
-        if todo.created_by.as_deref().is_none_or(str::is_empty) {
-            anyhow::bail!("Todo {} is missing Created By", todo.id);
-        }
         match todo.status {
             TodoStatus::Pending => {}
-            TodoStatus::InProgress if todo.owner.as_deref().is_none_or(str::is_empty) => {
-                anyhow::bail!("in_progress Todo {} is missing Owner", todo.id)
-            }
             TodoStatus::Completed => {
-                if todo.completed_by.as_deref().is_none_or(str::is_empty) {
-                    anyhow::bail!("completed Todo {} is missing Completed By", todo.id);
-                }
                 if todo.children.iter().any(|child| {
                     !matches!(child.status, TodoStatus::Completed | TodoStatus::Cancelled)
                 }) {
                     anyhow::bail!("completed Todo {} has open child Todos", todo.id);
                 }
             }
-            TodoStatus::Blocked => {
-                if todo.block_reason.as_deref().is_none_or(str::is_empty) {
-                    anyhow::bail!("blocked Todo {} is missing Block Reason", todo.id);
-                }
-            }
-            TodoStatus::Cancelled if todo.cancel_reason.as_deref().is_none_or(str::is_empty) => {
-                anyhow::bail!("cancelled Todo {} is missing Cancel Reason", todo.id)
-            }
+            TodoStatus::Blocked | TodoStatus::Cancelled => {}
             _ => {}
         }
     }

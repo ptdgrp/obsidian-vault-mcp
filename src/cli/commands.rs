@@ -689,15 +689,10 @@ pub(crate) enum BlueprintCommand {
         plan: String,
         /// Evaluation rubric for this Blueprint.
         #[arg(long)]
-        rubric: String,
+        rubric: Option<String>,
     },
     /// Get a Blueprint.
-    Get {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        view: Option<String>,
-    },
+    Get { blueprint_id: String },
     /// List Blueprints.
     List {
         #[arg(long, default_value = "active")]
@@ -705,10 +700,7 @@ pub(crate) enum BlueprintCommand {
     },
     /// Update a Blueprint.
     Update {
-        #[arg(long)]
         blueprint_id: String,
-        #[arg(long)]
-        title: Option<String>,
         #[arg(long)]
         intent: Option<String>,
         #[arg(long)]
@@ -731,13 +723,9 @@ pub(crate) enum BlueprintCommand {
         expected_etag: Option<String>,
     },
     /// Get Blueprint status.
-    Status {
-        #[arg(long)]
-        blueprint_id: String,
-    },
+    Status { blueprint_id: String },
     /// Close a Blueprint.
     Close {
-        #[arg(long)]
         blueprint_id: String,
         #[arg(long)]
         closed_by: String,
@@ -748,7 +736,6 @@ pub(crate) enum BlueprintCommand {
     },
     /// Cancel a Blueprint.
     Cancel {
-        #[arg(long)]
         blueprint_id: String,
         #[arg(long)]
         cancelled_by: String,
@@ -757,196 +744,11 @@ pub(crate) enum BlueprintCommand {
         #[arg(long)]
         expected_etag: Option<String>,
     },
-    /// Update a Definition of Done item.
-    DodUpdate {
-        #[arg(long)]
+    /// Open a Blueprint
+    Open {
         blueprint_id: String,
-        #[arg(long)]
-        dod_id: String,
-        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-        completed: bool,
-        #[arg(long)]
-        note: Option<String>,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// Submit Evidence to a Blueprint or Todo detail document.
-    EvidenceSubmit {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: Option<String>,
-        #[arg(long)]
-        title: String,
-        #[arg(long = "body-line", required = true)]
-        body_lines: Vec<String>,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// List Evidence in a Blueprint or one Todo.
-    EvidenceList {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: Option<String>,
-        #[arg(long, default_value_t = 1)]
-        page: usize,
-    },
-    /// Append an immutable Revision History record.
-    RevisionAppend {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: Option<String>,
-        #[arg(long)]
-        changed_by: String,
-        #[arg(long)]
-        reason: String,
-        #[arg(long)]
-        change: String,
-        #[arg(long, required = true)]
-        affected: Vec<String>,
-        #[arg(long)]
-        evidence_impact: Option<String>,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// Create a todo.
-    TodoCreate {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        title: String,
-        #[arg(long)]
-        created_by: String,
-        #[arg(long)]
-        intent: String,
-        #[arg(long)]
-        plan: String,
-        #[arg(long)]
-        parent_id: Option<String>,
-        #[arg(long)]
-        owner: Option<String>,
-        #[arg(long)]
-        depends_on: Vec<String>,
-        #[arg(long)]
-        completion_criteria: Vec<String>,
-        #[arg(long)]
-        expected_blueprint_etag: Option<String>,
-    },
-    /// Get a todo.
-    TodoGet {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// List todos.
-    TodoList {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        status: Option<crate::blueprint::TodoStatus>,
-        #[arg(long)]
-        owner: Option<String>,
-        #[arg(long)]
-        ready: Option<bool>,
-    },
-    /// Update a todo.
-    TodoUpdate {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        title: Option<String>,
-        #[arg(long)]
-        depends_on: Option<Vec<String>>,
-        #[arg(long)]
-        intent: Option<String>,
-        #[arg(long)]
-        completion_criterion: Vec<String>,
-        #[arg(long)]
-        completed_criterion: Vec<String>,
-        #[arg(long)]
-        handoff: Option<Vec<String>>,
-        #[arg(long = "result-line")]
-        result_lines: Vec<String>,
-        #[arg(long = "result-evidence")]
-        result_evidence: Vec<String>,
-        #[arg(long)]
-        plan: Option<String>,
-        #[arg(long)]
-        notes: Option<String>,
-        #[arg(long)]
-        changed_by: Option<String>,
-        #[arg(long)]
-        change_reason: Option<String>,
-        #[arg(long)]
-        expected_blueprint_etag: Option<String>,
-        #[arg(long)]
-        expected_todo_etag: Option<String>,
-    },
-    /// Assign a todo.
-    TodoAssign {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        owner: String,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// Start a todo.
-    TodoStart {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        expected_etag: Option<String>,
-    },
-    /// Complete a todo.
-    TodoComplete {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        completed_by: String,
-        #[arg(long)]
-        expected_blueprint_etag: Option<String>,
-        #[arg(long)]
-        expected_todo_etag: Option<String>,
-    },
-    /// Block a todo.
-    TodoBlock {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        reason: String,
-        #[arg(long)]
-        handoff: String,
-        #[arg(long)]
-        expected_blueprint_etag: Option<String>,
-        #[arg(long)]
-        expected_todo_etag: Option<String>,
-    },
-    /// Cancel a todo.
-    TodoCancel {
-        #[arg(long)]
-        blueprint_id: String,
-        #[arg(long)]
-        todo_id: String,
-        #[arg(long)]
-        reason: String,
-        #[arg(long)]
-        expected_etag: Option<String>,
+        #[command(subcommand)]
+        command: BlueprintOpenCommand,
     },
 }
 
@@ -960,19 +762,7 @@ impl BlueprintCommand {
             Self::Status { .. } => "status",
             Self::Close { .. } => "close",
             Self::Cancel { .. } => "cancel",
-            Self::DodUpdate { .. } => "dod_update",
-            Self::EvidenceSubmit { .. } => "evidence_submit",
-            Self::EvidenceList { .. } => "evidence_list",
-            Self::RevisionAppend { .. } => "revision_append",
-            Self::TodoCreate { .. } => "todo_create",
-            Self::TodoGet { .. } => "todo_get",
-            Self::TodoList { .. } => "todo_list",
-            Self::TodoUpdate { .. } => "todo_update",
-            Self::TodoAssign { .. } => "todo_assign",
-            Self::TodoStart { .. } => "todo_start",
-            Self::TodoComplete { .. } => "todo_complete",
-            Self::TodoBlock { .. } => "todo_block",
-            Self::TodoCancel { .. } => "todo_cancel",
+            Self::Open { command, .. } => command.name(),
         }
     }
     async fn run(self, service: &crate::blueprint::BlueprintService) -> anyhow::Result<()> {
@@ -994,12 +784,12 @@ impl BlueprintCommand {
                         constraints,
                         definition_of_done,
                         plan,
-                        rubric,
+                        rubric: rubric.unwrap_or_default(),
                     },
                 )?)?;
             }
-            BlueprintCommand::Get { blueprint_id, view } => {
-                print_value(&service.blueprint_view(&blueprint_id, view.as_deref())?)?;
+            BlueprintCommand::Get { blueprint_id } => {
+                print_value(&service.blueprint_get(&blueprint_id)?)?;
             }
             BlueprintCommand::List { state } => {
                 print_value(&service.blueprint_list(&state).map(|blueprint_ids| {
@@ -1008,7 +798,6 @@ impl BlueprintCommand {
             }
             BlueprintCommand::Update {
                 blueprint_id,
-                title,
                 intent,
                 constraints,
                 plan,
@@ -1023,7 +812,6 @@ impl BlueprintCommand {
                 print_value(&service.blueprint_update_semantic(
                     &blueprint_id,
                     crate::blueprint::BlueprintPatch {
-                        title,
                         intent,
                         constraints,
                         plan,
@@ -1073,312 +861,393 @@ impl BlueprintCommand {
                     expected_etag.as_deref(),
                 )?)?;
             }
-            BlueprintCommand::DodUpdate {
+            BlueprintCommand::Open {
                 blueprint_id,
-                dod_id,
-                completed,
-                note,
-                expected_etag,
-            } => {
-                print_value(&service.dod_update(
-                    &blueprint_id,
-                    &dod_id,
+                command,
+            } => match command {
+                BlueprintOpenCommand::DodUpdate {
+                    dod_id,
                     completed,
-                    note.as_deref(),
-                    expected_etag.as_deref(),
-                )?)?;
-            }
-            BlueprintCommand::EvidenceSubmit {
-                blueprint_id,
-                todo_id,
-                title,
-                body_lines,
-                expected_etag,
-            } => {
-                print_value(
-                    &service.evidence_submit(crate::blueprint::EvidenceSubmitInput {
-                        blueprint_id,
-                        todo_id,
-                        title,
-                        body: crate::blueprint::ExternalBody { lines: body_lines },
-                        expected_etag,
-                    })?,
-                )?;
-            }
-            BlueprintCommand::EvidenceList {
-                blueprint_id,
-                todo_id,
-                page,
-            } => {
-                print_value(&service.evidence_list(&blueprint_id, todo_id.as_deref(), page)?)?;
-            }
-            BlueprintCommand::RevisionAppend {
-                blueprint_id,
-                todo_id,
-                changed_by,
-                reason,
-                change,
-                affected,
-                evidence_impact,
-                expected_etag,
-            } => {
-                print_value(
-                    &service.revision_append(crate::blueprint::RevisionAppendInput {
-                        blueprint_id,
-                        todo_id,
-                        changed_by,
-                        reason,
-                        change,
-                        affected,
-                        evidence_impact,
-                        expected_etag,
-                    })?,
-                )?;
-            }
-            BlueprintCommand::TodoCreate {
-                blueprint_id,
-                title,
-                created_by,
-                intent,
-                plan,
-                parent_id,
-                owner,
-                depends_on,
-                completion_criteria,
-                expected_blueprint_etag,
-            } => {
-                print_value(&service.todo_create(crate::blueprint::TodoCreateRequest {
-                    blueprint_id,
+                    note,
+                    expected_etag,
+                } => {
+                    print_value(&service.dod_update(
+                        &blueprint_id,
+                        &dod_id,
+                        completed,
+                        note.as_deref(),
+                        expected_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoCreate {
                     title,
                     created_by,
-                    intent,
                     plan,
                     parent_id,
                     owner,
                     depends_on,
                     completion_criteria,
                     expected_blueprint_etag,
-                })?)?;
-            }
-            BlueprintCommand::TodoGet {
-                blueprint_id,
-                todo_id,
-                ..
-            } => {
-                print_value(&service.todo_get(&blueprint_id, &todo_id)?)?;
-            }
-            BlueprintCommand::TodoList {
-                blueprint_id,
-                status,
-                owner,
-                ready,
-            } => {
-                print_value(
-                    &service
-                        .todo_list(&blueprint_id, status, owner.as_deref(), ready)
-                        .map(|todos| crate::blueprint::TodoListOutput { todos })?,
-                )?;
-            }
-            BlueprintCommand::TodoUpdate {
-                blueprint_id,
-                todo_id,
-                title,
-                depends_on,
-                intent,
-                completion_criterion,
-                completed_criterion,
-                handoff,
-                result_lines,
-                result_evidence,
-                plan,
-                notes,
-                changed_by,
-                change_reason,
-                expected_blueprint_etag,
-                expected_todo_etag,
-            } => {
-                let criteria = (!completion_criterion.is_empty()
-                    || !completed_criterion.is_empty())
-                .then(|| {
-                    completion_criterion
-                        .iter()
-                        .map(|text| crate::blueprint::CheckUpdate {
-                            text: text.clone(),
-                            completed: false,
-                        })
-                        .chain(completed_criterion.iter().map(|text| {
-                            crate::blueprint::CheckUpdate {
-                                text: text.clone(),
-                                completed: true,
-                            }
-                        }))
-                        .collect::<Vec<_>>()
-                });
-                print_value(&service.todo_update(
-                    &blueprint_id,
-                    &todo_id,
-                    crate::blueprint::TodoPatch {
+                } => {
+                    print_value(&service.todo_create(crate::blueprint::TodoCreateRequest {
+                        blueprint_id,
                         title,
-                        depends_on,
-                        intent,
-                        completion_criteria: criteria,
+                        created_by,
                         plan,
-                        handoff: handoff.map(|items| {
-                            items
-                                .into_iter()
-                                .map(|item| format!("- {}", item.trim()))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        }),
-                        results:
-                            (!result_lines.is_empty() || !result_evidence.is_empty()).then_some(
-                                crate::blueprint::ResultsInput {
-                                    body: crate::blueprint::ExternalBody {
-                                        lines: result_lines,
+                        parent_id,
+                        owner,
+                        depends_on,
+                        completion_criteria,
+                        expected_blueprint_etag,
+                    })?)?;
+                }
+                BlueprintOpenCommand::TodoGet { todo_id, .. } => {
+                    print_value(&service.todo_get(&blueprint_id, &todo_id)?)?;
+                }
+                BlueprintOpenCommand::TodoList {
+                    status,
+                    owner,
+                    ready,
+                } => {
+                    print_value(
+                        &service
+                            .todo_list(&blueprint_id, status, owner.as_deref(), ready)
+                            .map(|todos| crate::blueprint::TodoListOutput { todos })?,
+                    )?;
+                }
+                BlueprintOpenCommand::TodoUpdate {
+                    todo_id,
+                    title,
+                    depends_on,
+                    completion_criterion,
+                    completed_criterion,
+                    handoff,
+                    result_lines,
+                    result_evidence,
+                    plan,
+                    notes,
+                    changed_by,
+                    change_reason,
+                    expected_blueprint_etag,
+                    expected_todo_etag,
+                } => {
+                    let criteria = (!completion_criterion.is_empty()
+                        || !completed_criterion.is_empty())
+                    .then(|| {
+                        completion_criterion
+                            .iter()
+                            .map(|text| crate::blueprint::CheckUpdate {
+                                text: text.clone(),
+                                completed: false,
+                            })
+                            .chain(completed_criterion.iter().map(|text| {
+                                crate::blueprint::CheckUpdate {
+                                    text: text.clone(),
+                                    completed: true,
+                                }
+                            }))
+                            .collect::<Vec<_>>()
+                    });
+                    print_value(&service.todo_update(
+                        &blueprint_id,
+                        &todo_id,
+                        crate::blueprint::TodoPatch {
+                            title,
+                            depends_on,
+                            completion_criteria: criteria,
+                            plan,
+                            handoff: handoff.map(|items| {
+                                items
+                                    .into_iter()
+                                    .map(|item| format!("- {}", item.trim()))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            }),
+                            result:
+                                (!result_lines.is_empty() || !result_evidence.is_empty()).then_some(
+                                    crate::blueprint::ResultsInput {
+                                        body: crate::blueprint::ExternalBody {
+                                            lines: result_lines,
+                                        },
+                                        evidence_ids: result_evidence,
                                     },
-                                    evidence_ids: result_evidence,
-                                },
-                            ),
-                        notes,
-                    },
-                    crate::blueprint::TodoUpdateOptions {
-                        changed_by: changed_by.as_deref(),
-                        change_reason: change_reason.as_deref(),
-                        expected_blueprint_etag: expected_blueprint_etag.as_deref(),
-                        expected_todo_etag: expected_todo_etag.as_deref(),
-                    },
-                )?)?;
-            }
-            BlueprintCommand::TodoAssign {
-                blueprint_id,
-                todo_id,
-                owner,
-                expected_etag,
-            } => {
-                print_value(&service.todo_assign(
-                    &blueprint_id,
-                    &todo_id,
-                    &owner,
-                    expected_etag.as_deref(),
-                )?)?;
-            }
-            BlueprintCommand::TodoStart {
-                blueprint_id,
-                todo_id,
-                expected_etag,
-            } => {
-                print_value(&service.todo_start(
-                    &blueprint_id,
-                    &todo_id,
-                    expected_etag.as_deref(),
-                )?)?;
-            }
-            BlueprintCommand::TodoComplete {
-                blueprint_id,
-                todo_id,
-                completed_by,
-                expected_blueprint_etag,
-                expected_todo_etag,
-            } => {
-                print_value(&service.todo_complete(
-                    &blueprint_id,
-                    &todo_id,
-                    &completed_by,
-                    expected_blueprint_etag.as_deref(),
-                    expected_todo_etag.as_deref(),
-                )?)?;
-            }
-            BlueprintCommand::TodoBlock {
-                blueprint_id,
-                todo_id,
-                reason,
-                handoff,
-                expected_blueprint_etag,
-                expected_todo_etag,
-            } => {
-                print_value(&service.todo_block(
-                    &blueprint_id,
-                    &todo_id,
-                    &reason,
-                    &handoff,
-                    expected_blueprint_etag.as_deref(),
-                    expected_todo_etag.as_deref(),
-                )?)?;
-            }
-            BlueprintCommand::TodoCancel {
-                blueprint_id,
-                todo_id,
-                reason,
-                expected_etag,
-            } => {
-                print_value(&service.todo_cancel(
-                    &blueprint_id,
-                    &todo_id,
-                    &reason,
-                    expected_etag.as_deref(),
-                )?)?;
-            }
+                                ),
+                            notes,
+                        },
+                        crate::blueprint::TodoUpdateOptions {
+                            changed_by: Some(&changed_by),
+                            change_reason: change_reason.as_deref(),
+                            expected_blueprint_etag: expected_blueprint_etag.as_deref(),
+                            expected_todo_etag: expected_todo_etag.as_deref(),
+                        },
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoAssign {
+                    todo_id,
+                    owner,
+                    changed_by,
+                    expected_etag,
+                } => {
+                    print_value(&service.todo_assign(
+                        &blueprint_id,
+                        &todo_id,
+                        &owner,
+                        &changed_by,
+                        expected_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoStart {
+                    todo_id,
+                    changed_by,
+                    expected_etag,
+                } => {
+                    print_value(&service.todo_start(
+                        &blueprint_id,
+                        &todo_id,
+                        &changed_by,
+                        expected_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoComplete {
+                    todo_id,
+                    changed_by,
+                    expected_blueprint_etag,
+                    expected_todo_etag,
+                } => {
+                    print_value(&service.todo_complete(
+                        &blueprint_id,
+                        &todo_id,
+                        &changed_by,
+                        expected_blueprint_etag.as_deref(),
+                        expected_todo_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoBlock {
+                    todo_id,
+                    reason,
+                    handoff,
+                    changed_by,
+                    expected_blueprint_etag,
+                    expected_todo_etag,
+                } => {
+                    print_value(&service.todo_block(
+                        &blueprint_id,
+                        &todo_id,
+                        &reason,
+                        &handoff,
+                        &changed_by,
+                        expected_blueprint_etag.as_deref(),
+                        expected_todo_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::TodoCancel {
+                    todo_id,
+                    reason,
+                    changed_by,
+                    expected_etag,
+                } => {
+                    print_value(&service.todo_cancel(
+                        &blueprint_id,
+                        &todo_id,
+                        &reason,
+                        &changed_by,
+                        expected_etag.as_deref(),
+                    )?)?;
+                }
+                BlueprintOpenCommand::EvidenceSubmit {
+                    todo_id,
+                    changed_by,
+                    title,
+                    body_lines,
+                    expected_etag,
+                } => {
+                    print_value(&service.evidence_submit(
+                        crate::blueprint::EvidenceSubmitInput {
+                            blueprint_id,
+                            todo_id,
+                            changed_by,
+                            title,
+                            body: crate::blueprint::ExternalBody { lines: body_lines },
+                            expected_etag,
+                        },
+                    )?)?;
+                }
+                BlueprintOpenCommand::EvidenceList { todo_id, page } => {
+                    print_value(&service.evidence_list(&blueprint_id, &todo_id, page)?)?;
+                }
+            },
         }
         anyhow::Ok(())
+    }
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum BlueprintOpenCommand {
+    /// Update a Definition of Done item.
+    DodUpdate {
+        dod_id: String,
+        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+        completed: bool,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// Create a todo.
+    TodoCreate {
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        created_by: String,
+        #[arg(long)]
+        plan: String,
+        #[arg(long)]
+        parent_id: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        depends_on: Vec<String>,
+        #[arg(long)]
+        completion_criteria: Vec<String>,
+        #[arg(long)]
+        expected_blueprint_etag: Option<String>,
+    },
+    /// Get a todo.
+    TodoGet {
+        todo_id: String,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// List todos.
+    TodoList {
+        status: Option<crate::blueprint::TodoStatus>,
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        ready: Option<bool>,
+    },
+    /// Update a todo.
+    TodoUpdate {
+        todo_id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        depends_on: Option<Vec<String>>,
+        #[arg(long)]
+        completion_criterion: Vec<String>,
+        #[arg(long)]
+        completed_criterion: Vec<String>,
+        #[arg(long)]
+        handoff: Option<Vec<String>>,
+        #[arg(long = "result-line")]
+        result_lines: Vec<String>,
+        #[arg(long = "result-evidence")]
+        result_evidence: Vec<String>,
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        change_reason: Option<String>,
+        #[arg(long)]
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
+    },
+    /// Assign a todo.
+    TodoAssign {
+        todo_id: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// Start a todo.
+    TodoStart {
+        todo_id: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// Complete a todo.
+    TodoComplete {
+        todo_id: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
+    },
+    /// Block a todo.
+    TodoBlock {
+        todo_id: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        handoff: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        expected_blueprint_etag: Option<String>,
+        #[arg(long)]
+        expected_todo_etag: Option<String>,
+    },
+    /// Cancel a todo.
+    TodoCancel {
+        todo_id: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// Submit Evidence to a Todo.
+    EvidenceSubmit {
+        todo_id: String,
+        #[arg(long)]
+        changed_by: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long = "body-line", required = true)]
+        body_lines: Vec<String>,
+        #[arg(long)]
+        expected_etag: Option<String>,
+    },
+    /// List Evidence in one Todo.
+    EvidenceList {
+        todo_id: String,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+    },
+}
+
+impl BlueprintOpenCommand {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::DodUpdate { .. } => "dod_update",
+            Self::TodoCreate { .. } => "todo_create",
+            Self::TodoGet { .. } => "todo_get",
+            Self::TodoList { .. } => "todo_list",
+            Self::TodoUpdate { .. } => "todo_update",
+            Self::TodoAssign { .. } => "todo_assign",
+            Self::TodoStart { .. } => "todo_start",
+            Self::TodoComplete { .. } => "todo_complete",
+            Self::TodoBlock { .. } => "todo_block",
+            Self::TodoCancel { .. } => "todo_cancel",
+            Self::EvidenceSubmit { .. } => "todo_evidence_submit",
+            Self::EvidenceList { .. } => "todo_evidence_list",
+        }
     }
 }
 
 pub(crate) fn print_value<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use clap::Subcommand;
-
-    use super::BlueprintCommand;
-
-    #[test]
-    fn blueprint_direct_operations_expose_evidence_and_revision_dto_fields() {
-        let command = BlueprintCommand::augment_subcommands(clap::Command::new("blueprint"));
-        for (name, fields) in [
-            (
-                "evidence-submit",
-                [
-                    "blueprint-id",
-                    "todo-id",
-                    "title",
-                    "body-line",
-                    "expected-etag",
-                ]
-                .as_slice(),
-            ),
-            (
-                "evidence-list",
-                ["blueprint-id", "todo-id", "page"].as_slice(),
-            ),
-            (
-                "revision-append",
-                [
-                    "blueprint-id",
-                    "todo-id",
-                    "changed-by",
-                    "reason",
-                    "change",
-                    "affected",
-                    "evidence-impact",
-                    "expected-etag",
-                ]
-                .as_slice(),
-            ),
-        ] {
-            let operation = command
-                .find_subcommand(name)
-                .unwrap_or_else(|| panic!("missing {name} direct operation"));
-            for field in fields {
-                assert!(
-                    operation
-                        .get_arguments()
-                        .any(|argument| argument.get_long() == Some(*field)),
-                    "{name} must forward --{field}"
-                );
-            }
-        }
-    }
 }

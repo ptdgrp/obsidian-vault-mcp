@@ -89,28 +89,28 @@ fn rejects_self_unknown_and_duplicate_todo_dependencies() {
 }
 
 #[test]
-fn enforces_required_fields_for_each_todo_state() {
+fn graph_validation_ignores_metadata_owned_by_todo_frontmatter() {
     let mut missing_creator = todo("todo-created", TodoStatus::Pending, &[]);
     missing_creator.created_by = None;
-    assert_invalid(&[missing_creator], "missing Created By");
+    assert!(validate_dependency_graph(&[missing_creator]).is_ok());
 
     let running = todo("todo-running", TodoStatus::InProgress, &[]);
-    assert_invalid(&[running], "missing Owner");
+    assert!(validate_dependency_graph(&[running]).is_ok());
 
     let mut completed = todo("todo-completed", TodoStatus::Completed, &[]);
     completed.result_summary = Some("result".into());
-    assert_invalid(&[completed.clone()], "missing Completed By");
+    assert!(validate_dependency_graph(&[completed.clone()]).is_ok());
     completed.completed_by = Some("agent".into());
     assert!(validate_dependency_graph(&[completed]).is_ok());
 
     let mut blocked = todo("todo-blocked", TodoStatus::Blocked, &[]);
     blocked.handoff = vec!["resume later".into()];
-    assert_invalid(&[blocked.clone()], "missing Block Reason");
+    assert!(validate_dependency_graph(&[blocked.clone()]).is_ok());
     blocked.block_reason = Some("external dependency".into());
     assert!(validate_dependency_graph(&[blocked]).is_ok());
 
     let cancelled = todo("todo-cancelled", TodoStatus::Cancelled, &[]);
-    assert_invalid(&[cancelled], "missing Cancel Reason");
+    assert!(validate_dependency_graph(&[cancelled]).is_ok());
 }
 
 #[test]

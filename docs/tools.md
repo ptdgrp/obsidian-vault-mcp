@@ -35,15 +35,14 @@ server supports structural section edits as well as read operations.
 | `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `blueprint_cancel` | Cancel an active Blueprint and record why its intent was abandoned. |
 | `blueprint_close` | Close an active Blueprint, recording incomplete work when applicable. |
-| `blueprint_create` | Create a Blueprint in this vault's automatic .blueprint workspace. Rubric is required: the executing Agent reads and performs that evaluation procedure; this tool only stores it. |
-| `blueprint_get` | Read one Blueprint. The optional resume view is a focused recovery view. |
+| `blueprint_create` | Create a Blueprint in this vault's automatic .blueprint workspace. An optional Rubric records the evaluation procedure for the executing Agent; this tool only stores it. |
+| `blueprint_get` | Read one Blueprint as a structured aggregate. |
 | `blueprint_list` | List Blueprint IDs in one lifecycle state. |
 | `blueprint_status` | Return derived Todo readiness for one Blueprint. |
-| `blueprint_update` | Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it. |
+| `blueprint_update` | Update Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it. |
 | `dod_update` | Explicitly mark a Definition of Done item complete or incomplete. |
-| `evidence_list` | List Evidence submitted to a Blueprint or one Todo. |
-| `evidence_submit` | Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric. |
-| `revision_append` | Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted. |
+| `evidence_list` | List Evidence submitted to one Todo. |
+| `evidence_submit` | Append globally unique Evidence to a Todo. The service performs structural validation and Todo authorization; the executing Agent judges semantic sufficiency through the Rubric. |
 | `todo_assign` | Assign or reassign a Todo owner. |
 | `todo_block` | Block an in-progress Todo with a reason and handoff. |
 | `todo_cancel` | Cancel a pending, in-progress, or blocked Todo with a reason. |
@@ -868,10 +867,7 @@ Output:
 | --- | --- | --- | --- |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-| `source` | `string` | yes |  |
 | `state` | `BlueprintState` | yes |  |
-| `todos` | `StoredTodoIndex[]` | yes |  |
 
 Nested types:
 
@@ -884,14 +880,6 @@ Lifecycle state recorded in Blueprint v2 frontmatter.
 | `active` |
 | `closed` |
 | `cancelled` |
-
-### `StoredTodoIndex`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `etag` | `string` | yes |  |
-| `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
 
 
 ## 🔧 `blueprint_close`
@@ -914,10 +902,7 @@ Output:
 | --- | --- | --- | --- |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-| `source` | `string` | yes |  |
 | `state` | `BlueprintState` | yes |  |
-| `todos` | `StoredTodoIndex[]` | yes |  |
 
 Nested types:
 
@@ -931,18 +916,10 @@ Lifecycle state recorded in Blueprint v2 frontmatter.
 | `closed` |
 | `cancelled` |
 
-### `StoredTodoIndex`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `etag` | `string` | yes |  |
-| `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
 
 ## 🔧 `blueprint_create`
 
-Create a Blueprint in this vault's automatic .blueprint workspace. Rubric is required: the executing Agent reads and performs that evaluation procedure; this tool only stores it.
+Create a Blueprint in this vault's automatic .blueprint workspace. An optional Rubric records the evaluation procedure for the executing Agent; this tool only stores it.
 
 Input:
 
@@ -953,7 +930,7 @@ Input:
 | `definition_of_done` | `string[]` | yes |  |
 | `intent` | `ExternalBody` | yes |  |
 | `plan` | `ExternalBody` | yes |  |
-| `rubric` | `ExternalBody` | yes | The evaluation procedure selected for this Blueprint. |
+| `rubric` | `ExternalBody \| null` | no | The evaluation procedure selected for this Blueprint. |
 | `title` | `string` | yes |  |
 
 Nested types:
@@ -973,98 +950,77 @@ Output:
 | --- | --- | --- | --- |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-| `source` | `string` | yes |  |
 
 
 ## 🔧 `blueprint_get`
 
-Read one Blueprint. The optional resume view is a focused recovery view.
+Read one Blueprint as a structured aggregate.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
-| `view` | `string \| null` | no |  |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `constraints` | `string` | yes |  |
+| `created_by` | `string` | yes |  |
+| `definition_of_done` | `DefinitionOfDoneItem[]` | yes |  |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `resume` | `BlueprintResumeOutput \| null` | no |  |
-| `source` | `string \| null` | no |  |
-| `state` | `string` | yes |  |
-| `todo_index` | `TodoDocumentIndex[]` | no |  |
+| `intent` | `string` | yes |  |
+| `notes` | `string` | yes |  |
+| `plan` | `string` | yes |  |
+| `results` | `string` | yes |  |
+| `revisions` | `RevisionEntry[]` | yes |  |
+| `rubric` | `string` | yes |  |
+| `state` | `BlueprintState` | yes |  |
+| `title` | `string` | yes |  |
+| `todos` | `TodoGraphNode[]` | yes |  |
 
 Nested types:
 
-### `BlueprintResumeOutput`
+### `BlueprintState`
 
-The focused recovery data returned by `blueprint_get` with `view: "resume"`.
+Lifecycle state recorded in Blueprint v2 frontmatter.
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `active_todos` | `Todo[]` | yes |  |
-| `constraints` | `string` | yes |  |
-| `intent` | `string` | yes |  |
-| `not_ready_todos` | `NotReadyTodo[]` | yes |  |
-| `open_definition_of_done` | `string[]` | yes |  |
-| `plan` | `string` | yes |  |
-| `ready_todos` | `string[]` | yes |  |
-| `results` | `string` | yes |  |
-| `rubric` | `string` | yes |  |
+| Value |
+| --- |
+| `active` |
+| `closed` |
+| `cancelled` |
 
-### `CheckItem`
+### `DefinitionOfDoneItem`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `completed` | `boolean` | yes |  |
+| `id` | `string` | yes |  |
 | `text` | `string` | yes |  |
 
-### `DependencyStatus`
+### `RevisionEntry`
+
+An append-only revision record retained exactly as Markdown.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `status` | `TodoStatus` | yes |  |
 
-### `NotReadyTodo`
+### `TodoGraphNode`
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `id` | `string` | yes |  |
-| `unsatisfied_dependencies` | `DependencyStatus[]` | yes |  |
-
-### `Todo`
+Central Todo Graph node; execution state is authoritative here, not in Todo detail files.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
-| `children` | `Todo[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `completion_criteria` | `CheckItem[]` | yes |  |
-| `created_by` | `string \| null` | no |  |
+| `children` | `TodoGraphNode[]` | yes |  |
 | `depends_on` | `string[]` | yes |  |
-| `handoff` | `string[]` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
-| `references` | `string[]` | yes |  |
-| `result_summary` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
-
-### `TodoDocumentIndex`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `etag` | `string` | yes |  |
-| `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
 
 ### `TodoStatus`
 
@@ -1174,7 +1130,7 @@ Nested types:
 
 ## 🔧 `blueprint_update`
 
-Update title, Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it.
+Update Intent, Constraints, Plan, Rubric, Results, or Notes of an active Blueprint. When Rubric changes, the executing Agent owns and performs that evaluation procedure; this tool only stores it.
 
 Input:
 
@@ -1190,7 +1146,6 @@ Input:
 | `plan` | `ExternalBody \| null` | no |  |
 | `results` | `ResultsInput \| null` | no |  |
 | `rubric` | `ExternalBody \| null` | no |  |
-| `title` | `string \| null` | no |  |
 
 Nested types:
 
@@ -1216,10 +1171,7 @@ Output:
 | --- | --- | --- | --- |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-| `source` | `string` | yes |  |
 | `state` | `BlueprintState` | yes |  |
-| `todos` | `StoredTodoIndex[]` | yes |  |
 
 Nested types:
 
@@ -1232,14 +1184,6 @@ Lifecycle state recorded in Blueprint v2 frontmatter.
 | `active` |
 | `closed` |
 | `cancelled` |
-
-### `StoredTodoIndex`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `etag` | `string` | yes |  |
-| `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
 
 
 ## 🔧 `dod_update`
@@ -1263,10 +1207,7 @@ Output:
 | --- | --- | --- | --- |
 | `etag` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-| `source` | `string` | yes |  |
 | `state` | `BlueprintState` | yes |  |
-| `todos` | `StoredTodoIndex[]` | yes |  |
 
 Nested types:
 
@@ -1280,18 +1221,10 @@ Lifecycle state recorded in Blueprint v2 frontmatter.
 | `closed` |
 | `cancelled` |
 
-### `StoredTodoIndex`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `etag` | `string` | yes |  |
-| `id` | `string` | yes |  |
-| `path` | `string` | yes |  |
-
 
 ## 🔧 `evidence_list`
 
-List Evidence submitted to a Blueprint or one Todo.
+List Evidence submitted to one Todo.
 
 Input:
 
@@ -1299,7 +1232,7 @@ Input:
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
 | `page` | `integer` | no |  |
-| `todo_id` | `string \| null` | no |  |
+| `todo_id` | `string` | yes |  |
 
 
 Output:
@@ -1324,19 +1257,15 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `blueprint_reference` | `string` | yes |  |
 | `body_preview` | `string` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `local_reference` | `string` | yes |  |
-| `scope` | `string` | yes |  |
 | `title` | `string` | yes |  |
-| `todo_id` | `string \| null` | no |  |
+| `todo_id` | `string` | yes |  |
 
 
 ## 🔧 `evidence_submit`
 
-Append globally unique Evidence to a Blueprint or Todo detail document. The service performs structural validation only (including references); the executing Agent judges semantic sufficiency through the Rubric.
+Append globally unique Evidence to a Todo. The service performs structural validation and Todo authorization; the executing Agent judges semantic sufficiency through the Rubric.
 
 Input:
 
@@ -1344,9 +1273,10 @@ Input:
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
 | `body` | `ExternalBody` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_etag` | `string \| null` | no |  |
 | `title` | `string` | yes |  |
-| `todo_id` | `string \| null` | no |  |
+| `todo_id` | `string` | yes |  |
 
 Nested types:
 
@@ -1363,40 +1293,10 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `blueprint_reference` | `string` | yes |  |
 | `body_preview` | `string` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `local_reference` | `string` | yes |  |
-| `scope` | `string` | yes |  |
 | `title` | `string` | yes |  |
-| `todo_id` | `string \| null` | no |  |
-
-
-## 🔧 `revision_append`
-
-Append an immutable, append-only fixed-field Revision History record. Existing Revision entries cannot be replaced or deleted.
-
-Input:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `affected` | `string[]` | yes |  |
-| `blueprint_id` | `string` | yes |  |
-| `change` | `string` | yes |  |
-| `changed_by` | `string` | yes |  |
-| `evidence_impact` | `string \| null` | no |  |
-| `expected_etag` | `string \| null` | no |  |
-| `reason` | `string` | yes |  |
-| `todo_id` | `string \| null` | no |  |
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
+| `todo_id` | `string` | yes |  |
 
 
 ## 🔧 `todo_assign`
@@ -1408,6 +1308,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_etag` | `string \| null` | no |  |
 | `owner` | `string` | yes |  |
 | `todo_id` | `string` | yes |  |
@@ -1447,7 +1348,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -1456,7 +1356,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -1464,15 +1363,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1482,15 +1385,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1514,6 +1411,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
 | `expected_todo_etag` | `string \| null` | no |  |
@@ -1556,7 +1454,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -1565,7 +1462,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -1573,15 +1469,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1591,15 +1491,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1623,6 +1517,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_etag` | `string \| null` | no |  |
 | `reason` | `string` | yes |  |
 | `todo_id` | `string` | yes |  |
@@ -1662,7 +1557,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -1671,7 +1565,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -1679,15 +1572,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1697,15 +1594,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1729,7 +1620,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
-| `completed_by` | `string` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
 | `expected_todo_etag` | `string \| null` | no |  |
@@ -1770,7 +1661,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -1779,7 +1669,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -1787,15 +1676,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1805,15 +1698,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1842,7 +1729,6 @@ Input:
 | `depends_on` | `string[]` | no |  |
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
-| `intent` | `ExternalBody` | yes |  |
 | `owner` | `string \| null` | no |  |
 | `parent_id` | `string \| null` | no |  |
 | `plan` | `ExternalBody` | yes |  |
@@ -1893,7 +1779,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -1902,7 +1787,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -1910,15 +1794,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1928,15 +1816,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -1998,7 +1880,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -2007,7 +1888,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -2015,15 +1895,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2033,15 +1917,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2111,7 +1989,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -2120,7 +1997,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -2128,15 +2004,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2146,15 +2026,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2191,6 +2065,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
+| `changed_by` | `string` | yes |  |
 | `expected_etag` | `string \| null` | no |  |
 | `todo_id` | `string` | yes |  |
 
@@ -2229,7 +2104,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -2238,7 +2112,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -2246,15 +2119,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2264,15 +2141,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2297,17 +2168,16 @@ Input:
 | --- | --- | --- | --- |
 | `blueprint_id` | `string` | yes |  |
 | `change_reason` | `string \| null` | no |  |
-| `changed_by` | `string \| null` | no |  |
+| `changed_by` | `string` | yes |  |
 | `completion_criteria` | `array \| null` | no |  |
 | `depends_on` | `array \| null` | no |  |
 | `expected_blueprint_etag` | `string \| null` | no |  |
 | `expected_etag` | `string \| null` | no |  |
 | `expected_todo_etag` | `string \| null` | no |  |
 | `handoff` | `array \| null` | no |  |
-| `intent` | `ExternalBody \| null` | no |  |
 | `notes` | `ExternalBody \| null` | no |  |
 | `plan` | `ExternalBody \| null` | no |  |
-| `results` | `ResultsInput \| null` | no |  |
+| `result` | `ResultsInput \| null` | no |  |
 | `title` | `string \| null` | no |  |
 | `todo_id` | `string` | yes |  |
 
@@ -2370,7 +2240,6 @@ An Evidence block retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `RevisionEntry`
 
@@ -2379,7 +2248,6 @@ An append-only revision record retained exactly as Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `string` | yes |  |
-| `markdown` | `string` | yes |  |
 
 ### `TodoDetail`
 
@@ -2387,15 +2255,19 @@ Typed content of a standalone Todo detail document.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `block_reason` | `string \| null` | no |  |
 | `blueprint_id` | `string` | yes |  |
+| `cancel_reason` | `string \| null` | no |  |
+| `completed_by` | `string \| null` | no |  |
 | `completion_criteria` | `CheckItem[]` | yes |  |
+| `created_by` | `string` | yes |  |
 | `evidence` | `EvidenceItem[]` | yes |  |
 | `handoff` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `intent` | `string` | yes |  |
 | `notes` | `string` | yes |  |
+| `owner` | `string` | yes |  |
 | `plan` | `string` | yes |  |
-| `results` | `string` | yes |  |
+| `result` | `string` | yes |  |
 | `revisions` | `RevisionEntry[]` | yes |  |
 | `title` | `string` | yes |  |
 
@@ -2405,15 +2277,9 @@ Central Todo Graph node; execution state is authoritative here, not in Todo deta
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_reason` | `string \| null` | no |  |
-| `cancel_reason` | `string \| null` | no |  |
 | `children` | `TodoGraphNode[]` | yes |  |
-| `completed_by` | `string \| null` | no |  |
-| `created_by` | `string \| null` | no |  |
 | `depends_on` | `string[]` | yes |  |
-| `document` | `string` | yes |  |
 | `id` | `string` | yes |  |
-| `owner` | `string \| null` | no |  |
 | `status` | `TodoStatus` | yes |  |
 | `title` | `string` | yes |  |
 

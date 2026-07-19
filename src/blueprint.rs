@@ -16,9 +16,9 @@ pub use model::{
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintPatch,
     BlueprintState, BlueprintUpdateInput, CompletionCriterionInput, DodUpdateInput,
     EvidenceListInput, EvidenceListOutput, EvidenceSubmitInput, EvidenceSummary, ResultsInput,
-    RevisionAppendInput, RevisionEntry, TodoAssignInput, TodoBlockInput, TodoCancelInput,
-    TodoCompleteInput, TodoCreateInput, TodoCreateRequest, TodoDetail, TodoGraphNode, TodoInput,
-    TodoListInput, TodoListOutput, TodoPatch, TodoStatus, TodoUpdateInput, TodoView,
+    TodoAssignInput, TodoBlockInput, TodoCancelInput, TodoCompleteInput, TodoCreateInput,
+    TodoCreateRequest, TodoDetail, TodoGraphNode, TodoInput, TodoListInput, TodoListOutput,
+    TodoPatch, TodoStartInput, TodoStatus, TodoUpdateInput, TodoView,
 };
 pub use service::{
     BlueprintCreateRequest, BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate,

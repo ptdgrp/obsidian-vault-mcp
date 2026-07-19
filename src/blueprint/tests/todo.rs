@@ -6,7 +6,7 @@ fn evidence() -> &'static str {
 
 fn todo_v3(id: &str, blueprint: &str, criteria: &str, results: &str, evidence: &str) -> String {
     format!(
-        "---\nschema: blueprint/todo/v3\nid: {id}\nblueprint: {blueprint}\n---\n\n# 审阅章节\n\n## Intent\n\n~~~\n检查故事连续性\n~~~\n\n## Completion Criteria\n\n{criteria}\n\n## Plan\n\n~~~\n阅读相邻章节\n~~~\n\n## Handoff\n\n~~~\n无需交接\n~~~\n\n## Results\n\n~~~\n{results}\n~~~\n\n## Evidence\n\n{evidence}\n## Revision History\n\n### 初始范围 ^revision-1\n\n- Changed By: planner\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n"
+        "---\nschema: blueprint/todo/v3\nid: {id}\nblueprint: {blueprint}\ncreated_by: planner\nowner: planner\n---\n\n# 审阅章节\n\n## Plan\n\n~~~\n阅读相邻章节\n~~~\n\n## Completion Criteria\n\n{criteria}\n\n## Handoff\n\n~~~\n无需交接\n~~~\n\n## Result\n\n~~~\n{results}\n~~~\n\n## Evidence\n\n{evidence}\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n\n## Revision History\n\n### 初始范围 ^revision-1\n\n- Changed By: planner\n\n"
     )
 }
 
@@ -24,7 +24,7 @@ fn parses_todo_sections_without_duplicating_graph_state() {
     assert_eq!(detail.id, "todo-1");
     assert_eq!(detail.blueprint_id, "bp-01");
     assert!(detail.completion_criteria.iter().all(|item| item.completed));
-    assert_eq!(detail.results, "评估完成");
+    assert_eq!(detail.result, "评估完成");
     assert_eq!(detail.evidence.len(), 1);
     assert!(detail.evidence[0].markdown.contains("`cargo test`"));
     assert_eq!(detail.revisions[0].id, "revision-1");

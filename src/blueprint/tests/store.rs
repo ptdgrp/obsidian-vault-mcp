@@ -20,11 +20,11 @@ impl PartialEq<&str> for BlueprintState {
 }
 
 fn blueprint_source() -> String {
-    "---\nschema: blueprint/v3\nid: bp-01\nstate: active\n---\n\n# Test\n\n## Record\n\n- Created By: tester\n\n## Intent\n\n~~~\nTest the store\n~~~\n\n## Constraints\n\n~~~\nNone\n~~~\n\n## Definition of Done\n\n- [ ] Store works ^dod-1\n\n## Plan\n\n~~~\nWrite tests\n~~~\n\n## Rubric\n\n~~~\nKeep aggregate files stable\n~~~\n\n## Todos\n\n## Results\n\n~~~\n\n~~~\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n".to_string()
+    "---\nschema: blueprint/v3\nid: bp-01\nstate: active\ncreated_by: tester\n---\n\n# Test\n\n## Intent\n\n~~~\nTest the store\n~~~\n\n## Constraints\n\n~~~\nNone\n~~~\n\n## Definition of Done\n\n- [ ] Store works ^dod-1\n\n## Plan\n\n~~~\nWrite tests\n~~~\n\n## Todo Graph\n\n## Results\n\n~~~\n\n~~~\n\n## Rubric\n\n~~~\nKeep aggregate files stable\n~~~\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n\n## Revision History\n\n".to_string()
 }
 
 fn todo_source() -> String {
-    "---\nschema: blueprint/todo/v3\nid: todo-a\nblueprint: bp-01\n---\n\n# Todo A\n\n## Intent\n\n~~~\nTest one Todo\n~~~\n\n## Completion Criteria\n\n- [ ] It is stored\n\n## Plan\n\n~~~\nWrite it\n~~~\n\n## Handoff\n\n~~~\nNone\n~~~\n\n## Results\n\n~~~\n\n~~~\n\n## Evidence\n\n\n## Revision History\n\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n".to_string()
+    "---\nschema: blueprint/todo/v3\nid: todo-a\nblueprint: bp-01\ncreated_by: tester\nowner: tester\n---\n\n# Todo A\n\n## Plan\n\n~~~\nWrite it\n~~~\n\n## Completion Criteria\n\n- [ ] It is stored\n\n## Handoff\n\n~~~\nNone\n~~~\n\n## Result\n\n~~~\n\n~~~\n\n## Evidence\n\n## Notes\n\n~~~\n<!-- preserve -->\n~~~\n\n## Revision History\n\n".to_string()
 }
 
 fn store() -> (TempDir, BlueprintStore) {
@@ -159,7 +159,7 @@ fn write_operations_preserve_document_specific_etags_and_validate_sources() {
 
     let updated = store
         .write_todo("bp-01", "todo-a", Some(&todo.etag), |source| {
-            Ok(source.replacen("Test one Todo", "Updated Todo", 1))
+            Ok(source.replacen("Write it", "Updated Todo", 1))
         })
         .unwrap();
     assert_ne!(todo.etag, updated.etag);
@@ -187,7 +187,7 @@ fn combines_blueprint_and_todo_writes_under_one_aggregate_lock() {
     let (updated_todo, updated_blueprint) = store
         .with_lock("bp-01", |locked| {
             let updated_todo = locked.write_todo("todo-a", Some(&todo.etag), |source| {
-                Ok(source.replacen("Test one Todo", "Locked Todo", 1))
+                Ok(source.replacen("Write it", "Locked Todo", 1))
             })?;
             assert!(
                 locked

@@ -7,15 +7,14 @@ use crate::blueprint::{
     source::markdown_entries,
 };
 
-const TODO_REQUIRED_SECTIONS: [&str; 8] = [
-    "Intent",
-    "Completion Criteria",
+const TODO_REQUIRED_SECTIONS: [&str; 7] = [
     "Plan",
+    "Completion Criteria",
     "Handoff",
-    "Results",
+    "Result",
     "Evidence",
-    "Revision History",
     "Notes",
+    "Revision History",
 ];
 
 const TODO_SCHEMA: DocumentSchema = DocumentSchema {
@@ -37,11 +36,15 @@ pub fn parse_todo_source(path: &str, source: &str) -> anyhow::Result<TodoDetail>
         id: required_frontmatter(&parsed, "id")?,
         blueprint_id: required_frontmatter(&parsed, "blueprint")?,
         title: parsed.h1().to_string(),
-        intent: external_section_text(&parsed, source, "Intent", true)?,
-        completion_criteria: check_items(parsed.section("Completion Criteria")?.body(source)),
+        created_by: required_frontmatter(&parsed, "created_by")?,
+        owner: required_frontmatter(&parsed, "owner")?,
+        completed_by: optional_frontmatter(&parsed, "completed_by"),
+        block_reason: optional_frontmatter(&parsed, "block_reason"),
+        cancel_reason: optional_frontmatter(&parsed, "cancel_reason"),
         plan: external_section_text(&parsed, source, "Plan", true)?,
+        completion_criteria: check_items(parsed.section("Completion Criteria")?.body(source)),
         handoff: external_section_text(&parsed, source, "Handoff", false)?,
-        results: external_section_prefix_text(&parsed, source, "Results", false)?,
+        result: external_section_prefix_text(&parsed, source, "Result", false)?,
         evidence: markdown_entries(parsed.section("Evidence")?.body(source), "evidence-")
             .into_iter()
             .map(|(id, markdown)| EvidenceItem { id, markdown })
@@ -55,6 +58,13 @@ pub fn parse_todo_source(path: &str, source: &str) -> anyhow::Result<TodoDetail>
         .collect(),
         notes: external_section_text(&parsed, source, "Notes", false)?,
     })
+}
+
+fn optional_frontmatter(document: &ParsedDocument, field: &str) -> Option<String> {
+    document
+        .frontmatter_string(field)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn required_frontmatter(document: &ParsedDocument, field: &str) -> anyhow::Result<String> {

@@ -9,7 +9,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fs2::FileExt;
 
 use crate::blueprint::{
-    BlueprintSource, BlueprintState, TodoDetail,
+    BlueprintSource, BlueprintState, TodoDetail, TodoStatus,
     document::{DocumentSchema, ParsedDocument},
 };
 
@@ -22,6 +22,8 @@ const MANIFEST_SCHEMA: DocumentSchema = DocumentSchema {
 #[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
 pub struct StoredTodoIndex {
     pub id: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     #[schemars(with = "String")]
     pub path: Utf8PathBuf,
     pub etag: String,
@@ -31,10 +33,16 @@ pub struct StoredTodoIndex {
 pub struct StoredBlueprint {
     pub id: String,
     pub state: BlueprintState,
+    #[serde(skip)]
+    #[schemars(skip)]
     #[schemars(with = "String")]
     pub path: Utf8PathBuf,
     pub etag: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub source: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub todos: Vec<StoredTodoIndex>,
 }
 
@@ -42,9 +50,13 @@ pub struct StoredBlueprint {
 pub struct StoredTodo {
     pub blueprint_id: String,
     pub id: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     #[schemars(with = "String")]
     pub path: Utf8PathBuf,
     pub etag: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub source: String,
 }
 
@@ -166,7 +178,7 @@ impl BlueprintStore {
                         required_sections: &[],
                     },
                 )?
-                .section_body_range("Todos")?
+                .section_body_range("Todo Graph")?
                 .end;
                 if flatten_todos(&parsed.todos)
                     .iter()
@@ -175,7 +187,7 @@ impl BlueprintStore {
                     anyhow::bail!("Todo already exists: {id}");
                 }
                 Ok(format!(
-                    "{}- [ ] [{title}](todos/{id}.md) ^{id}\n  - Created By: test\n{}",
+                    "{}- [ ] [{title}](todos/{id}.md) ^{id}\n{}",
                     &blueprint[..insertion],
                     &blueprint[insertion..]
                 ))
@@ -211,7 +223,7 @@ impl BlueprintStore {
     fn validate_aggregate_source(&self, id: &str, source: &str) -> anyhow::Result<()> {
         let linked = flatten_todos(&parse_blueprint(id, source)?.todos)
             .into_iter()
-            .map(|todo| (todo.id, (todo.document, todo.title)))
+            .map(|todo| (todo.id, (todo.document, todo.title, todo.status)))
             .collect::<HashMap<_, _>>();
         let documents = self
             .todo_indexes(id)?
@@ -219,7 +231,7 @@ impl BlueprintStore {
             .map(|todo| todo.id)
             .collect::<HashSet<_>>();
 
-        for (todo_id, (document, title)) in &linked {
+        for (todo_id, (document, title, status)) in &linked {
             if document != &format!("todos/{todo_id}.md") {
                 anyhow::bail!("Todo {todo_id} must link to todos/{todo_id}.md");
             }
@@ -230,6 +242,18 @@ impl BlueprintStore {
             let detail = TodoDetail::parse(detail.path.as_str(), &detail.source)?;
             if detail.title != *title {
                 anyhow::bail!("Todo {todo_id} title differs between graph and detail document");
+            }
+            match status {
+                TodoStatus::Completed if detail.completed_by.is_none() => {
+                    anyhow::bail!("completed Todo {todo_id} is missing completed_by frontmatter");
+                }
+                TodoStatus::Blocked if detail.block_reason.is_none() => {
+                    anyhow::bail!("blocked Todo {todo_id} is missing block_reason frontmatter");
+                }
+                TodoStatus::Cancelled if detail.cancel_reason.is_none() => {
+                    anyhow::bail!("cancelled Todo {todo_id} is missing cancel_reason frontmatter");
+                }
+                _ => {}
             }
         }
         for todo_id in documents {

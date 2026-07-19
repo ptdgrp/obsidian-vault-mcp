@@ -71,6 +71,13 @@ pub struct CheckItem {
     pub completed: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct DefinitionOfDoneItem {
+    pub id: String,
+    pub text: String,
+    pub completed: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 /// Lifecycle state recorded in Blueprint v2 frontmatter.
@@ -100,13 +107,25 @@ impl TryFrom<&str> for BlueprintState {
 pub struct TodoGraphNode {
     pub id: String,
     pub title: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub document: String,
     pub status: TodoStatus,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub created_by: Option<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub owner: Option<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub completed_by: Option<String>,
     pub depends_on: Vec<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub block_reason: Option<String>,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub cancel_reason: Option<String>,
     pub children: Vec<TodoGraphNode>,
 }
@@ -115,6 +134,8 @@ pub struct TodoGraphNode {
 /// An Evidence block retained exactly as Markdown.
 pub struct EvidenceItem {
     pub id: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub markdown: String,
 }
 
@@ -122,15 +143,17 @@ pub struct EvidenceItem {
 /// An append-only revision record retained exactly as Markdown.
 pub struct RevisionEntry {
     pub id: String,
+    #[serde(skip)]
+    #[schemars(skip)]
     pub markdown: String,
 }
 
-/// Submits one Evidence block to the Blueprint or a Todo detail document.
+/// Submits one Evidence block to a Todo.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct EvidenceSubmitInput {
     pub blueprint_id: String,
-    #[serde(default)]
-    pub todo_id: Option<String>,
+    pub todo_id: String,
+    pub changed_by: String,
     pub title: String,
     pub body: crate::blueprint::ExternalBody,
     #[serde(default)]
@@ -140,8 +163,7 @@ pub struct EvidenceSubmitInput {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct EvidenceListInput {
     pub blueprint_id: String,
-    #[serde(default)]
-    pub todo_id: Option<String>,
+    pub todo_id: String,
     #[serde(default = "default_page")]
     pub page: usize,
 }
@@ -150,13 +172,8 @@ pub struct EvidenceListInput {
 pub struct EvidenceSummary {
     pub id: String,
     pub title: String,
-    pub scope: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub todo_id: Option<String>,
-    pub document: String,
+    pub todo_id: String,
     pub body_preview: String,
-    pub blueprint_reference: String,
-    pub local_reference: String,
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
@@ -187,33 +204,21 @@ fn default_page() -> usize {
     1
 }
 
-/// Appends one immutable semantic-change record to the Blueprint or a Todo detail document.
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-pub struct RevisionAppendInput {
-    pub blueprint_id: String,
-    #[serde(default)]
-    pub todo_id: Option<String>,
-    pub changed_by: String,
-    pub reason: String,
-    pub change: String,
-    pub affected: Vec<String>,
-    #[serde(default)]
-    pub evidence_impact: Option<String>,
-    #[serde(default)]
-    pub expected_etag: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// Typed content of a standalone Todo detail document.
 pub struct TodoDetail {
     pub id: String,
     pub blueprint_id: String,
     pub title: String,
-    pub intent: String,
-    pub completion_criteria: Vec<CheckItem>,
+    pub created_by: String,
+    pub owner: String,
+    pub completed_by: Option<String>,
+    pub block_reason: Option<String>,
+    pub cancel_reason: Option<String>,
     pub plan: String,
+    pub completion_criteria: Vec<CheckItem>,
     pub handoff: String,
-    pub results: String,
+    pub result: String,
     pub evidence: Vec<EvidenceItem>,
     pub revisions: Vec<RevisionEntry>,
     pub notes: String,
@@ -286,7 +291,6 @@ pub struct TodoCreateRequest {
     pub blueprint_id: String,
     pub title: String,
     pub created_by: String,
-    pub intent: String,
     pub plan: String,
     #[serde(default)]
     pub parent_id: Option<String>,
@@ -308,15 +312,13 @@ pub struct TodoPatch {
     #[serde(default)]
     pub depends_on: Option<Vec<String>>,
     #[serde(default)]
-    pub intent: Option<String>,
-    #[serde(default)]
     pub completion_criteria: Option<Vec<CheckUpdate>>,
     #[serde(default)]
     pub plan: Option<String>,
     #[serde(default)]
     pub handoff: Option<String>,
     #[serde(default)]
-    pub results: Option<ResultsInput>,
+    pub result: Option<ResultsInput>,
     #[serde(default)]
     pub notes: Option<String>,
 }
@@ -346,40 +348,23 @@ pub struct Readiness {
     pub not_ready: Vec<NotReadyTodo>,
 }
 
-/// The concrete result of `blueprint_get` for either supported view.
+/// The structured aggregate returned by `blueprint_get`.
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct BlueprintGetOutput {
     pub id: String,
-    pub state: String,
+    pub state: BlueprintState,
+    pub title: String,
+    pub created_by: String,
     pub etag: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub todo_index: Vec<TodoDocumentIndex>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume: Option<BlueprintResumeOutput>,
-}
-
-/// The focused recovery data returned by `blueprint_get` with `view: "resume"`.
-#[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct BlueprintResumeOutput {
     pub intent: String,
     pub constraints: String,
+    pub definition_of_done: Vec<DefinitionOfDoneItem>,
     pub plan: String,
     pub rubric: String,
+    pub todos: Vec<TodoGraphNode>,
     pub results: String,
-    pub open_definition_of_done: Vec<String>,
-    pub active_todos: Vec<Todo>,
-    pub ready_todos: Vec<String>,
-    pub not_ready_todos: Vec<NotReadyTodo>,
-}
-
-#[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct TodoDocumentIndex {
-    pub id: String,
-    #[schemars(with = "String")]
-    pub path: camino::Utf8PathBuf,
-    pub etag: String,
+    pub revisions: Vec<RevisionEntry>,
+    pub notes: String,
 }
 
 /// The concrete result of `blueprint_list`.
@@ -405,14 +390,13 @@ pub struct BlueprintCreateInput {
     pub definition_of_done: Vec<String>,
     pub plan: crate::blueprint::ExternalBody,
     /// The evaluation procedure selected for this Blueprint.
-    pub rubric: crate::blueprint::ExternalBody,
+    #[serde(default)]
+    pub rubric: Option<crate::blueprint::ExternalBody>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BlueprintGetInput {
     pub blueprint_id: String,
-    #[serde(default)]
-    pub view: Option<String>,
 }
 /// Identifies a Blueprint for operations that do not need a view selector.
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -427,8 +411,6 @@ pub struct BlueprintListInput {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct BlueprintUpdateInput {
     pub blueprint_id: String,
-    #[serde(default)]
-    pub title: Option<String>,
     #[serde(default)]
     pub intent: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
@@ -452,8 +434,6 @@ pub struct BlueprintUpdateInput {
 /// Patchable Blueprint sections. Changes to semantic fields require a revision record.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 pub struct BlueprintPatch {
-    #[serde(default)]
-    pub title: Option<String>,
     #[serde(default)]
     pub intent: Option<String>,
     #[serde(default)]
@@ -499,7 +479,6 @@ pub struct TodoCreateInput {
     pub blueprint_id: String,
     pub title: String,
     pub created_by: String,
-    pub intent: crate::blueprint::ExternalBody,
     pub plan: crate::blueprint::ExternalBody,
     #[serde(default)]
     pub parent_id: Option<String>,
@@ -518,6 +497,14 @@ pub struct TodoCreateInput {
 pub struct TodoInput {
     pub blueprint_id: String,
     pub todo_id: String,
+    #[serde(default)]
+    pub expected_etag: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct TodoStartInput {
+    pub blueprint_id: String,
+    pub todo_id: String,
+    pub changed_by: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
 }
@@ -546,19 +533,16 @@ pub struct TodoUpdateInput {
     #[serde(default)]
     pub depends_on: Option<Vec<String>>,
     #[serde(default)]
-    pub intent: Option<crate::blueprint::ExternalBody>,
-    #[serde(default)]
     pub completion_criteria: Option<Vec<CompletionCriterionInput>>,
     #[serde(default)]
     pub handoff: Option<Vec<String>>,
     #[serde(default)]
     pub plan: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
-    pub results: Option<ResultsInput>,
+    pub result: Option<ResultsInput>,
     #[serde(default)]
     pub notes: Option<crate::blueprint::ExternalBody>,
-    #[serde(default)]
-    pub changed_by: Option<String>,
+    pub changed_by: String,
     #[serde(default)]
     pub change_reason: Option<String>,
     #[serde(default)]
@@ -573,6 +557,7 @@ pub struct TodoAssignInput {
     pub blueprint_id: String,
     pub todo_id: String,
     pub owner: String,
+    pub changed_by: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
 }
@@ -580,7 +565,7 @@ pub struct TodoAssignInput {
 pub struct TodoCompleteInput {
     pub blueprint_id: String,
     pub todo_id: String,
-    pub completed_by: String,
+    pub changed_by: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
     #[serde(default)]
@@ -594,6 +579,7 @@ pub struct TodoBlockInput {
     pub todo_id: String,
     pub reason: String,
     pub handoff: String,
+    pub changed_by: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
     #[serde(default)]
@@ -606,6 +592,7 @@ pub struct TodoCancelInput {
     pub blueprint_id: String,
     pub todo_id: String,
     pub reason: String,
+    pub changed_by: String,
     #[serde(default)]
     pub expected_etag: Option<String>,
 }

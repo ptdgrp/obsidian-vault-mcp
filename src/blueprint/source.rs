@@ -14,22 +14,21 @@ use crate::blueprint::{
     ExternalBody,
     document::{DocumentSchema, ParsedDocument, Section},
     model::{
-        BlueprintState, CheckItem, EvidenceItem, RevisionEntry, Todo, TodoGraphNode, TodoStatus,
+        BlueprintState, CheckItem, DefinitionOfDoneItem, EvidenceItem, RevisionEntry, Todo,
+        TodoGraphNode, TodoStatus,
     },
 };
 
-const REQUIRED_SECTIONS: [&str; 11] = [
-    "Record",
+const REQUIRED_SECTIONS: [&str; 9] = [
     "Intent",
     "Constraints",
     "Definition of Done",
     "Plan",
-    "Rubric",
-    "Todos",
+    "Todo Graph",
     "Results",
-    "Evidence",
-    "Revision History",
+    "Rubric",
     "Notes",
+    "Revision History",
 ];
 
 const BLUEPRINT_SOURCE_SCHEMA: DocumentSchema = DocumentSchema {
@@ -37,18 +36,16 @@ const BLUEPRINT_SOURCE_SCHEMA: DocumentSchema = DocumentSchema {
     required_sections: &REQUIRED_SECTIONS,
 };
 
-const V3_BLUEPRINT_REQUIRED_SECTIONS: [&str; 11] = [
-    "Record",
+const V3_BLUEPRINT_REQUIRED_SECTIONS: [&str; 9] = [
     "Intent",
     "Constraints",
     "Definition of Done",
     "Plan",
-    "Rubric",
-    "Todos",
+    "Todo Graph",
     "Results",
-    "Evidence",
-    "Revision History",
+    "Rubric",
     "Notes",
+    "Revision History",
 ];
 
 const V3_BLUEPRINT_SCHEMA: DocumentSchema = DocumentSchema {
@@ -62,14 +59,14 @@ pub struct BlueprintSource {
     pub id: String,
     pub state: BlueprintState,
     pub title: String,
+    pub created_by: String,
     pub intent: String,
     pub constraints: String,
-    pub definition_of_done: Vec<CheckItem>,
+    pub definition_of_done: Vec<DefinitionOfDoneItem>,
     pub plan: String,
     pub rubric: String,
     pub todos: Vec<TodoGraphNode>,
     pub results: String,
-    pub evidence: Vec<EvidenceItem>,
     pub revisions: Vec<RevisionEntry>,
     pub notes: String,
 }
@@ -86,23 +83,21 @@ pub fn parse_blueprint_source(path: &str, source: &str) -> anyhow::Result<Bluepr
     let parsed = ParsedDocument::parse(path, source, V3_BLUEPRINT_SCHEMA)?;
     let id = required_frontmatter(&parsed, "id")?;
     let state = BlueprintState::try_from(required_frontmatter(&parsed, "state")?.as_str())?;
-    let todos = parse_graph_nodes(source, parsed.section("Todos")?)?;
-    let rubric = external_section_text(&parsed, source, "Rubric", true)?;
-    if rubric.is_empty() {
-        anyhow::bail!("Rubric must not be empty");
-    }
+    let todos = parse_graph_nodes(source, parsed.section("Todo Graph")?)?;
     Ok(BlueprintSource {
         id,
         state,
         title: parsed.h1().to_string(),
+        created_by: required_frontmatter(&parsed, "created_by")?,
         intent: external_section_text(&parsed, source, "Intent", true)?,
         constraints: external_section_text(&parsed, source, "Constraints", false)?,
-        definition_of_done: parse_check_items(parsed.section("Definition of Done")?.body(source)),
+        definition_of_done: parse_definition_of_done(
+            parsed.section("Definition of Done")?.body(source),
+        )?,
         plan: external_section_text(&parsed, source, "Plan", true)?,
-        rubric,
+        rubric: external_section_text(&parsed, source, "Rubric", false)?,
         todos,
         results: external_section_prefix_text(&parsed, source, "Results", false)?,
-        evidence: evidence_items(parsed.section("Evidence")?.body(source)),
         revisions: revision_entries(parsed.section("Revision History")?.body(source)),
         notes: external_section_text(&parsed, source, "Notes", false)?,
     })
@@ -146,12 +141,13 @@ impl ParsedBlueprintSource {
                 .parse_checked()
                 .map_err(|error| anyhow::anyhow!("invalid Markdown: {error:?}"))?;
 
-        let todos_section = parsed_document.section("Todos")?;
+        let todos_section = parsed_document.section("Todo Graph")?;
+        parse_graph_nodes(source, todos_section)?;
         let tasks = active_node_indices(&document)
             .into_iter()
             .filter_map(|index| task_node(&document, index))
             .filter(|task| todos_section.contains_line(source, task.line))
-            .filter(|task| is_protocol_task(&document, task.index, "Todos"))
+            .filter(|task| is_protocol_task(&document, task.index, "Todo Graph"))
             .collect::<Vec<_>>();
         let mut todos = tasks
             .iter()
@@ -160,18 +156,18 @@ impl ParsedBlueprintSource {
                 id: task.id.clone().expect("filtered to Todo ID"),
                 title: task.title.clone(),
                 status: task.status,
-                created_by: field_value(source, task.line, "Created By"),
-                owner: field_value(source, task.line, "Owner"),
-                completed_by: field_value(source, task.line, "Completed By"),
+                created_by: None,
+                owner: None,
+                completed_by: None,
                 depends_on: field_value(source, task.line, "Depends On")
                     .map(|value| split_csv(&value))
                     .unwrap_or_default(),
                 completion_criteria: Vec::new(),
-                handoff: field_values(source, task.line, "Handoff"),
-                result_summary: field_value(source, task.line, "Result Summary"),
-                references: field_values(source, task.line, "Reference"),
-                block_reason: field_value(source, task.line, "Block Reason"),
-                cancel_reason: field_value(source, task.line, "Cancel Reason"),
+                handoff: Vec::new(),
+                result_summary: None,
+                references: Vec::new(),
+                block_reason: None,
+                cancel_reason: None,
                 children: Vec::new(),
             })
             .collect::<Vec<_>>();
@@ -385,15 +381,27 @@ fn section_text(document: &ParsedDocument, source: &str, title: &str) -> anyhow:
     Ok(document.section(title)?.body(source).trim().to_string())
 }
 
-fn parse_check_items(source: &str) -> Vec<CheckItem> {
+fn parse_definition_of_done(source: &str) -> anyhow::Result<Vec<DefinitionOfDoneItem>> {
     source
         .lines()
         .filter_map(|line| {
             let line = line.trim_start();
             let marker = line.strip_prefix("- [")?.chars().next()?;
-            let completed = matches!(marker, 'x' | 'X');
-            let text = line.get(5..)?.trim().to_string();
-            (!text.is_empty()).then_some(CheckItem { text, completed })
+            Some((matches!(marker, 'x' | 'X'), line.get(5..)?.trim()))
+        })
+        .map(|(completed, value)| {
+            let (text, id) = value
+                .rsplit_once(" ^")
+                .filter(|(_, id)| id.starts_with("dod-") && !id[4..].is_empty())
+                .ok_or_else(|| anyhow::anyhow!("Definition of Done item is missing a dod-* ID"))?;
+            if text.trim().is_empty() {
+                anyhow::bail!("Definition of Done item text must not be empty");
+            }
+            Ok(DefinitionOfDoneItem {
+                id: id.to_string(),
+                text: text.trim().to_string(),
+                completed,
+            })
         })
         .collect()
 }
@@ -407,7 +415,7 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
         .into_iter()
         .filter_map(|index| task_node(&document, index))
         .filter(|task| todos_section.contains_line(source, task.line))
-        .filter(|task| is_protocol_task(&document, task.index, "Todos"))
+        .filter(|task| is_protocol_task(&document, task.index, "Todo Graph"))
         .filter(|task| task.id.as_deref().is_some_and(|id| id.starts_with("todo-")))
         .collect::<Vec<_>>();
     let mut ids = HashSet::new();
@@ -415,6 +423,17 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
         let id = task.id.as_deref().expect("filtered to Todo ID");
         if !ids.insert(id) {
             anyhow::bail!("duplicate Todo ID in central graph: {id}");
+        }
+        let locator = locate_task(source, "Todo Graph", id)?;
+        if let Some(field) = locator
+            .fields
+            .iter()
+            .find(|field| !matches!(field.name.as_str(), "Depends On" | "Children"))
+        {
+            anyhow::bail!(
+                "Todo Graph field is not graph structure: {id} {}",
+                field.name
+            );
         }
     }
 
@@ -436,14 +455,14 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
                 title,
                 document,
                 status: task.status,
-                created_by: field_value(source, task.line, "Created By"),
-                owner: field_value(source, task.line, "Owner"),
-                completed_by: field_value(source, task.line, "Completed By"),
+                created_by: None,
+                owner: None,
+                completed_by: None,
                 depends_on: field_value(source, task.line, "Depends On")
                     .map(|value| split_csv(&value))
                     .unwrap_or_default(),
-                block_reason: field_value(source, task.line, "Block Reason"),
-                cancel_reason: field_value(source, task.line, "Cancel Reason"),
+                block_reason: None,
+                cancel_reason: None,
                 children: Vec::new(),
             })
         })
@@ -638,7 +657,7 @@ fn is_protocol_task(document: &Document, index: usize, section: &str) -> bool {
     let parent_list = document.tree.get_parent(index);
     let is_top_level = document.tree.get_parent(parent_list) == 0;
     match section {
-        "Todos" => is_top_level || has_ancestor_label(document, index, "Children:"),
+        "Todo Graph" => is_top_level || has_ancestor_label(document, index, "Children:"),
         "Definition of Done" => is_top_level,
         _ => true,
     }
@@ -861,13 +880,7 @@ pub(crate) fn validate_evidence_aggregate(
     let mut evidence_by_document = std::collections::HashMap::new();
     let mut ids = std::collections::HashSet::new();
     BlueprintSource::parse("blueprint.md", blueprint_source)?;
-    let blueprint_ids = evidence_ids_in_section(blueprint_source)?;
-    for id in &blueprint_ids {
-        if !ids.insert(id.clone()) {
-            anyhow::bail!("duplicate Evidence ID: {id}");
-        }
-    }
-    evidence_by_document.insert("blueprint.md", blueprint_ids);
+    evidence_by_document.insert("blueprint.md", Vec::new());
     for (path, source) in todo_sources {
         crate::blueprint::TodoDetail::parse(path, source)?;
         let document_ids = evidence_ids_in_section(source)?;

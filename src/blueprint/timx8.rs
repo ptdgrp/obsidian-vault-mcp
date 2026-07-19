@@ -2,7 +2,6 @@
 ///
 /// 格式：7位秒级时间戳（2000-2100） + 1位毫秒区间（把1秒分成32份）
 /// 字符集：Crockford Base32（大写+数字，无小写、无符号）
-
 const ENCODING: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// 2000-01-01 00:00:00 UTC

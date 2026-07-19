@@ -1,12 +1,32 @@
 use crate::blueprint::mcp::BlueprintMcp;
 
+fn assert_schema_hides_storage(value: &serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["source", "path", "document", "todo_index", "markdown"] {
+                assert!(!map.contains_key(key), "public schema leaked {key}");
+            }
+            map.values().for_each(assert_schema_hides_storage);
+        }
+        serde_json::Value::Array(values) => values.iter().for_each(assert_schema_hides_storage),
+        _ => {}
+    }
+}
+
+fn assert_schema_map_hides_storage(map: &serde_json::Map<String, serde_json::Value>) {
+    for key in ["source", "path", "document", "todo_index", "markdown"] {
+        assert!(!map.contains_key(key), "public schema leaked {key}");
+    }
+    map.values().for_each(assert_schema_hides_storage);
+}
+
 #[test]
-fn exposes_the_twenty_blueprint_protocol_tools() {
+fn exposes_the_nineteen_blueprint_protocol_tools() {
     let names = BlueprintMcp::tool_definitions()
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 20);
+    assert_eq!(names.len(), 19);
     for name in [
         "blueprint_create",
         "blueprint_get",
@@ -18,7 +38,6 @@ fn exposes_the_twenty_blueprint_protocol_tools() {
         "dod_update",
         "evidence_submit",
         "evidence_list",
-        "revision_append",
         "todo_create",
         "todo_get",
         "todo_list",
@@ -31,11 +50,9 @@ fn exposes_the_twenty_blueprint_protocol_tools() {
     ] {
         assert!(names.iter().any(|actual| actual == name), "missing {name}");
     }
-    assert!(
-        !names
-            .iter()
-            .any(|name| name == "blueprint_init" || name == "blueprint_discover")
-    );
+    assert!(!names.iter().any(|name| name == "blueprint_init"
+        || name == "blueprint_discover"
+        || name == "revision_append"));
 }
 
 #[test]
@@ -69,8 +86,8 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
         .and_then(serde_json::Value::as_array)
         .expect("create required fields");
     assert!(
-        required.iter().any(|value| value == "rubric"),
-        "rubric must be required"
+        !required.iter().any(|value| value == "rubric"),
+        "rubric must be optional"
     );
     let output = create.output_schema.as_ref().expect("create output schema");
     assert!(
@@ -81,6 +98,90 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
         }),
         "create output schema must be concrete instead of a generic data wrapper"
     );
+
+    let get = tools
+        .iter()
+        .find(|tool| tool.name == "blueprint_get")
+        .expect("blueprint_get schema");
+    let get_input = get
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("get input properties");
+    assert!(!get_input.contains_key("view"));
+    let get_output = get
+        .output_schema
+        .as_ref()
+        .and_then(|schema| schema.get("properties"))
+        .and_then(serde_json::Value::as_object)
+        .expect("get output properties");
+    for field in ["intent", "definition_of_done", "todos", "results", "etag"] {
+        assert!(get_output.contains_key(field), "missing get field {field}");
+    }
+    assert!(!get_output.contains_key("source"));
+    assert!(!get_output.contains_key("resume"));
+
+    let update = tools
+        .iter()
+        .find(|tool| tool.name == "blueprint_update")
+        .expect("blueprint_update schema");
+    let update_fields = update
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("update fields");
+    for field in [
+        "intent",
+        "constraints",
+        "plan",
+        "rubric",
+        "results",
+        "notes",
+    ] {
+        assert!(
+            update_fields.contains_key(field),
+            "missing update field {field}"
+        );
+    }
+    assert!(!update_fields.contains_key("title"));
+
+    let todo_create = tools
+        .iter()
+        .find(|tool| tool.name == "todo_create")
+        .expect("todo_create schema");
+    assert!(
+        todo_create.input_schema["properties"]
+            .get("intent")
+            .is_none()
+    );
+
+    for tool in &tools {
+        if (tool.name.starts_with("blueprint_")
+            || tool.name.starts_with("todo_")
+            || tool.name.starts_with("evidence_")
+            || tool.name == "dod_update")
+            && let Some(schema) = &tool.output_schema
+        {
+            assert_schema_map_hides_storage(schema);
+        }
+    }
+
+    for tool_name in [
+        "todo_update",
+        "todo_assign",
+        "todo_start",
+        "todo_complete",
+        "todo_block",
+        "todo_cancel",
+        "evidence_submit",
+    ] {
+        let tool = tools.iter().find(|tool| tool.name == tool_name).unwrap();
+        let required = tool.input_schema["required"].as_array().unwrap();
+        assert!(
+            required.iter().any(|field| field == "changed_by"),
+            "{tool_name} must require changed_by"
+        );
+    }
 
     for tool_name in ["todo_update", "todo_complete", "todo_block"] {
         let tool = tools
@@ -119,5 +220,4 @@ fn v3_tool_descriptions_explain_agent_owned_semantics() {
     assert!(description("blueprint_update").contains("Rubric"));
     assert!(description("blueprint_update").contains("Agent"));
     assert!(description("evidence_submit").contains("structural"));
-    assert!(description("revision_append").contains("append-only"));
 }

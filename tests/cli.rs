@@ -66,21 +66,30 @@ fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
         created.get("data").is_none(),
         "MCP wrapper leaked into CLI output"
     );
-    let dod_id = created["source"]
+    let get = run_cli(&dir, &["blueprint", "get", blueprint_id]);
+    assert!(
+        get.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&get.stderr)
+    );
+    let get: Value = serde_json::from_slice(&get.stdout).expect("structured get JSON");
+    assert_eq!(get["intent"], "exercise named Blueprint arguments");
+    assert_eq!(get["definition_of_done"][0]["text"], "the command succeeds");
+    assert!(get.get("source").is_none());
+    assert!(get.get("resume").is_none());
+    assert!(get.get("todo_index").is_none());
+    let dod_id = get["definition_of_done"][0]["id"]
         .as_str()
-        .expect("created source")
-        .lines()
-        .find_map(|line| line.split_once(" ^dod-").map(|(_, id)| format!("dod-{id}")))
-        .expect("definition of done id");
+        .expect("definition of done id")
+        .to_string();
 
     let dod_update = run_cli(
         &dir,
         &[
             "blueprint",
-            "dod-update",
-            "--blueprint-id",
+            "open",
             blueprint_id,
-            "--dod-id",
+            "dod-update",
             &dod_id,
             "--completed",
             "true",
@@ -92,10 +101,7 @@ fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
         String::from_utf8_lossy(&dod_update.stderr)
     );
 
-    let status = run_cli(
-        &dir,
-        &["blueprint", "status", "--blueprint-id", blueprint_id],
-    );
+    let status = run_cli(&dir, &["blueprint", "status", blueprint_id]);
     assert!(
         status.status.success(),
         "stderr: {}",
@@ -139,15 +145,13 @@ fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
         &dir,
         &[
             "blueprint",
-            "todo-create",
-            "--blueprint-id",
+            "open",
             &blueprint_id,
+            "todo-create",
             "--title",
             "Todo v2",
             "--created-by",
             "tester",
-            "--intent",
-            "initial intent",
             "--plan",
             "initial plan",
         ],
@@ -160,13 +164,12 @@ fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
         &dir,
         &[
             "blueprint",
-            "todo-update",
-            "--blueprint-id",
+            "open",
             &blueprint_id,
-            "--todo-id",
+            "todo-update",
             &todo_id,
-            "--intent",
-            "revised intent",
+            "--plan",
+            "revised plan",
             "--changed-by",
             "tester",
             "--change-reason",
@@ -175,20 +178,16 @@ fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
     );
     assert!(updated.status.success(), "{:?}", updated);
     let updated: Value = serde_json::from_slice(&updated.stdout).unwrap();
-    assert_eq!(updated["detail"]["intent"], "revised intent");
+    assert_eq!(updated["detail"]["plan"], "revised plan");
     assert!(
         updated["detail"]["revisions"]
             .as_array()
-            .is_some_and(|revisions| revisions.iter().any(|revision| {
-                revision["markdown"]
-                    .as_str()
-                    .is_some_and(|markdown| markdown.contains("CLI semantic update"))
-            }))
+            .is_some_and(|revisions| !revisions.is_empty())
     );
 }
 
 #[test]
-fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() {
+fn blueprint_evidence_command_forwards_its_dto_to_the_service() {
     let dir = tempdir().expect("tempdir");
     let created = run_cli(
         &dir,
@@ -213,13 +212,35 @@ fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() 
     let created: Value = serde_json::from_slice(&created.stdout).expect("create JSON");
     let blueprint_id = created["id"].as_str().expect("Blueprint ID");
 
+    let todo = run_cli(
+        &dir,
+        &[
+            "blueprint",
+            "open",
+            blueprint_id,
+            "todo-create",
+            "--title",
+            "Evidence owner",
+            "--created-by",
+            "tester",
+            "--plan",
+            "collect evidence",
+        ],
+    );
+    assert!(todo.status.success(), "{todo:?}");
+    let todo: Value = serde_json::from_slice(&todo.stdout).expect("Todo JSON");
+    let todo_id = todo["graph"]["id"].as_str().expect("Todo ID");
+
     let evidence = run_cli(
         &dir,
         &[
             "blueprint",
-            "evidence-submit",
-            "--blueprint-id",
+            "open",
             blueprint_id,
+            "evidence-submit",
+            todo_id,
+            "--changed-by",
+            "tester",
             "--title",
             "CLI evidence",
             "--body-line=- Collected By: cli-test",
@@ -237,38 +258,6 @@ fn blueprint_evidence_and_revision_commands_forward_their_dtos_to_the_service() 
         evidence["body_preview"]
             .as_str()
             .is_some_and(|body| body.contains("forwarded intact"))
-    );
-
-    let revision = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "revision-append",
-            "--blueprint-id",
-            blueprint_id,
-            "--changed-by",
-            "tester",
-            "--reason",
-            "verify CLI forwarding",
-            "--change",
-            "record append-only revision",
-            "--affected",
-            "Rubric",
-            "--evidence-impact",
-            "none",
-        ],
-    );
-    assert!(revision.status.success(), "{revision:?}");
-    let revision: Value = serde_json::from_slice(&revision.stdout).expect("revision JSON");
-    assert!(
-        revision["id"]
-            .as_str()
-            .is_some_and(|id| id.starts_with("revision-"))
-    );
-    assert!(
-        revision["markdown"]
-            .as_str()
-            .is_some_and(|markdown| markdown.contains("verify CLI forwarding"))
     );
 }
 
@@ -288,26 +277,16 @@ fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() 
     let blueprint_headings = tools
         .lines()
         .filter(|line| {
-            [
-                "blueprint_",
-                "dod_update",
-                "evidence_",
-                "revision_append",
-                "todo_",
-            ]
-            .iter()
-            .any(|prefix| line.starts_with(&format!("## 🔧 `{prefix}")))
+            ["blueprint_", "dod_update", "evidence_", "todo_"]
+                .iter()
+                .any(|prefix| line.starts_with(&format!("## 🔧 `{prefix}")))
         })
         .count();
-    assert_eq!(blueprint_headings, 20, "Blueprint tool count");
-    for expected in [
-        "`blueprint_create`",
-        "`evidence_submit`",
-        "`evidence_list`",
-        "`revision_append`",
-    ] {
+    assert_eq!(blueprint_headings, 19, "Blueprint tool count");
+    for expected in ["`blueprint_create`", "`evidence_submit`", "`evidence_list`"] {
         assert!(tools.contains(expected), "missing {expected}");
     }
+    assert!(!tools.contains("`revision_append`"));
 
     let checked = run_raw_cli(&["generate-docs", "--check", "--output", output]);
     assert!(

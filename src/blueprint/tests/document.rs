@@ -6,19 +6,10 @@ const SCHEMA: DocumentSchema = DocumentSchema {
 };
 
 #[test]
-fn parses_frontmatter_and_ordered_sections_then_preserves_unknown_markdown() {
+fn rejects_sections_outside_the_exact_schema_order() {
     let source = "---\nschema: test/v2\nid: doc-1\nstate: active\n---\n\n# 标题\n\n## Intent\n\n目标\n\n## Extra\n\n<!-- keep -->\n\n## Results\n\n结果\n";
-    let parsed = ParsedDocument::parse("doc.md", source, SCHEMA).unwrap();
-    assert_eq!(parsed.frontmatter_string("schema"), Some("test/v2"));
-    assert_eq!(parsed.h1(), "标题");
-    assert_eq!(
-        parsed.section("Intent").unwrap().body(source).trim(),
-        "目标"
-    );
-
-    let next = parsed.replace_section(source, "Results", "新结果").unwrap();
-    assert!(next.contains("## Extra\n\n<!-- keep -->"));
-    assert!(next.contains("## Results\n\n新结果"));
+    let error = ParsedDocument::parse("doc.md", source, SCHEMA).unwrap_err();
+    assert!(error.to_string().contains("sections must be exactly"));
 }
 
 #[test]

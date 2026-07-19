@@ -21,7 +21,6 @@ pub(crate) struct Section {
 pub(crate) struct ParsedDocument {
     h1: String,
     frontmatter: serde_json::Map<String, serde_json::Value>,
-    #[cfg(test)]
     frontmatter_range: Range<usize>,
     sections: Vec<Section>,
 }
@@ -110,11 +109,22 @@ impl ParsedDocument {
                 _ => anyhow::bail!("required section must occur exactly once: {title}"),
             }
         }
+        if !schema.required_sections.is_empty() {
+            let actual = sections
+                .iter()
+                .map(|section| section.title.as_str())
+                .collect::<Vec<_>>();
+            if actual != schema.required_sections {
+                anyhow::bail!(
+                    "document sections must be exactly: {}",
+                    schema.required_sections.join(", ")
+                );
+            }
+        }
 
         Ok(Self {
             h1,
             frontmatter,
-            #[cfg(test)]
             frontmatter_range: _frontmatter_range,
             sections,
         })
@@ -150,7 +160,7 @@ impl ParsedDocument {
         let mut next = source.to_string();
         next.replace_range(
             section.body_start..section.body_end,
-            &format!("\n{}\n", body.trim()),
+            &format!("\n{}\n\n", body.trim()),
         );
         Ok(next)
     }
@@ -162,17 +172,15 @@ impl ParsedDocument {
         body: &str,
     ) -> anyhow::Result<String> {
         let section = self.section(title)?;
-        let insertion = if source[..section.body_end].ends_with('\n') {
-            "\n"
+        let current = section.body(source).trim();
+        let combined = if current.is_empty() {
+            body.trim().to_string()
         } else {
-            "\n\n"
+            format!("{}\n\n{}", current, body.trim())
         };
-        let mut next = source.to_string();
-        next.insert_str(section.body_end, &format!("{insertion}{}\n", body.trim()));
-        Ok(next)
+        self.replace_section(source, title, &combined)
     }
 
-    #[cfg(test)]
     pub(crate) fn replace_frontmatter_field(
         &self,
         source: &str,
@@ -292,7 +300,6 @@ fn line_start_after(source: &str, line: u64) -> usize {
     line_start(source, line.saturating_add(1))
 }
 
-#[cfg(test)]
 fn frontmatter_field_value_range<'a>(
     frontmatter: &'a str,
     field: &str,
@@ -323,7 +330,6 @@ fn frontmatter_field_value_range<'a>(
     None
 }
 
-#[cfg(test)]
 fn yaml_mapping_colon(line: &str) -> Option<usize> {
     let mut quote = None;
     let mut escaped = false;
@@ -346,7 +352,6 @@ fn yaml_mapping_colon(line: &str) -> Option<usize> {
     None
 }
 
-#[cfg(test)]
 fn yaml_key(key: &str) -> Option<&str> {
     let key = key.trim();
     key.strip_prefix('"')
@@ -358,7 +363,6 @@ fn yaml_key(key: &str) -> Option<&str> {
         .or((!key.is_empty()).then_some(key))
 }
 
-#[cfg(test)]
 fn yaml_value_length(value: &str) -> (usize, Option<char>) {
     let Some(quote) = value
         .chars()
@@ -394,7 +398,6 @@ fn yaml_value_length(value: &str) -> (usize, Option<char>) {
     (value.len(), Some(quote))
 }
 
-#[cfg(test)]
 fn escape_yaml_string(value: &str, quote: char) -> String {
     match quote {
         '"' => value.replace('\\', "\\\\").replace('"', "\\\""),
