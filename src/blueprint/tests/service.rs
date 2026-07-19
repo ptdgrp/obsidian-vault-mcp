@@ -172,6 +172,91 @@ fn section_edits_preserve_unknown_setext_h2_bytes() {
 }
 
 #[test]
+fn task_mutations_ignore_fenced_and_notes_block_id_decoys() {
+    let (directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "real title".into(),
+            created_by: "planner".into(),
+            owner: Some("agent".into()),
+            intent: "mutate real task".into(),
+            plan: "use structural locator".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let path = root.join(format!(
+        ".blueprint/blueprints/{}/blueprint.md",
+        blueprint.id
+    ));
+    let fake_task = format!(
+        "```md\n- [ ] [fake](todos/{}.md) ^{}\n```\n\n",
+        todo.graph.id, todo.graph.id
+    );
+    let fake_notes = format!(
+        "- [ ] [notes fake](todos/{}.md) ^{}\n",
+        todo.graph.id, todo.graph.id
+    );
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace("## Todos\n", &format!("{fake_task}## Todos\n"))
+        .replace("## Notes\n", &format!("## Notes\n\n{fake_notes}"));
+    fs::write(&path, source).unwrap();
+
+    let started = service
+        .todo_start(&blueprint.id, &todo.graph.id, None)
+        .unwrap();
+    let after = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert!(after.contains(&fake_task));
+    assert!(after.contains(&fake_notes));
+    assert_eq!(started.graph.status, TodoStatus::InProgress);
+    assert!(after.contains(&format!(
+        "- [/] [real title](todos/{}.md) ^{}",
+        todo.graph.id, todo.graph.id
+    )));
+
+    let updated = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                title: Some("renamed real".into()),
+                depends_on: Some(vec![]),
+                ..Default::default()
+            },
+            TodoUpdateOptions {
+                changed_by: Some("agent"),
+                change_reason: Some("rename real task"),
+                expected_blueprint_etag: Some(&started.blueprint_etag),
+                expected_todo_etag: Some(&started.todo_etag),
+            },
+        )
+        .unwrap();
+    let after = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert!(after.contains(&fake_notes));
+    assert!(after.contains("[notes fake]"));
+    assert_eq!(updated.graph.title, "renamed real");
+
+    let dod = first_dod_id(&after);
+    let fake_dod = format!("```md\n- [ ] fake ^{dod}\n```\n\n");
+    fs::write(
+        &path,
+        after.replace(
+            "## Definition of Done\n",
+            &format!("{fake_dod}## Definition of Done\n"),
+        ),
+    )
+    .unwrap();
+    service
+        .dod_update(&blueprint.id, &dod, true, None, None)
+        .unwrap();
+    let after = service.blueprint_get(&blueprint.id).unwrap().source;
+    assert!(after.contains(&fake_dod));
+    assert!(after.contains(&format!("- [x] 完成协议验证 ^{dod}")));
+}
+
+#[test]
 fn todo_create_writes_graph_link_and_independent_detail_document() {
     let (_directory, service, blueprint) = create_blueprint();
     let todo = service

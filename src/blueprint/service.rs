@@ -497,7 +497,7 @@ impl BlueprintService {
                 {
                     anyhow::bail!("Todo is not eligible to start");
                 }
-                replace_task_status(source, todo_id, TodoStatus::InProgress)
+                replace_task_status_in_section(source, "Todos", todo_id, TodoStatus::InProgress)
             })?;
         self.todo_get(blueprint_id, todo_id)
     }
@@ -765,7 +765,12 @@ impl BlueprintService {
                 replace_section(&detail.source, "Handoff", &format!("- {}", handoff.trim()))?;
             crate::blueprint::TodoDetail::parse(detail.path.as_str(), &detail_candidate)?;
             let graph_candidate = {
-                let source = replace_task_status(&graph.source, todo_id, TodoStatus::Blocked)?;
+                let source = replace_task_status_in_section(
+                    &graph.source,
+                    "Todos",
+                    todo_id,
+                    TodoStatus::Blocked,
+                )?;
                 replace_or_insert_todo_field(&source, todo_id, "Block Reason", reason.trim())?
             };
             let parsed =
@@ -816,7 +821,12 @@ impl BlueprintService {
                 ) {
                     anyhow::bail!("Todo cannot be cancelled from its current status");
                 }
-                let source = replace_task_status(source, todo_id, TodoStatus::Cancelled)?;
+                let source = replace_task_status_in_section(
+                    source,
+                    "Todos",
+                    todo_id,
+                    TodoStatus::Cancelled,
+                )?;
                 replace_or_insert_todo_field(&source, todo_id, "Cancel Reason", reason.trim())
             })?;
         self.todo_get(blueprint_id, todo_id)
@@ -915,7 +925,12 @@ impl BlueprintService {
             }
             validate_locked_evidence_aggregate(locked, &graph.source, None)?;
             let graph_candidate = {
-                let source = replace_task_status(&graph.source, todo_id, TodoStatus::Completed)?;
+                let source = replace_task_status_in_section(
+                    &graph.source,
+                    "Todos",
+                    todo_id,
+                    TodoStatus::Completed,
+                )?;
                 replace_or_insert_todo_field(&source, todo_id, "Completed By", completed_by.trim())?
             };
             let parsed =
@@ -1071,14 +1086,9 @@ impl BlueprintService {
         self.require_active(blueprint_id)?;
         self.store
             .write_blueprint(blueprint_id, expected_etag, |source| {
-                let is_dod = source
-                    .lines()
-                    .any(|line| line.contains(&format!("^{dod_id}")) && line.contains("^dod-"));
-                if !is_dod {
-                    anyhow::bail!("unknown Definition of Done: {dod_id}");
-                }
-                let next = replace_task_status(
+                let next = replace_task_status_in_section(
                     source,
+                    "Definition of Done",
                     dod_id,
                     if completed {
                         TodoStatus::Completed
@@ -1087,7 +1097,13 @@ impl BlueprintService {
                     },
                 )?;
                 match note.filter(|value| !value.trim().is_empty()) {
-                    Some(note) => replace_or_insert_todo_field(&next, dod_id, "Note", note.trim()),
+                    Some(note) => replace_or_insert_task_field(
+                        &next,
+                        "Definition of Done",
+                        dod_id,
+                        "Note",
+                        note.trim(),
+                    ),
                     None => Ok(next),
                 }
             })
@@ -1458,14 +1474,45 @@ fn replace_title(source: &str, title: &str) -> anyhow::Result<String> {
     ))
 }
 
+#[derive(Clone, Copy)]
+struct TaskLocator {
+    start: usize,
+    end: usize,
+    indent: usize,
+    section_end: usize,
+}
+
+fn locate_section_task(source: &str, section: &str, id: &str) -> anyhow::Result<TaskLocator> {
+    let range = parsed_sections(source)?.section_body_range(section)?;
+    let mut offset = range.start;
+    let mut fenced = false;
+    for raw in source[range.clone()].split_inclusive('\n') {
+        let line = raw.strip_suffix('\n').unwrap_or(raw);
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            fenced = !fenced;
+        } else if !fenced
+            && is_task_line(trimmed)
+            && trimmed
+                .split_whitespace()
+                .any(|word| word == format!("^{id}"))
+        {
+            return Ok(TaskLocator {
+                start: offset,
+                end: offset + line.len(),
+                indent: line.len() - trimmed.len(),
+                section_end: range.end,
+            });
+        }
+        offset += raw.len();
+    }
+    anyhow::bail!("unknown {section} task: {id}")
+}
+
 fn todo_children_insertion(source: &str, parent_id: &str) -> anyhow::Result<usize> {
-    let line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{parent_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {parent_id}"))?;
-    let task_offset = line.as_ptr() as usize - source.as_ptr() as usize;
-    let after_task = task_offset + line.len();
-    let indent = line.len() - line.trim_start().len();
+    let task = locate_section_task(source, "Todos", parent_id)?;
+    let after_task = task.end;
+    let indent = task.indent;
     let label = format!("\n{}- Children:", " ".repeat(indent + 2));
     let offset = source[after_task..]
         .find(&label)
@@ -1474,15 +1521,11 @@ fn todo_children_insertion(source: &str, parent_id: &str) -> anyhow::Result<usiz
 }
 
 fn ensure_children_label(source: &str, parent_id: &str) -> anyhow::Result<String> {
-    let line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{parent_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {parent_id}"))?;
-    let start = line.as_ptr() as usize - source.as_ptr() as usize;
-    let after = start + line.len();
-    let indent = line.len() - line.trim_start().len();
+    let task = locate_section_task(source, "Todos", parent_id)?;
+    let after = task.end;
+    let indent = task.indent;
     let mut insertion = after;
-    for candidate in source[after..].lines() {
+    for candidate in source[after..task.section_end].lines() {
         if candidate.trim() == "- Children:" {
             return Ok(source.to_string());
         }
@@ -1503,11 +1546,9 @@ fn ensure_children_label(source: &str, parent_id: &str) -> anyhow::Result<String
 }
 
 fn replace_task_title(source: &str, todo_id: &str, title: &str) -> anyhow::Result<String> {
-    let line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{todo_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
-    let start = line.as_ptr() as usize - source.as_ptr() as usize;
+    let task = locate_section_task(source, "Todos", todo_id)?;
+    let line = &source[task.start..task.end];
+    let start = task.start;
     let marker_end = line
         .find("] ")
         .ok_or_else(|| anyhow::anyhow!("Todo has no task marker: {todo_id}"))?
@@ -1565,12 +1606,15 @@ fn find_todo<'a>(todos: &'a [Todo], id: &str) -> Option<&'a Todo> {
     None
 }
 
-fn replace_task_status(source: &str, todo_id: &str, status: TodoStatus) -> anyhow::Result<String> {
-    let line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{todo_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
-    let offset = line.as_ptr() as usize - source.as_ptr() as usize;
+fn replace_task_status_in_section(
+    source: &str,
+    section: &str,
+    todo_id: &str,
+    status: TodoStatus,
+) -> anyhow::Result<String> {
+    let task = locate_section_task(source, section, todo_id)?;
+    let line = &source[task.start..task.end];
+    let offset = task.start;
     let marker_offset = line
         .find("[ ")
         .or_else(|| line.find("[/"))
@@ -1591,28 +1635,35 @@ fn replace_or_insert_todo_field(
     field: &str,
     value: &str,
 ) -> anyhow::Result<String> {
-    replace_todo_field_values(source, todo_id, field, &[value])
+    replace_task_field_values(source, "Todos", todo_id, field, &[value])
+}
+
+fn replace_or_insert_task_field(
+    source: &str,
+    section: &str,
+    task_id: &str,
+    field: &str,
+    value: &str,
+) -> anyhow::Result<String> {
+    replace_task_field_values(source, section, task_id, field, &[value])
 }
 
 /// Replaces direct fields inside one Todo without touching nested criteria or child Todos.
-fn replace_todo_field_values(
+fn replace_task_field_values(
     source: &str,
+    section: &str,
     todo_id: &str,
     field: &str,
     values: &[&str],
 ) -> anyhow::Result<String> {
-    let task_line = source
-        .lines()
-        .find(|line| line.contains(&format!("^{todo_id}")))
-        .ok_or_else(|| anyhow::anyhow!("unknown Todo: {todo_id}"))?;
-    let task_offset = task_line.as_ptr() as usize - source.as_ptr() as usize;
-    let task_end = task_offset + task_line.len();
-    let task_indent = task_line.len() - task_line.trim_start().len();
+    let task = locate_section_task(source, section, todo_id)?;
+    let task_end = task.end;
+    let task_indent = task.indent;
     let field_prefix = format!("{}- {field}:", " ".repeat(task_indent + 2));
     let body_start = task_end + usize::from(source.as_bytes().get(task_end) == Some(&b'\n'));
-    let mut body_end = source.len();
+    let mut body_end = task.section_end;
     let mut offset = body_start;
-    for line_with_ending in source[body_start..].split_inclusive('\n') {
+    for line_with_ending in source[body_start..task.section_end].split_inclusive('\n') {
         let line = line_with_ending
             .strip_suffix('\n')
             .unwrap_or(line_with_ending);
