@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use super::render_docs;
 
-#[allow(dead_code)]
 #[derive(JsonSchema)]
 struct ExampleInput {
     #[schemars(description = "selector | note")]
@@ -18,7 +17,6 @@ struct Detail {
     label: String,
 }
 
-#[allow(dead_code)]
 #[derive(JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum Mode {
@@ -26,7 +24,6 @@ enum Mode {
     Apply,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum Outcome {

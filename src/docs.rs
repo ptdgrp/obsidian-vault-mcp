@@ -5,7 +5,7 @@ use serde_json::Value;
 
 pub fn all_tool_definitions() -> Vec<Tool> {
     let mut tools = crate::server::ObsidianVaultMcp::tool_definitions();
-    tools.extend(crate::blueprint::blueprint_tool_definitions());
+    tools.extend(crate::blueprint::BlueprintMcp::tool_definitions());
     tools
 }
 

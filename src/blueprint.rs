@@ -7,8 +7,7 @@ mod store;
 mod todo;
 mod validate;
 
-pub use mcp::{blueprint_tool_definitions, run_blueprint_mcp_server};
-#[allow(unused_imports)]
+pub use mcp::{BlueprintMcp, run_blueprint_mcp_server};
 pub use model::{
     BlueprintCancelInput, BlueprintCloseInput, BlueprintCreateInput, BlueprintGetInput,
     BlueprintGetOutput, BlueprintIdInput, BlueprintListInput, BlueprintListOutput, BlueprintPatch,
@@ -21,10 +20,8 @@ pub use model::{
 pub use service::{
     BlueprintCreated, BlueprintService, BlueprintStatus, CheckUpdate, TodoUpdateOptions,
 };
-#[allow(unused_imports)]
 pub use source::{BlueprintSource, parse_blueprint_source};
 pub use store::StoredBlueprint;
-#[allow(unused_imports)]
 pub use todo::parse_todo_source;
 
 #[cfg(test)]

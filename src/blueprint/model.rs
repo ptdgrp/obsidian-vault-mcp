@@ -71,7 +71,6 @@ pub struct CheckItem {
     pub completed: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 /// Lifecycle state recorded in Blueprint v2 frontmatter.
@@ -96,7 +95,6 @@ impl TryFrom<&str> for BlueprintState {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// Central Todo Graph node; execution state is authoritative here, not in Todo detail files.
 pub struct TodoGraphNode {
@@ -113,7 +111,6 @@ pub struct TodoGraphNode {
     pub children: Vec<TodoGraphNode>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// An Evidence block retained exactly as Markdown.
 pub struct EvidenceItem {
@@ -121,7 +118,6 @@ pub struct EvidenceItem {
     pub markdown: String,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// An append-only revision record retained exactly as Markdown.
 pub struct RevisionEntry {
@@ -157,7 +153,6 @@ pub struct RevisionAppendInput {
     pub expected_etag: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 /// Typed content of a standalone Todo detail document.
 pub struct TodoDetail {

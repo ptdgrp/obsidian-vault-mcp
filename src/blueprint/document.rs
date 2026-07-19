@@ -10,7 +10,6 @@ pub(crate) struct DocumentSchema {
     pub required_sections: &'static [&'static str],
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct Section {
     pub title: String,
@@ -27,7 +26,6 @@ pub(crate) struct ParsedDocument {
     sections: Vec<Section>,
 }
 
-#[allow(dead_code)]
 impl ParsedDocument {
     pub(crate) fn parse(path: &str, source: &str, schema: DocumentSchema) -> anyhow::Result<Self> {
         if !path.ends_with(".md") {
@@ -206,7 +204,6 @@ impl ParsedDocument {
     }
 }
 
-#[allow(dead_code)]
 impl Section {
     pub(crate) fn body<'a>(&self, source: &'a str) -> &'a str {
         &source[self.body_start..self.body_end]

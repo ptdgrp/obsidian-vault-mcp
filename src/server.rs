@@ -34,15 +34,15 @@ pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
 }
 
 #[derive(Clone)]
-pub struct ObsidianVaultMcp {
-    state: Arc<AppState>,
-    tool_router: ToolRouter<Self>,
-}
-
-#[derive(Clone)]
 pub struct AppState {
     pub queries: VaultQueries,
     pub mutations: VaultMutations,
+}
+
+#[derive(Clone)]
+pub struct ObsidianVaultMcp {
+    state: Arc<AppState>,
+    tool_router: ToolRouter<Self>,
 }
 
 impl ObsidianVaultMcp {
@@ -891,7 +891,7 @@ impl ServerHandler for ObsidianVaultMcp {
     }
 }
 
-fn run_tool<A, T>(
+pub(crate) fn run_tool<A, T>(
     tool_name: &'static str,
     arguments: A,
     run: impl FnOnce(A) -> anyhow::Result<T>,
