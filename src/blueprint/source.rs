@@ -383,6 +383,13 @@ fn parse_graph_nodes(source: &str, todos_section: &Section) -> anyhow::Result<Ve
         .filter(|task| is_protocol_task(&document, task.index, "Todos"))
         .filter(|task| task.id.as_deref().is_some_and(|id| id.starts_with("todo-")))
         .collect::<Vec<_>>();
+    let mut ids = HashSet::new();
+    for task in &tasks {
+        let id = task.id.as_deref().expect("filtered to Todo ID");
+        if !ids.insert(id) {
+            anyhow::bail!("duplicate Todo ID in central graph: {id}");
+        }
+    }
 
     let todos = tasks
         .iter()

@@ -108,6 +108,51 @@ fn aggregate_reads_and_close_reject_missing_orphan_and_title_mismatched_todo_doc
 }
 
 #[test]
+fn blueprint_get_and_full_view_reject_duplicate_central_todo_ids() {
+    let (directory, service, blueprint) = create_blueprint();
+    let todo = service
+        .todo_create(TodoCreateRequest {
+            blueprint_id: blueprint.id.clone(),
+            title: "unique task".into(),
+            created_by: "planner".into(),
+            intent: "check duplicate graph IDs".into(),
+            plan: "read the aggregate".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
+    let path = root.join(format!(
+        ".blueprint/blueprints/{}/blueprint.md",
+        blueprint.id
+    ));
+    let duplicate = format!(
+        "- [ ] [duplicate task](todos/{}.md) ^{}\n",
+        todo.graph.id, todo.graph.id
+    );
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace("## Results\n", &format!("{duplicate}## Results\n"));
+    fs::write(path, source).unwrap();
+
+    let get_error = service.blueprint_get(&blueprint.id).unwrap_err();
+    assert!(
+        get_error
+            .to_string()
+            .contains("duplicate Todo ID in central graph"),
+        "{get_error:#}"
+    );
+    let view_error = service
+        .blueprint_view(&blueprint.id, Some("full"))
+        .unwrap_err();
+    assert!(
+        view_error
+            .to_string()
+            .contains("duplicate Todo ID in central graph"),
+        "{view_error:#}"
+    );
+}
+
+#[test]
 fn evidence_validation_uses_the_setext_evidence_section_not_literal_heading_text() {
     let (directory, service, blueprint) = create_blueprint();
     let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).unwrap();
