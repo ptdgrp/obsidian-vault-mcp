@@ -5,6 +5,7 @@ mod model;
 mod service;
 mod source;
 mod store;
+mod timx8;
 mod todo;
 mod validate;
 

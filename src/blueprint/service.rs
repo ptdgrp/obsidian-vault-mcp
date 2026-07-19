@@ -1,7 +1,6 @@
 use camino::Utf8PathBuf;
 use schemars::JsonSchema;
 use serde::Serialize;
-use ulid::Ulid;
 
 use crate::blueprint::{
     ExternalBody,
@@ -15,6 +14,7 @@ use crate::blueprint::{
         ParsedBlueprintSource, locate_task, standard_evidence_links, validate_evidence_aggregate,
     },
     store::{BlueprintStore, LockedBlueprintStore, StoredBlueprint},
+    timx8,
     validate::derive_readiness,
 };
 
@@ -124,7 +124,14 @@ impl BlueprintService {
         {
             require_text("list item", item)?;
         }
-        let id = format!("bp-{}", Ulid::generate());
+        let mut id = format!("bp-{}", timx8::generate());
+        if self.store.read(&id).is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(31));
+            id = format!("bp-{}", timx8::generate());
+            if self.store.read(&id).is_ok() {
+                anyhow::bail!("blueprint id collision, please try again later");
+            }
+        }
         let source = render_blueprint(&id, &request);
         let StoredBlueprint {
             id, etag, source, ..
