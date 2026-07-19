@@ -1,4 +1,4 @@
-use super::super::source::validate_evidence_aggregate;
+use super::super::source::{standard_evidence_links, validate_evidence_aggregate};
 use super::super::{BlueprintSource, BlueprintState, TodoStatus};
 
 fn blueprint_v2(todos: &str) -> String {
@@ -50,6 +50,15 @@ fn evidence_link_resolver_rejects_duplicate_ids_and_targets_outside_the_aggregat
             .to_string()
             .contains("invalid Evidence target")
     );
+}
+
+#[test]
+fn evidence_link_resolver_uses_only_real_markdown_links() {
+    let links = standard_evidence_links(
+        "not-a-link](#^evidence-fake)\n\n```md\n[example](#^evidence-literal)\n```\n\n[real](#^evidence-real)",
+    )
+    .unwrap();
+    assert_eq!(links, vec![("".into(), "evidence-real".into())]);
 }
 
 #[test]

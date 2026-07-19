@@ -9,7 +9,7 @@ use crate::blueprint::{
         NotReadyTodo, RevisionAppendInput, RevisionEntry, Todo, TodoCreateRequest, TodoGraphNode,
         TodoPatch, TodoStatus, TodoView,
     },
-    source::{ParsedBlueprintSource, validate_evidence_aggregate},
+    source::{ParsedBlueprintSource, standard_evidence_links, validate_evidence_aggregate},
     store::{BlueprintStore, LockedBlueprintStore, StoredBlueprint},
     validate::derive_readiness,
 };
@@ -56,6 +56,25 @@ impl BlueprintService {
             anyhow::bail!("Blueprint is not active");
         }
         Ok(())
+    }
+
+    fn write_blueprint_validated(
+        &self,
+        blueprint_id: &str,
+        expected_etag: Option<&str>,
+        mutate: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<StoredBlueprint> {
+        self.store.with_lock(blueprint_id, |locked| {
+            locked.require_active()?;
+            let current = locked.read_blueprint()?;
+            if expected_etag.is_some_and(|etag| etag != current.etag) {
+                anyhow::bail!("Blueprint ETag does not match; re-read before writing");
+            }
+            let candidate = mutate(&current.source)?;
+            crate::blueprint::BlueprintSource::parse(&format!("{blueprint_id}.md"), &candidate)?;
+            validate_locked_evidence_aggregate(locked, &candidate, None)?;
+            locked.write_blueprint(expected_etag, |_| Ok(candidate))
+        })
     }
 
     #[tracing::instrument(
@@ -227,7 +246,7 @@ impl BlueprintService {
         expected_etag: Option<&str>,
     ) -> anyhow::Result<StoredBlueprint> {
         self.require_active(id)?;
-        self.store.write_blueprint(id, expected_etag, |source| {
+        self.write_blueprint_validated(id, expected_etag, |source| {
             let mut next = source.to_string();
             if let Some(title) = title {
                 require_text("title", title)?;
@@ -281,7 +300,7 @@ impl BlueprintService {
             require_text("changed_by", changed_by.unwrap_or(""))?;
             require_text("change_reason", change_reason.unwrap_or(""))?;
         }
-        self.store.write_blueprint(id, expected_etag, |source| {
+        self.write_blueprint_validated(id, expected_etag, |source| {
             let mut next = source.to_string();
             if let Some(title) = patch.title.as_deref() {
                 require_text("title", title)?;
@@ -1991,24 +2010,8 @@ fn validate_locked_evidence_aggregate(
 }
 
 fn evidence_references(results: &str) -> anyhow::Result<Vec<String>> {
-    let mut references = Vec::new();
-    let mut rest = results;
-    while let Some(start) = rest.find("](") {
-        let target = &rest[start + 2..];
-        let Some(end) = target.find(')') else {
-            anyhow::bail!("malformed Evidence reference");
-        };
-        let destination = &target[..end];
-        if let Some((_, id)) = destination.rsplit_once("#^") {
-            if !id.starts_with("evidence-") || id.is_empty() || id.contains(char::is_whitespace) {
-                anyhow::bail!("malformed Evidence reference");
-            }
-            references.push(id.to_string());
-        }
-        rest = &target[end + 1..];
-    }
-    if results.contains("#^evidence-") && references.is_empty() {
-        anyhow::bail!("malformed Evidence reference");
-    }
-    Ok(references)
+    Ok(standard_evidence_links(results)?
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect())
 }

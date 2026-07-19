@@ -168,6 +168,32 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
         .unwrap_err();
     assert!(error.to_string().contains("Results"), "{error:#}");
 
+    let fake_link = service
+        .todo_update(
+            &blueprint.id,
+            &todo.graph.id,
+            TodoPatch {
+                results: Some("not-a-link](#^evidence-fake)".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&checked.blueprint_etag),
+            Some(&checked.todo_etag),
+        )
+        .unwrap();
+    let error = service
+        .todo_complete(
+            &blueprint.id,
+            &todo.graph.id,
+            "agent",
+            "仍不能凭伪链接完成",
+            Some(&fake_link.blueprint_etag),
+            Some(&fake_link.todo_etag),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Evidence"), "{error:#}");
+
     let with_bad_link = service
         .todo_update(
             &blueprint.id,
@@ -178,8 +204,8 @@ fn evidence_links_reject_bad_target_and_todo_completion_requires_existing_result
             },
             None,
             None,
-            Some(&checked.blueprint_etag),
-            Some(&checked.todo_etag),
+            Some(&fake_link.blueprint_etag),
+            Some(&fake_link.todo_etag),
         )
         .unwrap_err();
     assert!(with_bad_link.to_string().contains("Evidence target"));
@@ -219,6 +245,28 @@ fn revision_append_is_append_only_with_fixed_fields() {
     assert!(source.contains(&second.markdown));
     assert!(second.markdown.contains("- Change: 补充审查"));
     assert!(second.markdown.contains("- Affected: Rubric"));
+}
+
+#[test]
+fn blueprint_semantic_update_rejects_dangling_evidence_without_writing() {
+    let (_directory, service, blueprint) = create_blueprint();
+    let error = service
+        .blueprint_update_semantic(
+            &blueprint.id,
+            BlueprintPatch {
+                results: Some("[missing](#^evidence-missing)".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            Some(&blueprint.etag),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("dangling Evidence reference"));
+    assert_eq!(
+        service.blueprint_get(&blueprint.id).unwrap().source,
+        blueprint.source
+    );
 }
 
 #[test]

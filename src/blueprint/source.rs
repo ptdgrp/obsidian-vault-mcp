@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use markdown::{
-    Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem, parser::Location,
+    Document, MarkdownNode, Parser, ParserOptions, ast::list::ListItem, link::Link,
+    parser::Location,
 };
 
 use crate::blueprint::{
@@ -580,22 +581,27 @@ fn evidence_ids_in_section(source: &str) -> Vec<String> {
         .collect()
 }
 
-fn standard_evidence_links(source: &str) -> anyhow::Result<Vec<(String, String)>> {
+pub(crate) fn standard_evidence_links(source: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let document =
+        Parser::new_with_options(source, ParserOptions::default().enabled_gfm().enabled_ofm())
+            .parse_checked()
+            .map_err(|error| anyhow::anyhow!("malformed Evidence reference: {error:?}"))?;
     let mut links = Vec::new();
-    let mut rest = source;
-    while let Some(start) = rest.find("](") {
-        let after_open = &rest[start + 2..];
-        let Some(end) = after_open.find(')') else {
-            anyhow::bail!("malformed Evidence reference");
+    for index in active_node_indices(&document) {
+        let MarkdownNode::Link(link) = &document.tree[index].body else {
+            continue;
         };
-        let destination = &after_open[..end];
+        let Link::Default(link) = link.as_ref() else {
+            continue;
+        };
+        // The parser percent-encodes `^` in URL fragments, while Blueprint block IDs use it.
+        let destination = link.url.replace("%5E", "^").replace("%5e", "^");
         if let Some((target, id)) = destination.rsplit_once("#^") {
             if !id.starts_with("evidence-") || id.contains(char::is_whitespace) {
                 anyhow::bail!("malformed Evidence reference");
             }
             links.push((target.to_string(), id.to_string()));
         }
-        rest = &after_open[end + 1..];
     }
     Ok(links)
 }
