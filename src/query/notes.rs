@@ -17,6 +17,7 @@ use super::{
 impl VaultQueries {
     #[tracing::instrument(
         name = "vault.query.list_notes",
+        skip_all,
         fields(operation.kind = "query", operation.name = "list_notes"),
         err
     )]
@@ -27,26 +28,30 @@ impl VaultQueries {
         page: usize,
     ) -> anyhow::Result<ListNotesResult> {
         let filter = PathFilter::new(include, exclude)?;
-        let mut notes = Vec::new();
-        for file in self
+        let files = self
             .vault
             .list_notes()?
             .into_iter()
             .filter(|file| filter.is_match(&file.relative_path))
-        {
-            let title = read_and_parse(self, &file)
-                .ok()
-                .map(|note| truncate_display_title(note_title(&note.parsed, &file.relative_path)));
-            notes.push(NoteSummary {
-                path: file.relative_path,
-                title,
-            });
-        }
-        let page = PageSlice::new(notes, page, 100)?;
+            .collect();
+        let page = PageSlice::new(files, page, 100)?;
         let total_notes = page.total_items();
         let pagination = page.pagination();
+        let notes = page
+            .into_items()
+            .into_iter()
+            .map(|file| {
+                let title = read_and_parse(self, &file).ok().map(|note| {
+                    truncate_display_title(note_title(&note.parsed, &file.relative_path))
+                });
+                NoteSummary {
+                    path: file.relative_path,
+                    title,
+                }
+            })
+            .collect();
         Ok(ListNotesResult {
-            notes: page.into_items(),
+            notes,
             pagination: ListNotesPagination {
                 page: pagination.page,
                 total_pages: pagination.total_pages,

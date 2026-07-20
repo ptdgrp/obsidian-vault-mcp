@@ -5,6 +5,62 @@ use super::{
     path_with_line_ref, percent_decode, recover_inline_source_span, reference_suffix, slice_text,
 };
 use markdown::reference::Reference;
+use std::sync::{Arc, Mutex};
+use tracing::{Subscriber, field::Visit};
+use tracing_subscriber::{Layer, layer::SubscriberExt};
+
+#[derive(Clone, Default)]
+struct CapturedSpanFields(Arc<Mutex<Vec<(String, String)>>>);
+
+impl<S> Layer<S> for CapturedSpanFields
+where
+    S: Subscriber,
+{
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _context: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = FieldVisitor::default();
+        attributes.record(&mut visitor);
+        self.0
+            .lock()
+            .expect("capture span fields")
+            .extend(visitor.0);
+    }
+}
+
+#[derive(Default)]
+struct FieldVisitor(Vec<(String, String)>);
+
+impl Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.0
+            .push((field.name().to_string(), format!("{value:?}")));
+    }
+}
+
+#[test]
+fn parse_markdown_span_omits_note_content() {
+    let captured = CapturedSpanFields::default();
+    let fields = captured.0.clone();
+    let subscriber = tracing_subscriber::registry().with(captured);
+
+    tracing::subscriber::with_default(subscriber, || {
+        NoteParser::parse("secret.md", "PRIVATE NOTE CONTENT", 4096).expect("parse note");
+    });
+
+    let fields = fields.lock().expect("read span fields");
+    assert!(fields.iter().any(|(name, _)| name == "path_str"));
+    assert!(fields.iter().any(|(name, _)| name == "input_bytes"));
+    assert!(!fields.iter().any(|(name, _)| name == "text"));
+    assert!(
+        !fields
+            .iter()
+            .any(|(_, value)| value.contains("PRIVATE NOTE CONTENT"))
+    );
+}
 
 #[test]
 fn parse_relative_markdown_links_support_current_note_and_percent_decoding() {

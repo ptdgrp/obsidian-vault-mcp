@@ -567,7 +567,12 @@ impl VaultQueries {
         Self { vault, parse_cache }
     }
 
-    #[tracing::instrument(name = "vault.parse_note_from_path")]
+    #[tracing::instrument(
+        name = "vault.parse_note_from_path",
+        skip_all,
+        fields(note.path = relative_path),
+        err
+    )]
     /// Parse a note and its source content from an already resolved path.
     pub(crate) fn parse_note_from_path(
         &self,
@@ -578,7 +583,7 @@ impl VaultQueries {
             .parse_note(path, relative_path, self.vault.config().max_note_bytes)
     }
 
-    #[tracing::instrument(name = "vault.parse_note")]
+    #[tracing::instrument(name = "vault.parse_note", skip_all, err)]
     pub(crate) fn parse_note(&self, note: &str) -> anyhow::Result<(Arc<ParsedNote>, String)> {
         let path = self.resolve_note_path(note)?;
         let relative_path = self.vault.relative_path(&path);

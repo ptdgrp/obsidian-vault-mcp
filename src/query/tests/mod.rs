@@ -164,6 +164,31 @@ fn list_notes_filters_before_fixed_page_and_omits_non_navigation_fields() {
 }
 
 #[test]
+fn list_notes_parses_only_the_requested_page() {
+    let (dir, queries) = fixture();
+    let bulk = dir.path().join("bulk");
+    fs::create_dir_all(&bulk).expect("bulk dir");
+    for index in 1..=101 {
+        fs::write(
+            bulk.join(format!("note-{index:03}.md")),
+            format!("# Note {index}\n"),
+        )
+        .expect("write bulk note");
+    }
+
+    let result = queries
+        .list_notes(&["bulk/**".to_string()], &[], 2)
+        .expect("second page");
+
+    assert_eq!(result.pagination.total_notes, 101);
+    assert_eq!(result.pagination.total_pages, 2);
+    assert_eq!(result.notes.len(), 1);
+    assert_eq!(result.notes[0].path, "bulk/note-101.md");
+    assert_eq!(result.notes[0].title.as_deref(), Some("Note 101"));
+    assert_eq!(queries.parse_cache.len(), 1);
+}
+
+#[test]
 fn parse_note_extracts_obsidian_structures_and_sections() {
     let (_dir, queries) = fixture();
     let (parsed, _) = queries.parse_note("林动").expect("parse");
