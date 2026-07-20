@@ -1144,7 +1144,7 @@ Input:
 | `intent` | `ExternalBody \| null` | no |  |
 | `notes` | `ExternalBody \| null` | no |  |
 | `plan` | `ExternalBody \| null` | no |  |
-| `results` | `ResultsInput \| null` | no |  |
+| `results` | `ExternalBody \| null` | no |  |
 | `rubric` | `ExternalBody \| null` | no |  |
 
 Nested types:
@@ -1156,13 +1156,6 @@ External, body-shaped content that is isolated from Blueprint protocol Markdown.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `lines` | `string[]` | yes |  |
-
-### `ResultsInput`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `body` | `ExternalBody` | yes |  |
-| `evidence_ids` | `string[]` | no |  |
 
 
 Output:

@@ -234,13 +234,8 @@ impl BlueprintService {
         self.require_active(id)?;
         let rendered_results = patch
             .results
-            .as_ref()
-            .map(|results| {
-                self.store.with_lock(id, |locked| {
-                    let graph = locked.read_blueprint()?;
-                    render_results(locked, &graph.source, None, results)
-                })
-            })
+            .as_deref()
+            .map(|results| render_external(results, false))
             .transpose()?;
         let semantic = patch.intent.is_some()
             || patch.constraints.is_some()
@@ -995,7 +990,7 @@ impl BlueprintService {
             let complete = open_todos.is_empty() && open_dod.is_empty();
             if complete {
                 validate_locked_evidence_aggregate(locked, &before.source, None)?;
-                validate_complete_close_evidence(locked, &before.source)?;
+                validate_complete_close_results(&before.source)?;
             }
             if !complete && reason.is_none_or(|value| value.trim().is_empty()) {
                 anyhow::bail!("reason is required when closing incomplete Blueprint");
@@ -1008,34 +1003,17 @@ impl BlueprintService {
                     "complete"
                 };
                 let mut next = replace_frontmatter_value(source, "closed_by", closed_by.trim())?;
-                let mut closure = format!(
-                    "### Closure\n\n- Outcome: {outcome}\n- Closed By: {}\n",
-                    closed_by.trim()
-                );
+                next = replace_frontmatter_value(&next, "outcome", outcome)?;
                 if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
-                    closure.push_str(&format!("- Reason: {}\n", reason.trim()));
+                    next = replace_frontmatter_value(&next, "close_reason", reason.trim())?;
                 }
-                if !open_dod.is_empty() {
-                    closure.push_str("- Open Definition of Done:\n");
-                    for id in &open_dod {
-                        closure.push_str(&format!("  - {id}\n"));
-                    }
-                }
-                if !open_todos.is_empty() {
-                    closure.push_str("- Open Todos:\n");
-                    for id in &open_todos {
-                        closure.push_str(&format!("  - {id}\n"));
-                    }
-                }
-                let results = section_body(&next, "Results")?;
-                next = replace_section(&next, "Results", &format!("{results}\n\n{closure}"))?;
                 next = append_revision(
                     &next,
                     &revision_id,
                     closed_by,
                     reason.unwrap_or("closure"),
                     "Blueprint closure",
-                    "Results and frontmatter state",
+                    "frontmatter state",
                 )?;
                 replace_state(&next, BlueprintState::Closed)
             })
@@ -1062,16 +1040,7 @@ impl BlueprintService {
             let revision_id = next_revision_id(locked, &before.source)?;
             locked.write_blueprint(expected_etag, |source| {
                 let next = replace_frontmatter_value(source, "cancelled_by", cancelled_by.trim())?;
-                let results = section_body(&next, "Results")?;
-                let next = replace_section(
-                    &next,
-                    "Results",
-                    &format!(
-                        "{results}\n\n### Cancellation\n\n- Cancelled By: {}\n- Reason: {}\n",
-                        cancelled_by.trim(),
-                        reason.trim()
-                    ),
-                )?;
+                let next = replace_frontmatter_value(&next, "cancel_reason", reason.trim())?;
                 let next = append_revision(
                     &next,
                     &revision_id,
@@ -1656,36 +1625,10 @@ fn render_revision(
     revision
 }
 
-fn validate_complete_close_evidence(
-    locked: &LockedBlueprintStore<'_>,
-    source: &str,
-) -> anyhow::Result<()> {
-    let results = section_body(source, "Results")?;
-    let references = evidence_references(&results)?;
-    let mut defined = std::collections::HashSet::new();
+fn validate_complete_close_results(source: &str) -> anyhow::Result<()> {
     let blueprint = crate::blueprint::BlueprintSource::parse("blueprint.md", source)?;
     if blueprint.results.trim().is_empty() {
         anyhow::bail!("complete Blueprint close requires a non-empty Results body");
-    }
-    if references.is_empty() {
-        anyhow::bail!(
-            "complete Blueprint close requires at least one Results Evidence reference.\nSubmit Evidence with evidence_submit, then add its ID to results.evidence_ids.\nStored Markdown example: [Acceptance evidence](#^evidence-1)"
-        );
-    }
-    for index in locked.read_blueprint()?.todos {
-        let todo = locked.read_todo(&index.id)?;
-        for evidence in
-            crate::blueprint::TodoDetail::parse(todo.path.as_str(), &todo.source)?.evidence
-        {
-            if !defined.insert(evidence.id) {
-                anyhow::bail!("duplicate Evidence ID");
-            }
-        }
-    }
-    for reference in references {
-        if !defined.contains(&reference) {
-            anyhow::bail!("dangling Evidence reference: {reference}");
-        }
     }
     Ok(())
 }

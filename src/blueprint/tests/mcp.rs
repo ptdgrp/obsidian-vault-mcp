@@ -144,6 +144,11 @@ fn tool_schemas_expose_concrete_inputs_and_outputs() {
         );
     }
     assert!(!update_fields.contains_key("title"));
+    assert!(
+        !serde_json::to_string(update.input_schema.as_ref())
+            .unwrap()
+            .contains("evidence_ids")
+    );
 
     let todo_create = tools
         .iter()

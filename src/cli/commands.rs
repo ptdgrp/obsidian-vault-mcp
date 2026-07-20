@@ -715,8 +715,6 @@ pub(crate) enum BlueprintCommand {
         change_reason: Option<String>,
         #[arg(long = "result-line")]
         result_lines: Vec<String>,
-        #[arg(long = "result-evidence")]
-        result_evidence: Vec<String>,
         #[arg(long)]
         notes: Option<String>,
         #[arg(long)]
@@ -805,7 +803,6 @@ impl BlueprintCommand {
                 changed_by,
                 change_reason,
                 result_lines,
-                result_evidence,
                 notes,
                 expected_etag,
             } => {
@@ -816,15 +813,12 @@ impl BlueprintCommand {
                         constraints,
                         plan,
                         rubric,
-                        results:
-                            (!result_lines.is_empty() || !result_evidence.is_empty()).then_some(
-                                crate::blueprint::ResultsInput {
-                                    body: crate::blueprint::ExternalBody {
-                                        lines: result_lines,
-                                    },
-                                    evidence_ids: result_evidence,
-                                },
-                            ),
+                        results: (!result_lines.is_empty()).then(|| {
+                            crate::blueprint::ExternalBody {
+                                lines: result_lines,
+                            }
+                            .text()
+                        }),
                         notes,
                     },
                     changed_by.as_deref(),

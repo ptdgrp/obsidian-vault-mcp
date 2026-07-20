@@ -424,7 +424,7 @@ pub struct BlueprintUpdateInput {
     #[serde(default)]
     pub change_reason: Option<String>,
     #[serde(default)]
-    pub results: Option<ResultsInput>,
+    pub results: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
     pub notes: Option<crate::blueprint::ExternalBody>,
     #[serde(default)]
@@ -443,7 +443,7 @@ pub struct BlueprintPatch {
     #[serde(default)]
     pub rubric: Option<String>,
     #[serde(default)]
-    pub results: Option<ResultsInput>,
+    pub results: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
 }

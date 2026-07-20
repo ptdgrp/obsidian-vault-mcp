@@ -5,8 +5,7 @@ use serde_json::Value;
 use tempfile::{TempDir, tempdir};
 
 use super::super::{
-    BlueprintPatch, EvidenceSubmitInput, ExternalBody, ResultsInput, TodoCreateRequest, TodoPatch,
-    TodoStatus,
+    BlueprintPatch, EvidenceSubmitInput, ExternalBody, TodoCreateRequest, TodoPatch, TodoStatus,
     service::{BlueprintCreateRequest, BlueprintCreated, BlueprintService, TodoUpdateOptions},
 };
 
@@ -269,10 +268,7 @@ fn blueprint_get_is_structured_and_never_serializes_storage_fields() {
         .blueprint_update_semantic(
             &blueprint.id,
             BlueprintPatch {
-                results: Some(ResultsInput {
-                    body: ExternalBody::from_text("已完成一部分"),
-                    evidence_ids: vec![],
-                }),
+                results: Some("已完成一部分".into()),
                 notes: Some("公开说明".into()),
                 ..Default::default()
             },
@@ -286,4 +282,52 @@ fn blueprint_get_is_structured_and_never_serializes_storage_fields() {
     assert_eq!(output.results, "已完成一部分");
     assert_no_internal_keys(&serde_json::to_value(output).unwrap());
     assert_no_internal_keys(&serde_json::to_value(blueprint).unwrap());
+}
+
+#[test]
+fn blueprint_results_are_plain_body_and_complete_close_needs_no_evidence_list() {
+    let (_directory, service, blueprint) = create_blueprint();
+    service
+        .blueprint_update_semantic(
+            &blueprint.id,
+            BlueprintPatch {
+                results: Some("最终结果".into()),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let current = service.blueprint_get(&blueprint.id).unwrap();
+    service
+        .dod_update(
+            &blueprint.id,
+            &current.definition_of_done[0].id,
+            true,
+            None,
+            None,
+        )
+        .unwrap();
+    let closed = service
+        .blueprint_close(&blueprint.id, "creator", None, None)
+        .unwrap();
+    assert_eq!(closed.state, super::super::BlueprintState::Closed);
+    let source = service.blueprint_stored(&blueprint.id).unwrap().source;
+    assert!(!source.contains("- Evidence:"));
+    assert!(!source.contains("### Closure"));
+    assert!(source.contains("closed_by: creator"));
+    assert!(source.contains("outcome: complete"));
+}
+
+#[test]
+fn blueprint_cancellation_is_recorded_outside_results() {
+    let (_directory, service, blueprint) = create_blueprint();
+    service
+        .blueprint_cancel(&blueprint.id, "creator", "方向取消", None)
+        .unwrap();
+    let source = service.blueprint_stored(&blueprint.id).unwrap().source;
+    assert!(!source.contains("### Cancellation"));
+    assert!(source.contains("cancelled_by: creator"));
+    assert!(source.contains("cancel_reason: 方向取消"));
 }

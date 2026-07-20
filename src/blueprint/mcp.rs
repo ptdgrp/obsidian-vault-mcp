@@ -106,7 +106,7 @@ impl BlueprintMcp {
                     constraints: r.constraints,
                     plan: r.plan.map(|body| body.text()),
                     rubric: r.rubric.map(|body| body.text()),
-                    results: r.results,
+                    results: r.results.map(|body| body.text()),
                     notes: r.notes.map(|body| body.text()),
                 },
                 r.changed_by.as_deref(),
