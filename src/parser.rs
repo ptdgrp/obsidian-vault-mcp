@@ -257,6 +257,9 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
                 let source = source_for_node(path_str, text, document, index, &heading_stack);
                 match link.as_ref() {
                     Link::Wikilink(wikilink) => {
+                        if wikilink.path.starts_with("\\[") {
+                            continue;
+                        }
                         let (target, reference) =
                             normalize_wikilink_target(&wikilink.path, wikilink.reference.as_ref());
                         let expected_raw =

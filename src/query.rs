@@ -17,8 +17,10 @@ use self::{
     cache::ParseCache, levenshtein_distance::levenshtein_distance, public::ResolvedReference,
 };
 pub use crate::parser::TagScope;
-use crate::parser::{ParsedNote, ReferenceInfo, SectionInfo, SourceSpan, path_with_line_ref};
-use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveResult};
+use crate::parser::{
+    LinkInfo, LinkKind, ParsedNote, ReferenceInfo, SectionInfo, SourceSpan, path_with_line_ref,
+};
+use crate::resolver::{IndexedNote, ObsidianRef, RefResolver, ResolveCandidate, ResolveResult};
 use crate::vault::{NoteFile, Vault};
 use camino::Utf8Path;
 use rayon::prelude::*;
@@ -591,6 +593,96 @@ impl VaultQueries {
             .parse_note(&path, &relative_path, self.vault.config().max_note_bytes)
     }
 
+    /// Resolve a parsed link, allowing Markdown links to target notes excluded from discovery.
+    pub(crate) fn resolve_link(
+        &self,
+        link: &LinkInfo,
+        notes: &[IndexedNote],
+    ) -> anyhow::Result<ResolveResult> {
+        let reference = reference_display(&link.target, &link.reference);
+        let parsed_reference = RefResolver::parse_ref(&reference);
+        if matches!(link.kind, LinkKind::Markdown) {
+            let heading = match &parsed_reference.reference {
+                Some(ReferenceInfo::Heading { value }) => Some(value.clone()),
+                Some(ReferenceInfo::MultiHeading { value }) => Some(value.join("#")),
+                _ => None,
+            };
+            let block_id = match &parsed_reference.reference {
+                Some(ReferenceInfo::BlockId { value }) => Some(value.clone()),
+                _ => None,
+            };
+            return Ok(ResolveResult::Resolved {
+                path: parsed_reference.target.clone(),
+                reference: parsed_reference,
+                heading,
+                block_id,
+            });
+        }
+
+        // A bare wikilink directly matches a root-level note with that name.
+        if !parsed_reference.target.contains('/') && !parsed_reference.target.ends_with(".md") {
+            let direct_target = format!("{}.md", parsed_reference.target);
+            if notes
+                .iter()
+                .any(|note| note.file.relative_path == direct_target)
+            {
+                return Ok(resolve_exact_link(&direct_target, &parsed_reference, notes));
+            }
+        }
+
+        if let Some(relative_target) =
+            source_relative_target(&link.source.path, &parsed_reference.target)
+            && notes
+                .iter()
+                .any(|note| note.file.relative_path == relative_target)
+        {
+            return Ok(resolve_exact_link(
+                &relative_target,
+                &parsed_reference,
+                notes,
+            ));
+        }
+
+        if !parsed_reference.target.is_empty() {
+            let target = parsed_reference.target.trim_end_matches(".md");
+            let suffix = format!("/{target}.md");
+            let candidates = notes
+                .iter()
+                .filter(|note| {
+                    note.file.relative_path == format!("{target}.md")
+                        || note.file.relative_path.ends_with(&suffix)
+                })
+                .map(|note| ResolveCandidate {
+                    path: note.file.relative_path.clone(),
+                    match_kind: "path_suffix".to_string(),
+                })
+                .collect::<Vec<_>>();
+            if candidates.len() == 1 {
+                return Ok(resolve_exact_link(
+                    &candidates[0].path,
+                    &parsed_reference,
+                    notes,
+                ));
+            }
+            if candidates.len() > 1 {
+                return Ok(ResolveResult::Ambiguous {
+                    reference: RefResolver::parse_ref(&reference),
+                    candidates,
+                });
+            }
+        } else if let Some(note) = notes
+            .iter()
+            .find(|note| note.file.relative_path == link.source.path)
+        {
+            return Ok(resolve_exact_link(
+                &note.file.relative_path,
+                &parsed_reference,
+                notes,
+            ));
+        }
+        return Ok(RefResolver::resolve(&reference, notes));
+    }
+
     #[tracing::instrument(
         name = "vault.query.index_filtered_notes",
         skip_all,
@@ -619,6 +711,50 @@ fn read_and_parse(queries: &VaultQueries, file: &NoteFile) -> anyhow::Result<Ind
         file: file.clone(),
         parsed,
     })
+}
+
+fn resolve_exact_link(
+    target: &str,
+    original: &ObsidianRef,
+    notes: &[IndexedNote],
+) -> ResolveResult {
+    let mut result = RefResolver::resolve(&reference_display(target, &original.reference), notes);
+    if let ResolveResult::Unresolved { reference } = &mut result {
+        reference.target = original.target.clone();
+    }
+    result
+}
+
+fn source_relative_target(source: &str, target: &str) -> Option<String> {
+    if target.is_empty() {
+        return None;
+    }
+    let mut parts = Utf8Path::new(source)
+        .parent()
+        .map(|parent| {
+            parent
+                .components()
+                .map(|component| component.as_str().to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            segment => parts.push(segment.to_string()),
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let mut path = parts.join("/");
+    if !path.ends_with(".md") {
+        path.push_str(".md");
+    }
+    Some(path)
 }
 
 pub(crate) fn find_indexed_note<'a>(

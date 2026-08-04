@@ -91,6 +91,18 @@ fn parse_relative_markdown_links_support_current_note_and_percent_decoding() {
 }
 
 #[test]
+fn parse_markdown_footnote_labels_do_not_create_wikilinks() {
+    let parsed = NoteParser::parse(
+        "note.md",
+        "格雷厄姆^[[[\\[1\\]]{.calibre3}](#index_split_003.html_filepos70626)]{.small}^教派\n",
+        4096,
+    )
+    .expect("parse note");
+
+    assert!(parsed.links.is_empty());
+}
+
+#[test]
 fn parse_tags_distinguishes_section_and_line_scope() {
     let parsed = NoteParser::parse(
         "note.md",

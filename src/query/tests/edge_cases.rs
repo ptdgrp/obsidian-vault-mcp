@@ -192,22 +192,15 @@ fn audit_links_returns_unresolved_and_ambiguous_pages_together() {
 
     let result = queries.audit_links(1).expect("audit links");
     assert_eq!(result.unresolved.len(), 2);
-    assert_eq!(result.ambiguous.len(), 2);
+    assert_eq!(result.ambiguous.len(), 0);
     assert!(
         result
             .unresolved
             .iter()
             .any(|link| link.target == "缺失目标" && link.source.starts_with("审计.md#L"))
     );
-    assert!(
-        result
-            .ambiguous
-            .iter()
-            .any(|link| link.source.starts_with("审计.md#L")
-                && link.candidates == vec!["发动机.md", "资料/发动机.md"])
-    );
     assert_eq!(result.totals.unresolved, 2);
-    assert_eq!(result.totals.ambiguous, 2);
+    assert_eq!(result.totals.ambiguous, 0);
     assert_eq!(result.pagination.page, 1);
     assert_eq!(result.pagination.total_pages, 1);
 }
@@ -237,6 +230,79 @@ fn audit_links_treats_missing_heading_and_block_selectors_as_unresolved() {
     assert_eq!(
         source_targets,
         vec!["Target#Missing Heading", "Target#^missing-block"]
+    );
+}
+
+#[test]
+fn audit_links_resolves_relative_markdown_links_to_filtered_notes() {
+    let (dir, queries) = fixture();
+    fs::write(dir.path().join("filtered-target.md"), "# Target\n").expect("write target");
+    fs::write(
+        dir.path().join("relative-audit.md"),
+        "[relative](filtered-target.md)\n\n[[filtered-target]]\n",
+    )
+    .expect("write audit note");
+    queries
+        .vault
+        .modify_config(|config| config.exclude = vec!["filtered-target.md".to_string()]);
+
+    let result = queries.audit_links(1).expect("audit links");
+    assert_eq!(
+        result
+            .unresolved
+            .iter()
+            .filter(|link| link.source.starts_with("relative-audit.md#L"))
+            .map(|link| link.target.as_str())
+            .collect::<Vec<_>>(),
+        vec!["filtered-target"]
+    );
+}
+
+#[test]
+fn audit_links_prefers_root_note_for_bare_wikilinks() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("设定集/世界观")).expect("create nested directory");
+    fs::write(dir.path().join("README.md"), "# Root README\n").expect("write root README");
+    fs::write(dir.path().join("设定集/README.md"), "# Settings README\n")
+        .expect("write settings README");
+    fs::write(
+        dir.path().join("设定集/世界观/README.md"),
+        "# World README\n",
+    )
+    .expect("write world README");
+    fs::write(dir.path().join("设定集/世界观/source.md"), "[[README]]\n").expect("write source");
+
+    let result = queries.audit_links(1).expect("audit links");
+    assert!(
+        !result
+            .ambiguous
+            .iter()
+            .any(|link| link.source == "设定集/世界观/source.md#L1")
+    );
+}
+
+#[test]
+fn audit_links_resolves_obsidian_relative_suffix_and_local_heading_links() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("资料库/调查报告/社会研究")).expect("create target dir");
+    fs::write(
+        dir.path().join("资料库/调查报告/社会研究/结果.md"),
+        "# 结果\n\n## 2026年：开局\n",
+    )
+    .expect("write target");
+    fs::create_dir_all(dir.path().join("大纲/第一卷")).expect("create source dir");
+    fs::write(
+        dir.path().join("大纲/第一卷/source.md"),
+        "[[调查报告/社会研究/结果]]\n[[../../资料库/调查报告/社会研究/结果]]\n[[调查报告/社会研究/结果#2026年：开局]]\n## Local\n[[#Local]]\n",
+    )
+    .expect("write source");
+
+    let result = queries.audit_links(1).expect("audit links");
+    assert!(
+        !result
+            .unresolved
+            .iter()
+            .any(|link| link.source.starts_with("大纲/第一卷/source.md#L"))
     );
 }
 

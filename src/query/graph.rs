@@ -51,9 +51,10 @@ impl VaultQueries {
         let mut edges = BTreeSet::new();
         for note in &notes {
             for link in &note.parsed.links {
-                let reference = reference_display(&link.target, &link.reference);
-                if let ResolveResult::Resolved { path, .. } =
-                    RefResolver::resolve(&reference, &notes)
+                if let ResolveResult::Resolved { path, .. } = self.resolve_link(link, &notes)?
+                    && notes
+                        .iter()
+                        .any(|candidate| candidate.file.relative_path == path)
                 {
                     edges.insert(NeighborhoodLink {
                         from: note.file.relative_path.clone(),
@@ -152,7 +153,7 @@ impl VaultQueries {
             for link in &note.parsed.links {
                 let source = super::link_location(&link.source.clone().into());
                 let target = reference_display(&link.target, &link.reference);
-                match RefResolver::resolve(&target, &notes) {
+                match self.resolve_link(link, &notes)? {
                     ResolveResult::Unresolved { .. } => {
                         unresolved.push(AuditUnresolvedLink { source, target })
                     }

@@ -47,19 +47,18 @@ impl VaultQueries {
             .parsed
             .links
             .iter()
-            .map(|link| {
-                let resolution =
-                    RefResolver::resolve(&reference_display(&link.target, &link.reference), &notes);
-                OutlinkOccurrence {
+            .map(|link| -> anyhow::Result<OutlinkOccurrence> {
+                let resolution = self.resolve_link(link, &notes)?;
+                Ok(OutlinkOccurrence {
                     source: Locator::lines(
                         &link.source.path,
                         link.source.line_start,
                         link.source.line_end,
                     ),
                     resolution,
-                }
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<anyhow::Result<Vec<_>>>()?;
         occurrences.sort_by(|a, b| natord::compare(&a.source, &b.source));
         let slice = PageSlice::new(occurrences, page, LINK_PAGE_SIZE)?;
         let mut targets = Vec::new();

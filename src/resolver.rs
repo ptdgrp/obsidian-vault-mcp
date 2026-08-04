@@ -336,13 +336,19 @@ fn normalize_key(input: &str) -> String {
         .to_lowercase()
 }
 
-fn comparable_heading_text(value: &str) -> &str {
+fn comparable_heading_text(value: &str) -> String {
     let trimmed = value.trim();
     let without_colon = trimmed
         .strip_suffix(':')
         .or_else(|| trimmed.strip_suffix('：'))
         .unwrap_or(trimmed);
-    without_colon.trim_end()
+    without_colon
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>()
+        .nfc()
+        .collect::<String>()
+        .to_lowercase()
 }
 
 #[cfg(test)]

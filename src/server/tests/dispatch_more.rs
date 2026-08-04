@@ -484,5 +484,5 @@ fn outline_tag_and_ambiguous_link_tools_surface_results() {
     let Json(audit) = server
         .audit_links(Parameters(AuditLinksRequest { page: 1 }))
         .expect("audit links");
-    assert_eq!(audit.ambiguous.len(), 1);
+    assert_eq!(audit.ambiguous.len(), 0);
 }

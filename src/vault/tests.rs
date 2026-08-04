@@ -1,4 +1,8 @@
-use std::fs;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
@@ -212,4 +216,85 @@ fn list_notes_honors_obsidian_user_ignore_filters() {
             .read_note("archive/note.md", None, None)
             .is_ok()
     );
+}
+
+const BENCHMARK_RUNS: usize = 5;
+
+#[test]
+#[ignore = "generates and scans a persistent 1k-note benchmark vault"]
+fn benchmark_list_notes_1k() {
+    benchmark_list_notes(1_000);
+}
+
+#[test]
+#[ignore = "generates and scans a persistent 10k-note benchmark vault"]
+fn benchmark_list_notes_10k() {
+    benchmark_list_notes(10_000);
+}
+
+#[test]
+#[ignore = "generates and scans a persistent 100k-note benchmark vault"]
+fn benchmark_list_notes_100k() {
+    benchmark_list_notes(100_000);
+}
+
+fn benchmark_list_notes(note_count: usize) {
+    let root = ensure_benchmark_vault(note_count);
+    let root = Utf8PathBuf::from_path_buf(root).expect("UTF-8 benchmark vault path");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("open benchmark vault");
+
+    let warmup = vault.list_notes().expect("warm up benchmark scan");
+    assert_benchmark_results(&warmup, note_count);
+
+    let mut elapsed = Vec::with_capacity(BENCHMARK_RUNS);
+    for _ in 0..BENCHMARK_RUNS {
+        let started = Instant::now();
+        let notes = vault.list_notes().expect("benchmark scan");
+        elapsed.push(started.elapsed());
+        assert_benchmark_results(&notes, note_count);
+    }
+    elapsed.sort_unstable();
+    let median = elapsed[BENCHMARK_RUNS / 2];
+    let notes_per_second = note_count as f64 / median.as_secs_f64();
+    eprintln!(
+        "list_notes {note_count:>6} notes: median={median:?} min={:?} max={:?} throughput={notes_per_second:.0} notes/s corpus={root}",
+        elapsed[0],
+        elapsed[BENCHMARK_RUNS - 1],
+    );
+}
+
+fn assert_benchmark_results(notes: &[super::NoteFile], note_count: usize) {
+    assert_eq!(notes.len(), note_count);
+    assert!(
+        notes.windows(2).all(|pair| {
+            natord::compare(&pair[0].relative_path, &pair[1].relative_path).is_le()
+        })
+    );
+}
+
+fn ensure_benchmark_vault(note_count: usize) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/benchmark-vaults/v1")
+        .join(note_count.to_string());
+    let marker = root.join(".complete");
+    if fs::read_to_string(&marker).ok().as_deref() == Some("v1\n") {
+        return root;
+    }
+
+    let notes_root = root.join("notes");
+    fs::create_dir_all(&notes_root).expect("create benchmark corpus root");
+    for index in 0..note_count {
+        let directory = notes_root.join(format!("{:04}", index / 1_000));
+        if index % 1_000 == 0 {
+            fs::create_dir_all(&directory).expect("create benchmark corpus directory");
+        }
+        let previous = index.saturating_sub(1);
+        let content = format!(
+            "---\nkind: benchmark\nindex: {index}\ntags: [benchmark, generated]\n---\n\n# Note {index}\n\nSynthetic benchmark note {index}.\n\n[[note-{previous:06}]] #benchmark/generated\n"
+        );
+        fs::write(directory.join(format!("note-{index:06}.md")), content)
+            .expect("write benchmark note");
+    }
+    fs::write(marker, "v1\n").expect("mark benchmark corpus complete");
+    root
 }
