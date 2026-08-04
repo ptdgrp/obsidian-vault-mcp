@@ -1,9 +1,13 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Write, sync::Arc};
+use std::{
+    fs,
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use crate::cli;
 
@@ -93,10 +97,13 @@ impl Vault {
 
     pub fn list_notes(&self) -> Result<Vec<NoteFile>, VaultError> {
         let config = self.config.load();
-        let include = compile_globs(&config.include)?;
-        let exclude = compile_globs(&config.exclude)?;
-        let obsidian_ignore = self.obsidian_ignore_filters()?;
-        let mut files = Vec::new();
+        let include = Arc::new(compile_globs(&config.include)?);
+        let exclude = Arc::new(compile_globs(&config.exclude)?);
+        let obsidian_ignore = Arc::new(self.obsidian_ignore_filters()?);
+        let files = Arc::new(Mutex::new(Vec::new()));
+        let error = Arc::new(Mutex::new(None));
+        let root = self.root.clone();
+        let include_is_empty = config.include.is_empty();
         let mut walker = WalkBuilder::new(&self.root);
         walker
             .hidden(false)
@@ -106,38 +113,80 @@ impl Vault {
             .parents(true)
             .follow_links(config.follow_symlinks);
 
-        for entry in walker.build() {
-            let entry = entry.map_err(|err| VaultError::Io(err.to_string()))?;
-            let path = Utf8PathBuf::from_path_buf(entry.path().to_path_buf())
-                .map_err(|path| VaultError::NonUtf8Path(path.display().to_string()))?;
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                continue;
-            }
-            if path.extension() != Some("md") {
-                continue;
-            }
-            let rel = self.relative_path(&path);
-            if default_ignored(&rel)
-                || exclude.is_match(&rel)
-                || obsidian_ignore.iter().any(|filter| filter.is_match(&rel))
-            {
-                continue;
-            }
-            if !config.include.is_empty() && !include.is_match(&rel) {
-                continue;
-            }
-            let metadata = fs::metadata(&path).map_err(|err| VaultError::Io(err.to_string()))?;
-            files.push(NoteFile {
-                path,
-                relative_path: rel,
-                size_bytes: metadata.len(),
-                modified_unix_ms: metadata
-                    .modified()
-                    .ok()
-                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_millis() as u64),
-            });
+        // Keep filesystem traversal and metadata reads parallel; sorting below preserves
+        // the deterministic order required by paged query results.
+        walker.build_parallel().run(|| {
+            let files = Arc::clone(&files);
+            let error = Arc::clone(&error);
+            let include = Arc::clone(&include);
+            let exclude = Arc::clone(&exclude);
+            let obsidian_ignore = Arc::clone(&obsidian_ignore);
+            let root = root.clone();
+            Box::new(move |entry| {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(err) => {
+                        *error.lock().expect("walker error lock") =
+                            Some(VaultError::Io(err.to_string()));
+                        return WalkState::Quit;
+                    }
+                };
+                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                    return WalkState::Continue;
+                }
+                let path = match Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) {
+                    Ok(path) => path,
+                    Err(path) => {
+                        *error.lock().expect("walker error lock") =
+                            Some(VaultError::NonUtf8Path(path.display().to_string()));
+                        return WalkState::Quit;
+                    }
+                };
+                if path.extension() != Some("md") {
+                    return WalkState::Continue;
+                }
+                let rel = path
+                    .strip_prefix(&root)
+                    .unwrap_or(&path)
+                    .to_string()
+                    .replace('\\', "/");
+                if default_ignored(&rel)
+                    || exclude.is_match(&rel)
+                    || obsidian_ignore.iter().any(|filter| filter.is_match(&rel))
+                {
+                    return WalkState::Continue;
+                }
+                if !include_is_empty && !include.is_match(&rel) {
+                    return WalkState::Continue;
+                }
+                let metadata = match fs::metadata(&path) {
+                    Ok(metadata) => metadata,
+                    Err(err) => {
+                        *error.lock().expect("walker error lock") =
+                            Some(VaultError::Io(err.to_string()));
+                        return WalkState::Quit;
+                    }
+                };
+                files.lock().expect("note files lock").push(NoteFile {
+                    path,
+                    relative_path: rel,
+                    size_bytes: metadata.len(),
+                    modified_unix_ms: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_millis() as u64),
+                });
+                WalkState::Continue
+            })
+        });
+        if let Some(error) = error.lock().expect("walker error lock").take() {
+            return Err(error);
         }
+        let mut files = Arc::try_unwrap(files)
+            .expect("parallel walker still owns note files")
+            .into_inner()
+            .expect("note files lock");
         files.sort_by(|a, b| natord::compare(&a.relative_path, &b.relative_path));
         Ok(files)
     }
@@ -164,6 +213,7 @@ struct ObsidianAppConfig {
     user_ignore_filters: Vec<String>,
 }
 
+#[derive(Clone)]
 enum ObsidianIgnoreFilter {
     Path(String),
     Regex(Regex),
