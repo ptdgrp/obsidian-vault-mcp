@@ -1,10 +1,10 @@
 use super::{
     LinkKind, NoteParser, ReferenceInfo, SectionInfo, SourceSpan, TagScope, byte_offset_for_line,
-    byte_offset_for_location, heading_anchor, inline_raw, is_external_or_absolute_url,
-    line_number_for_byte, local_markdown_link_target, normalize_relative_markdown_path,
-    path_with_line_ref, percent_decode, recover_inline_source_span, reference_suffix, slice_text,
+    heading_anchor, inline_raw, is_external_or_absolute_url, line_number_for_byte,
+    local_markdown_link_target, normalize_relative_markdown_path, path_with_line_ref,
+    percent_decode, recover_inline_source_span, reference_suffix, slice_text,
 };
-use markdown::reference::Reference;
+use ptdgrp_markdown::reference::Reference;
 use std::sync::{Arc, Mutex};
 use tracing::{Subscriber, field::Visit};
 use tracing_subscriber::{Layer, layer::SubscriberExt};
@@ -157,7 +157,6 @@ fn parser_helpers_decode_percent_encoding_and_calculate_offsets() {
     let text = "林动\n发动机\n";
     assert_eq!(byte_offset_for_line(text, 1), 0);
     assert_eq!(byte_offset_for_line(text, 2), "林动\n".len());
-    assert_eq!(byte_offset_for_location(text, 2, 2), "林动\n发".len());
 }
 
 #[test]

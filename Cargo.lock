@@ -597,17 +597,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
-name = "markdown"
-version = "1.0.5"
-source = "git+https://github.com/tonitrnel/markdown?rev=7d3d0054bf4b4cc8fcf0ef366e45ea1ee77278de#7d3d0054bf4b4cc8fcf0ef366e45ea1ee77278de"
-dependencies = [
- "memchr",
- "rustc-hash",
- "serde",
- "smallvec",
-]
-
-[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -660,10 +649,10 @@ dependencies = [
  "globset",
  "ignore",
  "insta",
- "markdown",
  "memchr",
  "natord",
  "pretty_assertions",
+ "ptdgrp-markdown",
  "rayon",
  "regex",
  "rmcp",
@@ -721,6 +710,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "ptdgrp-markdown"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa13d5ece6eca6c5fef364514ac2b7155fd7ccb40b884f4435fb9c4365c8da5c"
+dependencies = [
+ "memchr",
+ "rustc-hash",
+ "serde",
+ "smallvec",
 ]
 
 [[package]]

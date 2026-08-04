@@ -1,4 +1,4 @@
-use markdown::{
+use ptdgrp_markdown::{
     Document, MarkdownNode, Parser, ParserOptions,
     code::Code,
     heading::{Heading, HeadingLevel},
@@ -196,7 +196,7 @@ impl NoteParser {
             .enabled_cjk_autocorrect()
             .with_max_input_bytes(max_input_bytes);
         let document = Parser::new_with_options(text, options)
-            .parse_checked()
+            .parse()
             .map_err(|err| anyhow::anyhow!("{err:?}"))?;
         Ok(extract(path_str, text, &document))
     }
@@ -279,7 +279,7 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
                     }
                     Link::Default(default_link) => {
                         if let Some((target, reference)) =
-                            local_markdown_link_target(path_str, &default_link.url)
+                            local_markdown_link_target(path_str, document.text(&default_link.url))
                         {
                             let alias = collect_text(document, index);
                             parsed.links.push(LinkInfo {
@@ -330,7 +330,7 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
             }
             MarkdownNode::Text(value) => {
                 if !is_inside_heading(document, index) {
-                    section_tag_window.mark_text_seen(value);
+                    section_tag_window.mark_text_seen(document.text(value));
                 }
             }
             MarkdownNode::SoftBreak | MarkdownNode::HardBreak => {
@@ -495,22 +495,22 @@ pub fn heading_anchor(text: &str) -> String {
 
 fn source_for_node(
     path: &str,
-    text: &str,
+    _text: &str,
     document: &Document,
     index: usize,
     heading_stack: &[HeadingInfo],
 ) -> SourceSpan {
     let node = &document.tree[index];
-    let line_start = node.start.line;
-    let line_end = node.end.line.max(line_start);
+    let start = document.location_at(node.span.start as usize);
+    let end = document.location_at(node.span.end as usize);
+    let line_start = start.line;
+    let line_end = end.line.max(line_start);
     SourceSpan {
         path: path.to_string(),
         line_start,
         line_end,
-        byte_start: byte_offset_for_location(text, node.start.line, node.start.column),
-        byte_end: byte_offset_for_location(text, node.end.line, node.end.column).max(
-            byte_offset_for_location(text, node.start.line, node.start.column),
-        ),
+        byte_start: node.span.start as usize,
+        byte_end: (node.span.end as usize).max(node.span.start as usize),
         section: heading_stack.last().map(|heading| SectionInfo {
             heading: heading.text.clone(),
             heading_level: heading.level,
@@ -528,7 +528,7 @@ fn collect_text(document: &Document, index: usize) -> String {
 
 fn collect_text_into(document: &Document, index: usize, out: &mut String) {
     match &document.tree[index].body {
-        MarkdownNode::Text(text) => out.push_str(text),
+        MarkdownNode::Text(text) => out.push_str(document.text(text)),
         MarkdownNode::SoftBreak | MarkdownNode::HardBreak => out.push('\n'),
         _ => {}
     }
@@ -766,17 +766,6 @@ fn hex_value(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
-}
-
-fn byte_offset_for_location(text: &str, line: u64, column: u64) -> usize {
-    let line_offset = byte_offset_for_line(text, line);
-    let line_text = text[line_offset..].lines().next().unwrap_or_default();
-    line_offset
-        + line_text
-            .char_indices()
-            .nth(column.saturating_sub(1) as usize)
-            .map(|(offset, _)| offset)
-            .unwrap_or(line_text.len())
 }
 
 fn byte_offset_for_line(text: &str, line: u64) -> usize {
