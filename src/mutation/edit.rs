@@ -10,11 +10,12 @@ impl VaultMutations {
         content: &str,
     ) -> anyhow::Result<EditSectionResult> {
         let (path, relative_path, document, source) = self.section_document(note, &selector)?;
-        let mut updated = document;
+        let mut updated = document.clone();
         updated.insert_str(source.byte_end, content);
         self.write_section_edit(
             &path,
             &relative_path,
+            &document,
             &updated,
             source.line_end + 1,
             source.line_end + content.lines().count() as u64,
@@ -28,11 +29,12 @@ impl VaultMutations {
         content: &str,
     ) -> anyhow::Result<EditSectionResult> {
         let (path, relative_path, document, source) = self.section_document(note, &selector)?;
-        let mut updated = document;
+        let mut updated = document.clone();
         updated.replace_range(source.byte_start..source.byte_end, content);
         self.write_section_edit(
             &path,
             &relative_path,
+            &document,
             &updated,
             source.line_start,
             source.line_start + content.lines().count().saturating_sub(1) as u64,
@@ -45,11 +47,12 @@ impl VaultMutations {
         selector: SectionSelector,
     ) -> anyhow::Result<EditSectionResult> {
         let (path, relative_path, document, source) = self.section_document(note, &selector)?;
-        let mut updated = document;
+        let mut updated = document.clone();
         updated.replace_range(source.byte_start..source.byte_end, "");
         self.write_section_edit(
             &path,
             &relative_path,
+            &document,
             &updated,
             source.line_start,
             source.line_start,
@@ -77,11 +80,23 @@ impl VaultMutations {
         &self,
         path: &camino::Utf8Path,
         relative_path: &str,
+        original_content: &str,
         content: &str,
         line_start: u64,
         line_end: u64,
     ) -> anyhow::Result<EditSectionResult> {
+        if original_content == content {
+            anyhow::bail!("section edit produced no changes for `{relative_path}`");
+        }
+        let current_content = std::fs::read(path)?;
+        if current_content != original_content.as_bytes() {
+            anyhow::bail!("note changed on disk before section edit: `{relative_path}`");
+        }
         self.write_note_atomic(path, relative_path, content)?;
+        let written_content = std::fs::read(path)?;
+        if written_content != content.as_bytes() {
+            anyhow::bail!("section edit could not be verified on disk: `{relative_path}`");
+        }
         let max_line = content.lines().count().max(1) as u64;
         let line_start = line_start.clamp(1, max_line);
         let line_end = line_end.clamp(line_start, max_line);

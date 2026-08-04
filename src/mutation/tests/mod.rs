@@ -105,6 +105,38 @@ fn section_edit_results_serialize_only_changed_locator() {
 }
 
 #[test]
+fn section_edits_reject_operations_that_change_nothing() {
+    let (dir, mutations) = fixture();
+    let before = read_note(&dir, "发动机.md");
+
+    let error = mutations
+        .replace_section(
+            "发动机.md",
+            SectionSelector::Heading {
+                heading: "原理".to_string(),
+            },
+            "## 原理\n\n链接到 [[林动]]\n",
+        )
+        .expect_err("unchanged replacement should be rejected");
+
+    assert!(error.to_string().contains("produced no changes"));
+    assert_eq!(read_note(&dir, "发动机.md"), before);
+
+    write_note(&dir, "empty.md", "");
+    let error = mutations
+        .delete_section(
+            "empty.md",
+            SectionSelector::Lines {
+                line_start: 1,
+                line_end: 1,
+            },
+        )
+        .expect_err("deleting an empty document line should be rejected");
+    assert!(error.to_string().contains("produced no changes"));
+    assert_eq!(read_note(&dir, "empty.md"), "");
+}
+
+#[test]
 fn delete_section_result_points_to_post_edit_valid_line() {
     let (dir, mutations) = fixture();
     write_note(&dir, "lines.md", "one\ntwo\nthree\n");
@@ -151,21 +183,6 @@ fn delete_section_result_points_to_post_edit_valid_line() {
     assert_eq!(
         serde_json::to_value(last).expect("last json"),
         serde_json::json!({"changed": "lines.md#L2"})
-    );
-
-    write_note(&dir, "empty.md", "");
-    let empty = mutations
-        .delete_section(
-            "empty.md",
-            SectionSelector::Lines {
-                line_start: 1,
-                line_end: 1,
-            },
-        )
-        .expect("delete empty document line");
-    assert_eq!(
-        serde_json::to_value(empty).expect("empty json"),
-        serde_json::json!({"changed": "empty.md#L1"})
     );
 }
 
