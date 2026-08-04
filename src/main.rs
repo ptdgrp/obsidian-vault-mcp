@@ -1,19 +1,16 @@
-mod blueprint;
 mod cli;
 mod docs;
+mod logging;
 mod mutation;
 mod parser;
 mod query;
 mod resolver;
 mod server;
-mod telemetry;
 mod vault;
 
 use clap::Parser;
-use opentelemetry::trace::Status;
 use std::time::Instant;
 use tracing::Instrument;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::vault::{Vault, VaultConfig};
 
@@ -34,17 +31,10 @@ async fn main() -> anyhow::Result<()> {
             "--vault is required for this command; set OBSIDIAN_VAULT_MCP_ROOT or pass --vault"
         )
     })?;
-    let mut telemetry = telemetry::init_tracing(
-        &cli.log_level,
-        cli.otel_endpoint.as_deref(),
-        &cli.otel_service_name,
-    )?;
-    tracing::debug!(
-        otel.enabled = telemetry.is_enabled(),
-        "telemetry.initialized"
-    );
+    logging::init(&cli.log_level)?;
+    tracing::debug!("logging.initialized");
     let started = Instant::now();
-    let (input_preview, input_truncated) = telemetry::telemetry_preview(&cli);
+    let (input_preview, input_truncated) = logging::input_preview(&cli);
     let config = VaultConfig::build(&cli);
     let vault = Vault::open(vault_path, config)?;
     let command = cli.command();
@@ -63,20 +53,18 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(parent: &command_span, command = command_name, duration_ms, "cli.command.ok")
         }
         Err(error) => {
-            command_span.set_attribute("error.type", "command.error");
-            command_span.set_status(Status::error("command failed"));
             let error = format_error_chain(error);
             tracing::error!(
                 parent: &command_span,
                 command = command_name,
                 duration_ms,
+                error.type = "command.error",
                 error = %error,
                 "cli.command.error"
             )
         }
     }
     drop(command_span);
-    telemetry.shutdown();
     result
 }
 

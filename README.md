@@ -196,51 +196,19 @@ The server writes protocol data to stdout only. Logs stay on stderr.
 ## Observability
 
 The server emits `tracing` logs to stderr and keeps stdout reserved for MCP
-protocol data or CLI JSON. `--log-level` defaults to `debug` and controls the
-level for stderr logs, OTEL traces, and OTEL logs together:
+protocol data or CLI JSON. `--log-level` defaults to `debug`:
 
 ```sh
 cargo run -- --vault /path/to/vault --log-level debug serve
 ```
 
-OpenTelemetry export is opt-in. Set an OTLP HTTP endpoint with either
-`--otel-endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` to export both traces and
-logs. The endpoint is a base URL: the server sends traces to `/v1/traces` and
-logs to `/v1/logs`:
-
-```sh
-cargo run -- --vault /path/to/vault \
-  --log-level debug \
-  --otel-endpoint http://10.5.11.4:11418 \
-  serve
-```
-
-The service name defaults to `obsidian-vault-mcp`; override it with
-`--otel-service-name` or `OTEL_SERVICE_NAME`.
-
-Lifecycle events let you correlate CLI and MCP work. `telemetry.initialized`
-marks telemetry setup; each CLI command emits `cli.command.start` followed by
+Lifecycle events let you correlate CLI and MCP work. `logging.initialized`
+marks logging setup; each CLI command emits `cli.command.start` followed by
 `cli.command.ok` or `cli.command.error`. Each MCP tool call retains its
-`mcp.tool` span and `tool.call.*` events. The same tracing events are also
-exported as OTEL logs. Start events record an `input.preview` of CLI and MCP
-arguments, capped at 1 KiB; `input.truncated=true` marks a clipped value. This
-keeps small inputs available for diagnosis without exporting arbitrarily large
-note content or query payloads. Error events retain the complete error chain.
-Successful command and tool output bodies are not copied into logs.
-
-Tempo receives one root `cli.command` span for every CLI invocation. In server
-mode that span covers only the MCP stdio lifecycle; every tool call creates an
-independent root `mcp.tool` span with its own trace ID. In Grafana Explore,
-select Tempo and search for
-`resource.service.name = "obsidian-vault-mcp"`.
-
-Normal CLI completion and normal MCP stdio/EOF shutdown force-flush pending
-OTEL logs and traces before the process exits. This guarantee does not cover
-SIGINT or SIGTERM. In Grafana Loki, query this service with:
-
-```logql
-{service_name="obsidian-vault-mcp"}
-```
+`mcp.tool` span and `tool.call.*` events. Start events record an `input.preview`
+of CLI and MCP arguments, capped at 1 KiB; `input.truncated=true` marks a clipped
+value. Error events retain the complete error chain. Successful command and tool
+output bodies are not copied into logs.
 
 ## Safety boundaries
 

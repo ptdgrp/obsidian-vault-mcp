@@ -9,7 +9,6 @@ use crate::{
     },
     vault::Vault,
 };
-use opentelemetry::trace::Status;
 use rmcp::{
     ServerHandler, ServiceExt,
     handler::server::{
@@ -22,7 +21,6 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::{sync::Arc, time::Instant};
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
 pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
     let service = ObsidianVaultMcp::new(vault);
@@ -903,7 +901,7 @@ where
     let _enter = span.enter();
     let started = Instant::now();
 
-    let (input_preview, input_truncated) = crate::telemetry::telemetry_preview(&arguments);
+    let (input_preview, input_truncated) = crate::logging::input_preview(&arguments);
     tracing::info!(input.preview = %input_preview, input.truncated = input_truncated, "tool.call.start");
     match run(arguments) {
         Ok(result) => {
@@ -914,12 +912,11 @@ where
             Ok(Json(result))
         }
         Err(error) => {
-            span.set_attribute("error.type", "mcp.tool.error");
-            span.set_status(Status::error("tool call failed"));
             let message = error.to_string();
             let error = crate::format_error_chain(&error);
             tracing::error!(
                 duration_ms = started.elapsed().as_millis() as u64,
+                error.type = "mcp.tool.error",
                 error = %error,
                 "tool.call.error"
             );

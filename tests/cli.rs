@@ -1,9 +1,8 @@
-use std::net::TcpListener;
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, Write},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Receiver},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -12,257 +11,35 @@ use serde_json::Value;
 use tempfile::{TempDir, tempdir};
 
 #[test]
-fn observability_docs_cover_lifecycle_and_loki_query() {
+fn observability_docs_describe_stderr_logging() {
     for path in ["README.md", "README.zh-CN.md"] {
         let content =
             fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
                 .expect("read observability docs");
         for expected in [
-            "telemetry.initialized",
-            "cli.command.start",
-            "cli.command.ok",
-            "cli.command.error",
+            "tracing",
+            "stderr",
+            "--log-level",
+            "cli.command",
             "mcp.tool",
-            "input.preview",
-            "resource.service.name",
-            "http://10.5.11.4:11418",
-            r#"{service_name="obsidian-vault-mcp"}"#,
         ] {
             assert!(content.contains(expected), "{path} missing {expected}");
+        }
+        for removed in [
+            "OpenTelemetry",
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "--otel-endpoint",
+        ] {
+            assert!(
+                !content.contains(removed),
+                "{path} still contains {removed}"
+            );
         }
     }
 }
 
 #[test]
-fn blueprint_cli_uses_named_arguments_and_returns_typed_payloads() {
-    let dir = tempdir().expect("tempdir");
-    let create = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "create",
-            "--title",
-            "CLI Blueprint",
-            "--created-by",
-            "tester",
-            "--intent",
-            "exercise named Blueprint arguments",
-            "--definition-of-done",
-            "the command succeeds",
-            "--plan",
-            "run it",
-            "--rubric",
-            "verify the Definition of Done",
-        ],
-    );
-    assert!(
-        create.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&create.stderr)
-    );
-    let created: Value = serde_json::from_slice(&create.stdout).expect("typed create JSON");
-    let blueprint_id = created["id"].as_str().expect("created blueprint id");
-    assert!(
-        created.get("data").is_none(),
-        "MCP wrapper leaked into CLI output"
-    );
-    let get = run_cli(&dir, &["blueprint", "get", blueprint_id]);
-    assert!(
-        get.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&get.stderr)
-    );
-    let get: Value = serde_json::from_slice(&get.stdout).expect("structured get JSON");
-    assert_eq!(get["intent"], "exercise named Blueprint arguments");
-    assert_eq!(get["definition_of_done"][0]["text"], "the command succeeds");
-    assert!(get.get("source").is_none());
-    assert!(get.get("resume").is_none());
-    assert!(get.get("todo_index").is_none());
-    let dod_id = get["definition_of_done"][0]["id"]
-        .as_str()
-        .expect("definition of done id")
-        .to_string();
-
-    let dod_update = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "open",
-            blueprint_id,
-            "dod-update",
-            &dod_id,
-            "--completed",
-            "true",
-        ],
-    );
-    assert!(
-        dod_update.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&dod_update.stderr)
-    );
-
-    let status = run_cli(&dir, &["blueprint", "status", blueprint_id]);
-    assert!(
-        status.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&status.stderr)
-    );
-    let status: Value = serde_json::from_slice(&status.stdout).expect("typed status JSON");
-    assert_eq!(status["state"], "active");
-    assert!(
-        status.get("data").is_none(),
-        "generic response wrapper leaked"
-    );
-}
-
-#[test]
-fn todo_cli_uses_v2_request_fields_and_records_semantic_revision() {
-    let dir = tempdir().expect("tempdir");
-    let blueprint = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "create",
-            "--title",
-            "CLI Todo",
-            "--created-by",
-            "tester",
-            "--intent",
-            "exercise Todo v2",
-            "--definition-of-done",
-            "done",
-            "--plan",
-            "run it",
-            "--rubric",
-            "verify CLI forwarding",
-        ],
-    );
-    assert!(blueprint.status.success(), "{:?}", blueprint);
-    let blueprint: Value = serde_json::from_slice(&blueprint.stdout).unwrap();
-    let blueprint_id = blueprint["id"].as_str().unwrap().to_string();
-
-    let created = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "open",
-            &blueprint_id,
-            "todo-create",
-            "--title",
-            "Todo v2",
-            "--created-by",
-            "tester",
-            "--plan",
-            "initial plan",
-        ],
-    );
-    assert!(created.status.success(), "{:?}", created);
-    let created: Value = serde_json::from_slice(&created.stdout).unwrap();
-    let todo_id = created["graph"]["id"].as_str().unwrap().to_string();
-
-    let updated = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "open",
-            &blueprint_id,
-            "todo-update",
-            &todo_id,
-            "--plan",
-            "revised plan",
-            "--changed-by",
-            "tester",
-            "--change-reason",
-            "CLI semantic update",
-        ],
-    );
-    assert!(updated.status.success(), "{:?}", updated);
-    let updated: Value = serde_json::from_slice(&updated.stdout).unwrap();
-    assert_eq!(updated["detail"]["plan"], "revised plan");
-    assert!(
-        updated["detail"]["revisions"]
-            .as_array()
-            .is_some_and(|revisions| !revisions.is_empty())
-    );
-}
-
-#[test]
-fn blueprint_evidence_command_forwards_its_dto_to_the_service() {
-    let dir = tempdir().expect("tempdir");
-    let created = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "create",
-            "--title",
-            "CLI append forwarding",
-            "--created-by",
-            "tester",
-            "--intent",
-            "exercise append DTO forwarding",
-            "--definition-of-done",
-            "done",
-            "--plan",
-            "run it",
-            "--rubric",
-            "inspect forwarding",
-        ],
-    );
-    assert!(created.status.success(), "{created:?}");
-    let created: Value = serde_json::from_slice(&created.stdout).expect("create JSON");
-    let blueprint_id = created["id"].as_str().expect("Blueprint ID");
-
-    let todo = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "open",
-            blueprint_id,
-            "todo-create",
-            "--title",
-            "Evidence owner",
-            "--created-by",
-            "tester",
-            "--plan",
-            "collect evidence",
-        ],
-    );
-    assert!(todo.status.success(), "{todo:?}");
-    let todo: Value = serde_json::from_slice(&todo.stdout).expect("Todo JSON");
-    let todo_id = todo["graph"]["id"].as_str().expect("Todo ID");
-
-    let evidence = run_cli(
-        &dir,
-        &[
-            "blueprint",
-            "open",
-            blueprint_id,
-            "evidence-submit",
-            todo_id,
-            "--changed-by",
-            "tester",
-            "--title",
-            "CLI evidence",
-            "--body-line=- Collected By: cli-test",
-            "--body-line=- Observation: forwarded intact",
-        ],
-    );
-    assert!(evidence.status.success(), "{evidence:?}");
-    let evidence: Value = serde_json::from_slice(&evidence.stdout).expect("evidence JSON");
-    assert!(
-        evidence["id"]
-            .as_str()
-            .is_some_and(|id| id.starts_with("evidence-"))
-    );
-    assert!(
-        evidence["body_preview"]
-            .as_str()
-            .is_some_and(|body| body.contains("forwarded intact"))
-    );
-}
-
-#[test]
-fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() {
+fn generate_docs_and_check_run_without_a_vault() {
     let dir = tempdir().expect("tempdir");
     let output = dir.path().join("tools.md");
     let output = output.to_str().expect("UTF-8 temp path");
@@ -274,19 +51,9 @@ fn generate_docs_and_check_run_without_a_vault_and_include_blueprint_contract() 
         String::from_utf8_lossy(&generated.stderr)
     );
     let tools = fs::read_to_string(output).expect("generated tools document");
-    let blueprint_headings = tools
-        .lines()
-        .filter(|line| {
-            ["blueprint_", "dod_update", "evidence_", "todo_"]
-                .iter()
-                .any(|prefix| line.starts_with(&format!("## 🔧 `{prefix}")))
-        })
-        .count();
-    assert_eq!(blueprint_headings, 19, "Blueprint tool count");
-    for expected in ["`blueprint_create`", "`evidence_submit`", "`evidence_list`"] {
-        assert!(tools.contains(expected), "missing {expected}");
-    }
-    assert!(!tools.contains("`revision_append`"));
+    assert!(tools.contains("`read_note`"));
+    assert!(!tools.contains("blueprint_"));
+    assert!(!tools.contains("todo_create"));
 
     let checked = run_raw_cli(&["generate-docs", "--check", "--output", output]);
     assert!(
@@ -318,203 +85,6 @@ fn run_raw_cli(args: &[&str]) -> std::process::Output {
         .args(args)
         .output()
         .expect("run cli")
-}
-
-struct OtlpHttpCapture {
-    endpoint: String,
-    request: Receiver<CapturedOtlp>,
-    server: Option<JoinHandle<()>>,
-}
-
-struct CapturedOtlp {
-    traces: Vec<Vec<u8>>,
-    logs: Vec<u8>,
-}
-
-impl OtlpHttpCapture {
-    fn spawn() -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind OTLP capture");
-        let endpoint = format!("http://{}", listener.local_addr().expect("capture address"));
-        let (sender, request) = mpsc::channel();
-        let server = thread::spawn(move || capture_otlp_request(listener, sender));
-        Self {
-            endpoint,
-            request,
-            server: Some(server),
-        }
-    }
-
-    fn recv(mut self) -> CapturedOtlp {
-        let request = self
-            .request
-            .recv_timeout(Duration::from_secs(5))
-            .expect("receive OTLP request");
-        self.server
-            .take()
-            .expect("OTLP server thread")
-            .join()
-            .expect("join OTLP server");
-        request
-    }
-}
-
-fn capture_otlp_request(listener: TcpListener, sender: Sender<CapturedOtlp>) {
-    listener
-        .set_nonblocking(true)
-        .expect("set OTLP listener nonblocking");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let mut traces = Vec::new();
-    loop {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                if let Some(logs) = capture_otlp_connection(stream, &mut traces) {
-                    sender
-                        .send(CapturedOtlp { traces, logs })
-                        .expect("send captured OTLP requests");
-                    return;
-                }
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-            {
-                thread::sleep(Duration::from_millis(10));
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                panic!("timed out waiting for OTLP logs request")
-            }
-            Err(error) => panic!("accept OTLP request: {error}"),
-        }
-    }
-}
-
-fn capture_otlp_connection(
-    mut stream: std::net::TcpStream,
-    traces: &mut Vec<Vec<u8>>,
-) -> Option<Vec<u8>> {
-    stream
-        .set_nonblocking(false)
-        .expect("set OTLP stream blocking");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("set OTLP read timeout");
-    let mut reader = BufReader::new(stream.try_clone().expect("clone OTLP stream"));
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .expect("read OTLP request line");
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .expect("OTLP request path")
-        .to_string();
-
-    let mut content_length = 0usize;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read OTLP header");
-        if line == "\r\n" {
-            break;
-        }
-        if let Some(value) = line
-            .strip_prefix("content-length:")
-            .or_else(|| line.strip_prefix("Content-Length:"))
-        {
-            content_length = value.trim().parse().expect("OTLP content length");
-        }
-    }
-
-    let mut body = vec![0; content_length];
-    reader.read_exact(&mut body).expect("read OTLP body");
-    stream
-        .write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: application/x-protobuf\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        )
-        .expect("write OTLP response");
-    if path == "/v1/logs" {
-        return Some(body);
-    }
-    assert_eq!(path, "/v1/traces", "unexpected OTLP request path");
-    traces.push(body);
-    None
-}
-
-fn protobuf_contains(body: &[u8], value: &str) -> bool {
-    body.windows(value.len())
-        .any(|window| window == value.as_bytes())
-}
-
-#[test]
-fn successful_cli_flushes_lifecycle_logs_before_exit() {
-    let dir = tempdir().expect("tempdir");
-    write_note(&dir, "note.md", "# Note\n");
-    let capture = OtlpHttpCapture::spawn();
-    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
-        .args(["--vault", dir.path().to_str().expect("vault path")])
-        .args(["--otel-endpoint", &capture.endpoint])
-        .arg("doctor")
-        .output()
-        .expect("run instrumented CLI");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice::<Value>(&output.stdout)
-        .expect("CLI stdout must contain JSON without tracing logs");
-    assert!(!protobuf_contains(&output.stdout, "cli.command"));
-
-    let captured = capture.recv();
-    let body = captured.logs;
-    for event in [
-        "telemetry.initialized",
-        "cli.command.start",
-        "cli.command.ok",
-    ] {
-        assert!(
-            protobuf_contains(&body, event),
-            "missing {event} in OTLP payload"
-        );
-    }
-    assert!(
-        captured
-            .traces
-            .iter()
-            .any(|trace| protobuf_contains(trace, "cli.command")),
-        "CLI command span missing from OTLP traces"
-    );
-}
-
-#[test]
-fn successful_cli_otlp_logs_record_complete_input_but_not_output() {
-    let dir = tempdir().expect("tempdir");
-    let note = "input-only-note.md";
-    let body = "cli-success-output-must-not-be-logged";
-    write_note(&dir, note, &format!("# Note\n{body}\n"));
-    let capture = OtlpHttpCapture::spawn();
-    let endpoint = capture.endpoint.clone();
-    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
-        .args(["--vault", dir.path().to_str().expect("vault path")])
-        .args(["--max-results", "73"])
-        .args(["--otel-endpoint", &capture.endpoint])
-        .args(["read-note", note])
-        .output()
-        .expect("run instrumented CLI");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let captured = capture.recv();
-    let body = captured.logs;
-    assert!(protobuf_contains(&body, "cli.command.start"));
-    for input in [note, "73", &endpoint] {
-        assert!(protobuf_contains(&body, input), "missing CLI input {input}");
-    }
-    assert!(
-        !protobuf_contains(&body, "cli-success-output-must-not-be-logged"),
-        "successful command output leaked into OTLP logs"
-    );
 }
 
 const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -658,6 +228,7 @@ fn removed_commands_and_flags_are_unknown_to_cli() {
     write_note(&dir, "note.md", "# Note\n");
 
     for command in [
+        "blueprint",
         "find-unresolved-links",
         "find-ambiguous-links",
         "get-vault-graph",
@@ -676,6 +247,8 @@ fn removed_commands_and_flags_are_unknown_to_cli() {
     }
 
     for args in [
+        &["--otel-endpoint", "http://127.0.0.1:4318"][..],
+        &["--otel-service-name", "test-service"][..],
         &["list-notes", "--page-size", "50"][..],
         &["list-notes", "--cursor", "next"][..],
         &["get-outlinks", "note.md", "--verbose"][..],
@@ -738,7 +311,12 @@ fn observability_uses_one_debug_log_filter() {
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("--log-level <LOG_LEVEL>"), "help: {help}");
     assert!(help.contains("[default: debug]"), "help: {help}");
-    assert!(!help.contains("--otel-log-level"), "help: {help}");
+    for removed in ["--otel-endpoint", "--otel-service-name", "--otel-log-level"] {
+        assert!(
+            !help.contains(removed),
+            "help still contains {removed}: {help}"
+        );
+    }
 }
 
 #[test]
@@ -1272,47 +850,4 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
     );
 
     client.shutdown();
-}
-
-#[test]
-fn mcp_otlp_logs_record_complete_input_but_not_output() {
-    let dir = tempdir().expect("tempdir");
-    let note = "mcp-input-note.md";
-    write_note(
-        &dir,
-        note,
-        "# MCP input\n\nmcp-success-output-must-not-be-logged\n",
-    );
-    let capture = OtlpHttpCapture::spawn();
-    let mut client = McpStdioClient::spawn_with_args(&dir, &["--otel-endpoint", &capture.endpoint]);
-    initialize_mcp(&mut client);
-
-    let response = client.request(serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {"name": "read_note", "arguments": {"note": note}}
-    }));
-    assert_eq!(response["id"], 2);
-    client.shutdown();
-
-    let captured = capture.recv();
-    let body = captured.logs;
-    for expected in ["tool.call.start", "ReadNoteRequest", note] {
-        assert!(
-            protobuf_contains(&body, expected),
-            "missing MCP input {expected}"
-        );
-    }
-    assert!(
-        !protobuf_contains(&body, "mcp-success-output-must-not-be-logged"),
-        "successful tool output leaked into OTLP logs"
-    );
-    assert!(
-        captured
-            .traces
-            .iter()
-            .any(|trace| protobuf_contains(trace, "mcp.tool")),
-        "MCP tool span missing from OTLP traces"
-    );
 }

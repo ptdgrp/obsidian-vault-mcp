@@ -42,17 +42,9 @@ pub(crate) struct Cli {
     #[arg(long, default_value_t = 1024)]
     pub(crate) parse_cache_max_entries: usize,
 
-    /// Log level for stderr, OpenTelemetry traces, and OpenTelemetry logs.
+    /// Log level for stderr.
     #[arg(long, default_value = "debug")]
     pub(crate) log_level: String,
-
-    /// Optional OTLP HTTP endpoint. When absent, telemetry stays on stderr only.
-    #[arg(long, env = "OTEL_EXPORTER_OTLP_ENDPOINT")]
-    pub(crate) otel_endpoint: Option<String>,
-
-    /// OpenTelemetry service name
-    #[arg(long, env = "OTEL_SERVICE_NAME", default_value = "obsidian-vault-mcp")]
-    pub(crate) otel_service_name: String,
 
     #[command(subcommand)]
     command: Option<commands::Command>,
