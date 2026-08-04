@@ -69,6 +69,11 @@ Run the MCP server:
 cargo run -- --vault /path/to/vault serve
 ```
 
+`--vault` accepts `~` and `~/...` paths. When neither `--vault` nor
+`OBSIDIAN_VAULT_MCP_ROOT` is set, the server discovers the nearest vault by
+walking from its current working directory toward the filesystem root and
+selecting the first directory that contains `.obsidian/`.
+
 Common cache settings:
 
 ```sh

@@ -59,6 +59,10 @@ cargo run -- --vault /path/to/vault rename-heading "人物/林动.md" --old-head
 cargo run -- --vault /path/to/vault serve
 ```
 
+`--vault` 支持 `~` 和 `~/...` 路径。未传 `--vault` 且未设置
+`OBSIDIAN_VAULT_MCP_ROOT` 时，server 会从进程的当前工作目录开始逐级向上查找，
+并选择最近的包含 `.obsidian/` 的目录作为 vault。
+
 常用缓存参数：
 
 ```sh

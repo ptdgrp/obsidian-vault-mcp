@@ -87,6 +87,110 @@ fn run_raw_cli(args: &[&str]) -> std::process::Output {
         .expect("run cli")
 }
 
+#[test]
+fn vault_argument_expands_home_directory() {
+    let home = tempdir().expect("temporary home");
+    let vault = home.path().join("vault");
+    fs::create_dir(&vault).expect("create vault");
+    fs::write(vault.join("home-note.md"), "# Home note\n").expect("write note");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .env("HOME", home.path())
+        .args(["--vault", "~/vault", "list-notes"])
+        .output()
+        .expect("run CLI with home-relative vault");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("list-notes JSON");
+    assert_eq!(value["notes"][0]["path"], "home-note.md");
+}
+
+#[test]
+fn omitted_vault_discovers_nearest_obsidian_ancestor() {
+    let root = tempdir().expect("temporary root");
+    fs::create_dir(root.path().join(".obsidian")).expect("create outer marker");
+    fs::write(root.path().join("outer-note.md"), "# Outer\n").expect("write outer note");
+
+    let inner = root.path().join("projects/inner-vault");
+    let working_directory = inner.join("notes/drafts");
+    fs::create_dir_all(inner.join(".obsidian")).expect("create inner marker");
+    fs::create_dir_all(&working_directory).expect("create working directory");
+    fs::write(inner.join("inner-note.md"), "# Inner\n").expect("write inner note");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .env_remove("OBSIDIAN_VAULT_MCP_ROOT")
+        .current_dir(&working_directory)
+        .arg("list-notes")
+        .output()
+        .expect("run CLI without an explicit vault");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("list-notes JSON");
+    assert_eq!(value["notes"][0]["path"], "inner-note.md");
+    assert_eq!(value["pagination"]["total_notes"], 1);
+}
+
+#[test]
+fn explicit_vault_takes_precedence_over_discovery() {
+    let root = tempdir().expect("temporary root");
+    let discovered = root.path().join("discovered");
+    fs::create_dir_all(discovered.join(".obsidian")).expect("create discovered marker");
+    fs::write(discovered.join("discovered.md"), "# Discovered\n").expect("write discovered note");
+
+    let explicit = root.path().join("explicit");
+    fs::create_dir(&explicit).expect("create explicit vault");
+    fs::write(explicit.join("explicit.md"), "# Explicit\n").expect("write explicit note");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .env_remove("OBSIDIAN_VAULT_MCP_ROOT")
+        .current_dir(&discovered)
+        .arg("--vault")
+        .arg(&explicit)
+        .arg("list-notes")
+        .output()
+        .expect("run CLI with explicit and discoverable vaults");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("list-notes JSON");
+    assert_eq!(value["notes"][0]["path"], "explicit.md");
+    assert_eq!(value["pagination"]["total_notes"], 1);
+}
+
+#[test]
+fn omitted_vault_reports_discovery_start_when_none_exists() {
+    let working_directory = tempdir().expect("working directory");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .env_remove("OBSIDIAN_VAULT_MCP_ROOT")
+        .current_dir(working_directory.path())
+        .arg("list-notes")
+        .output()
+        .expect("run CLI outside a vault");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no Obsidian vault found"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(working_directory.path().to_str().expect("UTF-8 temp path")),
+        "stderr: {stderr}"
+    );
+}
+
 const MCP_STDIO_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct McpStdioClient {
