@@ -91,12 +91,8 @@ fn selector_from_fragment(fragment: &str) -> anyhow::Result<Option<SectionSelect
     };
     let end = if end.is_empty() {
         u64::MAX.to_string()
-    } else if let Some(end) = end.strip_prefix('L') {
-        end.to_string()
     } else {
-        return Ok(Some(SectionSelector::Heading {
-            heading: fragment.to_string(),
-        }));
+        end.strip_prefix('L').unwrap_or(end).to_string()
     };
     if start.is_empty() || !end.chars().all(char::is_numeric) {
         return Ok(Some(SectionSelector::Heading {

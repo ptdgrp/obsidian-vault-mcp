@@ -415,11 +415,7 @@ impl Command {
                     block_id.clone(),
                     line.clone(),
                 )
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "provide exactly one selector: --heading, --block-id, or --line"
-                    )
-                })?;
+                .map_err(anyhow::Error::msg)?;
                 print_value(&queries.read_note(&note, max_chars, selector)?)?;
             }
             Command::GetNoteStructure { note } => {

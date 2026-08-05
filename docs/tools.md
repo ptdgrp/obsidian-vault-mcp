@@ -25,7 +25,7 @@ server supports structural section edits as well as read operations.
 | `list_notes` | Page through visible Markdown notes for lightweight navigation. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
+| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
 | `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
@@ -45,7 +45,7 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Text appended at the selected section boundary. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -119,7 +119,7 @@ Input:
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -615,7 +615,7 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary.
+Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary.
 
 Input:
 
@@ -623,7 +623,7 @@ Input:
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | GitHub-style line reference, e.g. #L1 or #L1-L99. |
+| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99. |
 | `max_chars` | `integer \| null` | no | Optional character limit for this request. |
 | `note` | `string` | yes | Vault-relative path, note stem, alias, or bare Obsidian reference. |
 
@@ -716,7 +716,7 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Replacement content for the entire selected section. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Github-style line reference, e.g. #L1-L99. |
+| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 

@@ -247,6 +247,33 @@ fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
 }
 
 #[test]
+fn read_note_explicit_line_selector_accepts_optional_second_l_marker() {
+    let (_dir, server) = fixture();
+
+    let Json(with_marker) = server
+        .read_note(Parameters(ReadNoteRequest {
+            note: "发动机".to_string(),
+            max_chars: None,
+            heading: None,
+            block_id: None,
+            line: Some("L3-L5".to_string()),
+        }))
+        .expect("read line range with second L marker");
+    let Json(without_marker) = server
+        .read_note(Parameters(ReadNoteRequest {
+            note: "发动机".to_string(),
+            max_chars: None,
+            heading: None,
+            block_id: None,
+            line: Some("L3-5".to_string()),
+        }))
+        .expect("read line range without second L marker");
+
+    assert_eq!(without_marker.source, with_marker.source);
+    assert_eq!(without_marker.content, with_marker.content);
+}
+
+#[test]
 fn note_structure_tool_returns_compact_contract_without_parser_links() {
     let (_dir, server) = fixture();
 

@@ -866,6 +866,22 @@ fn read_note_accepts_explicit_selectors() {
 }
 
 #[test]
+fn read_note_cli_preserves_invalid_line_format_error() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "发动机.md", "# 发动机\n");
+
+    let output = run_cli(&dir, &["read-note", "发动机", "--line", "L3-invalid"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("line must use"), "stderr: {stderr}");
+    assert!(
+        !stderr.contains("provide exactly one selector"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn get_backlinks_accepts_repeatable_source_path_filters() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "Target.md", "# Target\n");

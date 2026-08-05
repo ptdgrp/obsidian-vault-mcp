@@ -33,6 +33,12 @@ fn read_note_accepts_heading_block_and_line_ref_scopes() {
         .expect("read bounded line ref");
     assert_eq!(bounded.source, "发动机.md#L3-L5");
 
+    let bounded_without_second_marker = queries
+        .read_note("发动机#L3-5", None, None)
+        .expect("read bounded line ref without a second L marker");
+    assert_eq!(bounded_without_second_marker.source, bounded.source);
+    assert_eq!(bounded_without_second_marker.content, bounded.content);
+
     let to_end = queries
         .read_note("发动机#L1-", None, None)
         .expect("read open-ended line ref");

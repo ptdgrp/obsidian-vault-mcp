@@ -109,7 +109,7 @@ pub struct ReadNoteRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// GitHub-style line reference, e.g. #L1 or #L1-L99.
+    /// Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99.
     pub line: Option<String>,
 }
 
@@ -291,7 +291,7 @@ pub struct AppendSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Github-style line reference, e.g. #L1-L99.
+    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
     pub line: Option<String>,
     /// Text appended at the selected section boundary.
     pub content: String,
@@ -306,7 +306,7 @@ pub struct ReplaceSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Github-style line reference, e.g. #L1-L99.
+    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
     pub line: Option<String>,
     /// Replacement content for the entire selected section.
     pub content: String,
@@ -321,7 +321,7 @@ pub struct DeleteSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Github-style line reference, e.g. #L1-L99.
+    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
     pub line: Option<String>,
 }
 
@@ -406,17 +406,18 @@ fn parse_line_range(value: &str) -> Result<(u64, u64), String> {
     let value = value.strip_prefix('#').unwrap_or(value);
     let value = value.strip_prefix('L').unwrap_or(value);
 
-    let (start, end) = match value.split_once("-L") {
+    let (start, end) = match value.split_once('-') {
         Some((start, end)) => (start, Some(end)),
         None => (value, None),
     };
     let line_start = start
         .parse::<u64>()
-        .map_err(|_| "line must use #L1 or #L1-L99 format".to_string())?;
+        .map_err(|_| "line must use #L1, #L1-L99, or #L1-99 format".to_string())?;
     let line_end = end
+        .map(|end| end.strip_prefix('L').unwrap_or(end))
         .unwrap_or(start)
         .parse::<u64>()
-        .map_err(|_| "line must use #L1 or #L1-L99 format".to_string())?;
+        .map_err(|_| "line must use #L1, #L1-L99, or #L1-99 format".to_string())?;
 
     if line_start == 0 || line_end < line_start {
         return Err("invalid line range".to_string());
@@ -487,7 +488,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary."
+        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary."
     )]
     fn read_note(
         &self,
