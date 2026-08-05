@@ -196,7 +196,7 @@ fn heading_path_matches(requested: &[String], candidate: &[String]) -> bool {
 
 fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate> {
     let mut out = Vec::new();
-    if target.contains('/') || target.ends_with(".md") {
+    if target.contains('/') {
         let wanted_path = normalize_key(target);
         for note in notes {
             if normalize_key(&note.file.relative_path) == wanted_path {
@@ -207,6 +207,20 @@ fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate>
             }
         }
         return out;
+    }
+
+    let explicit_markdown_filename = target.ends_with(".md");
+    if explicit_markdown_filename {
+        let wanted_path = normalize_key(target);
+        if let Some(note) = notes
+            .iter()
+            .find(|note| normalize_key(&note.file.relative_path) == wanted_path)
+        {
+            return vec![ResolveCandidate {
+                path: note.file.relative_path.clone(),
+                match_kind: "path".to_string(),
+            }];
+        }
     }
 
     let clean_target = target.trim_end_matches(".md");
@@ -235,6 +249,9 @@ fn find_candidates(target: &str, notes: &[IndexedNote]) -> Vec<ResolveCandidate>
     }
     if !exact.is_empty() {
         return exact;
+    }
+    if explicit_markdown_filename {
+        return out;
     }
 
     let mut numbered = Vec::new();

@@ -72,6 +72,23 @@ fn read_note_reports_unresolved_reference_for_missing_note() {
 }
 
 #[test]
+fn read_note_resolves_a_unique_nested_filename_with_markdown_extension() {
+    let dir = tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("人物")).expect("create note directory");
+    fs::write(dir.path().join("人物/林动.md"), "# 林动\n").expect("write note");
+    let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("UTF-8 temp path");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    let queries = VaultQueries::new(Arc::new(vault));
+
+    let result = queries
+        .read_note("林动.md", None, None)
+        .expect("resolve unique filename without its directory");
+
+    assert_eq!(result.source, "人物/林动.md#L1");
+    assert_eq!(result.content, "# 林动\n");
+}
+
+#[test]
 fn note_lookups_suggest_unique_filename_when_obsidian_ref_has_wrong_directory() {
     let (dir, queries) = fixture();
     fs::create_dir(dir.path().join("正确目录")).expect("create note directory");
