@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian-vault-mcp"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -714,9 +714,9 @@ dependencies = [
 
 [[package]]
 name = "ptdgrp-markdown"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae0f7bba69703aa5e9bbd0fa458b1ffaf8213570cc4690eb11081e3fcc30821"
+checksum = "1403b0655da7937a71c0c1428bbe3a2ae437b3662905f99285d95b256f86035c"
 dependencies = [
  "memchr",
  "rustc-hash",
