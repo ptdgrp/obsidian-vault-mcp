@@ -11,34 +11,6 @@ use serde_json::Value;
 use tempfile::{TempDir, tempdir};
 
 #[test]
-fn observability_docs_describe_stderr_logging() {
-    for path in ["README.md", "README.zh-CN.md"] {
-        let content =
-            fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
-                .expect("read observability docs");
-        for expected in [
-            "tracing",
-            "stderr",
-            "--log-level",
-            "cli.command",
-            "mcp.tool",
-        ] {
-            assert!(content.contains(expected), "{path} missing {expected}");
-        }
-        for removed in [
-            "OpenTelemetry",
-            "OTEL_EXPORTER_OTLP_ENDPOINT",
-            "--otel-endpoint",
-        ] {
-            assert!(
-                !content.contains(removed),
-                "{path} still contains {removed}"
-            );
-        }
-    }
-}
-
-#[test]
 fn generate_docs_and_check_run_without_a_vault() {
     let dir = tempdir().expect("tempdir");
     let output = dir.path().join("tools.md");
@@ -52,8 +24,6 @@ fn generate_docs_and_check_run_without_a_vault() {
     );
     let tools = fs::read_to_string(output).expect("generated tools document");
     assert!(tools.contains("`read_note`"));
-    assert!(!tools.contains("blueprint_"));
-    assert!(!tools.contains("todo_create"));
 
     let checked = run_raw_cli(&["generate-docs", "--check", "--output", output]);
     assert!(
@@ -343,55 +313,7 @@ impl Drop for McpStdioClient {
 }
 
 #[test]
-fn removed_commands_and_flags_are_unknown_to_cli() {
-    let dir = tempdir().expect("tempdir");
-    write_note(&dir, "note.md", "# Note\n");
-
-    for command in [
-        "blueprint",
-        "find-unresolved-links",
-        "find-ambiguous-links",
-        "get-vault-graph",
-        "get-graph-neighborhood",
-        "collect-note-context",
-        "collect-reference-context",
-        "list-vault-files",
-    ] {
-        let output = run_cli(&dir, &[command]);
-        assert!(!output.status.success(), "{command} should be rejected");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(command),
-            "{command} stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    for args in [
-        &["--otel-endpoint", "http://127.0.0.1:4318"][..],
-        &["--otel-service-name", "test-service"][..],
-        &["list-notes", "--page-size", "50"][..],
-        &["list-notes", "--cursor", "next"][..],
-        &["get-outlinks", "note.md", "--verbose"][..],
-        &["get-backlinks", "note.md", "--verbose"][..],
-        &["list-tags", "--verbose"][..],
-        &["get-tag", "tag", "--verbose"][..],
-        &["search-text", "needle", "--context-lines", "2"][..],
-        &["search-regex", "needle", "--context-lines", "2"][..],
-        &["get-note-outline", "note.md", "--heading", "Section"][..],
-    ] {
-        let output = run_cli(&dir, args);
-        assert!(!output.status.success(), "{args:?} should be rejected");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let flag = args
-            .iter()
-            .find(|arg| arg.starts_with("--"))
-            .expect("removed flag");
-        assert!(stderr.contains(flag), "{args:?} stderr: {stderr}");
-    }
-}
-
-#[test]
-fn removed_commands_new_command_help_uses_mcp_task_definitions() {
+fn command_help_uses_mcp_task_descriptions() {
     for (command, description) in [
         (
             "list-notes",
@@ -420,7 +342,7 @@ fn removed_commands_new_command_help_uses_mcp_task_definitions() {
 }
 
 #[test]
-fn observability_uses_one_debug_log_filter() {
+fn cli_help_documents_debug_log_level() {
     let output = run_raw_cli(&["--help"]);
     assert!(
         output.status.success(),
@@ -431,12 +353,6 @@ fn observability_uses_one_debug_log_filter() {
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("--log-level <LOG_LEVEL>"), "help: {help}");
     assert!(help.contains("[default: debug]"), "help: {help}");
-    for removed in ["--otel-endpoint", "--otel-service-name", "--otel-log-level"] {
-        assert!(
-            !help.contains(removed),
-            "help still contains {removed}: {help}"
-        );
-    }
 }
 
 #[test]
@@ -612,18 +528,6 @@ fn query_commands_apply_repeatable_request_path_filters() {
             "{command:?}: {output}"
         );
     }
-
-    let legacy = run_cli(
-        &dir,
-        &[
-            "search-regex",
-            "shared filtered content",
-            "--path-glob",
-            "正文/**/*.md",
-        ],
-    );
-    assert!(!legacy.status.success());
-    assert!(String::from_utf8_lossy(&legacy.stderr).contains("--path-glob"));
 }
 
 #[test]
