@@ -22,13 +22,39 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::{sync::Arc, time::Instant};
 
+const ACTIVE_SERVER_INSTRUCTIONS: &str =
+    "Obsidian vault structure tools for LLM agents, including structural section edits.";
+const INACTIVE_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found for the current project. \
+This server is inactive and should not be used for this project.";
+
 pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
-    let service = ObsidianVaultMcp::new(vault);
+    serve_mcp(ObsidianVaultMcp::new(vault)).await
+}
+
+pub async fn run_inactive_mcp_server() -> anyhow::Result<()> {
+    serve_mcp(InactiveObsidianVaultMcp).await
+}
+
+async fn serve_mcp(service: impl ServerHandler) -> anyhow::Result<()> {
     let server = service
         .serve((tokio::io::stdin(), tokio::io::stdout()))
         .await?;
     server.waiting().await?;
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct InactiveObsidianVaultMcp;
+
+impl ServerHandler for InactiveObsidianVaultMcp {
+    fn get_info(&self) -> ServerInfo {
+        server_info(INACTIVE_SERVER_INSTRUCTIONS)
+    }
+}
+
+fn server_info(instructions: &'static str) -> ServerInfo {
+    ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        .with_instructions(instructions)
 }
 
 #[derive(Clone)]
@@ -884,9 +910,7 @@ impl ObsidianVaultMcp {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for ObsidianVaultMcp {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Obsidian vault structure tools for LLM agents, including structural section edits.",
-        )
+        server_info(ACTIVE_SERVER_INSTRUCTIONS)
     }
 }
 

@@ -206,11 +206,26 @@ impl McpStdioClient {
     }
 
     fn spawn_with_args(dir: &TempDir, args: &[&str]) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"));
+        command
             .arg("--vault")
             .arg(dir.path())
             .args(args)
-            .arg("serve")
+            .arg("serve");
+        Self::spawn_command(command)
+    }
+
+    fn spawn_without_vault(dir: &TempDir) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"));
+        command
+            .env_remove("OBSIDIAN_VAULT_MCP_ROOT")
+            .current_dir(dir.path())
+            .args(["--log-level", "warn", "serve"]);
+        Self::spawn_command(command)
+    }
+
+    fn spawn_command(mut command: Command) -> Self {
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -295,7 +310,7 @@ impl McpStdioClient {
     }
 }
 
-fn initialize_mcp(client: &mut McpStdioClient) {
+fn initialize_mcp(client: &mut McpStdioClient) -> Value {
     let initialize = client.request(serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -311,6 +326,7 @@ fn initialize_mcp(client: &mut McpStdioClient) {
         "jsonrpc": "2.0",
         "method": "notifications/initialized"
     }));
+    initialize
 }
 
 impl Drop for McpStdioClient {
@@ -970,4 +986,47 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
     );
 
     client.shutdown();
+}
+
+#[test]
+fn mcp_server_without_discovered_vault_is_inactive() {
+    let working_directory = tempdir().expect("working directory");
+    let mut client = McpStdioClient::spawn_without_vault(&working_directory);
+
+    let initialize = initialize_mcp(&mut client);
+    let instructions = initialize["result"]["instructions"]
+        .as_str()
+        .expect("inactive server instructions");
+    assert!(instructions.contains("No Obsidian vault was found"));
+    assert!(instructions.contains("should not be used for this project"));
+    assert!(initialize["result"]["capabilities"]["tools"].is_object());
+
+    let tools = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    }));
+    assert_eq!(tools["result"]["tools"], serde_json::json!([]));
+
+    client.shutdown();
+}
+
+#[test]
+fn explicit_missing_vault_still_fails_to_start_server() {
+    let working_directory = tempdir().expect("working directory");
+    let missing = working_directory.path().join("missing-vault");
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .arg("--vault")
+        .arg(&missing)
+        .arg("serve")
+        .output()
+        .expect("run MCP server with explicit missing vault");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("vault root is not a directory"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

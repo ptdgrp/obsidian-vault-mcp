@@ -61,7 +61,9 @@ cargo run -- --vault /path/to/vault serve
 
 `--vault` 支持 `~` 和 `~/...` 路径。未传 `--vault` 且未设置
 `OBSIDIAN_VAULT_MCP_ROOT` 时，server 会从进程的当前工作目录开始逐级向上查找，
-并选择最近的包含 `.obsidian/` 的目录作为 vault。
+并选择最近的包含 `.obsidian/` 的目录作为 vault。如果 `serve` 没有找到 vault，
+它会以 inactive 状态启动、不暴露任何工具，并在 MCP instructions 中说明原因。
+其他命令仍会报错，显式配置的 vault 路径无效时也仍会报错。
 
 常用缓存参数：
 

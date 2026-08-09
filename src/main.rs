@@ -26,13 +26,19 @@ async fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let vault_path = resolve_vault_path(cli.vault.as_deref())?;
+    let serves_mcp = matches!(
+        cli.command_ref(),
+        None | Some(cli::commands::Command::Serve)
+    );
+    let vault_path = resolve_vault_path(cli.vault.as_deref(), serves_mcp)?;
     logging::init(&cli.log_level)?;
     tracing::debug!("logging.initialized");
     let started = Instant::now();
     let (input_preview, input_truncated) = logging::input_preview(&cli);
     let config = VaultConfig::build(&cli);
-    let vault = Vault::open(&vault_path, config)?;
+    let vault = vault_path
+        .map(|vault_path| Vault::open(&vault_path, config))
+        .transpose()?;
     let command = cli.command();
     let command_name = command.name();
     let command_span = tracing::info_span!(
@@ -42,7 +48,19 @@ async fn main() -> anyhow::Result<()> {
         input.truncated = input_truncated,
     );
     tracing::info!(parent: &command_span, command = command_name, input.preview = %input_preview, input.truncated = input_truncated, "cli.command.start");
-    let result = command.run(vault).instrument(command_span.clone()).await;
+    let result = match (command, vault) {
+        (cli::commands::Command::Serve, None) => {
+            tracing::warn!(
+                parent: &command_span,
+                "no Obsidian vault found; starting inactive MCP server"
+            );
+            server::run_inactive_mcp_server()
+                .instrument(command_span.clone())
+                .await
+        }
+        (command, Some(vault)) => command.run(vault).instrument(command_span.clone()).await,
+        (_, None) => unreachable!("commands other than serve require a vault"),
+    };
     let duration_ms = started.elapsed().as_millis() as u64;
     match &result {
         Ok(()) => {
@@ -66,9 +84,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn resolve_vault_path(
     configured_path: Option<&camino::Utf8Path>,
-) -> anyhow::Result<camino::Utf8PathBuf> {
+    allow_missing: bool,
+) -> anyhow::Result<Option<camino::Utf8PathBuf>> {
     if let Some(path) = configured_path {
-        return expand_home_directory(path);
+        return expand_home_directory(path).map(Some);
     }
 
     let current_directory = std::env::current_dir()?;
@@ -78,8 +97,12 @@ fn resolve_vault_path(
         })?;
     for candidate in current_directory.ancestors() {
         if candidate.join(".obsidian").is_dir() {
-            return Ok(candidate.to_owned());
+            return Ok(Some(candidate.to_owned()));
         }
+    }
+
+    if allow_missing {
+        return Ok(None);
     }
 
     Err(anyhow::anyhow!(
