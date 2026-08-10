@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{server::section_parts, vault::Vault};
+use crate::{server::edit_section_parts, vault::Vault};
 use camino::Utf8PathBuf;
 
 #[derive(Debug, clap::Subcommand)]
@@ -235,7 +235,7 @@ pub(crate) enum Command {
         page: usize,
     },
 
-    /// Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
+    /// Append content at the end of exactly one heading or block section. This uses structural selection, not text matching.
     AppendSection {
         /// Vault-relative path, note stem, or alias.
         note: String,
@@ -248,14 +248,10 @@ pub(crate) enum Command {
         #[arg(long)]
         block_id: Option<String>,
 
-        /// Github-style line reference, e.g. #L1-L99.
-        #[arg(long)]
-        line: Option<String>,
-
-        /// Replacement text for the relative line range.
+        /// Text appended at the selected section boundary.
         content: String,
     },
-    /// Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching.
+    /// Replace exactly one heading or block section with new content. This uses structural selection, not text matching.
     ReplaceSection {
         /// Vault-relative path, note stem, or alias.
         note: String,
@@ -268,14 +264,10 @@ pub(crate) enum Command {
         #[arg(long)]
         block_id: Option<String>,
 
-        /// Github-style line reference, e.g. #L1-L99.
-        #[arg(long)]
-        line: Option<String>,
-
-        /// Replacement text for the relative line range.
+        /// Replacement content for the entire selected section.
         content: String,
     },
-    /// Delete exactly one heading, block, or line section. This uses structural selection, not text matching.
+    /// Delete exactly one heading or block section. This uses structural selection, not text matching.
     DeleteSection {
         /// Vault-relative path, note stem, or alias.
         note: String,
@@ -287,10 +279,6 @@ pub(crate) enum Command {
         /// Block id without the leading caret.
         #[arg(long)]
         block_id: Option<String>,
-
-        /// Github-style line reference, e.g. #L1-L99.
-        #[arg(long)]
-        line: Option<String>,
     },
     /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
     RenameHeading {
@@ -316,14 +304,19 @@ pub(crate) enum Command {
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
-    /// Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply.
-    RenameBlockId {
+    /// Set, generate, replace, or delete one lowercase block id. Set dry_run to false to apply.
+    SetBlockId {
         /// Vault-relative path, note stem, or alias.
         note: String,
-        /// Existing block id without the leading caret.
-        old_block_id: String,
-        /// Replacement block id without the leading caret.
-        new_block_id: String,
+        /// Existing block id selector without the leading caret. Mutually exclusive with content.
+        #[arg(long, conflicts_with = "content")]
+        old_block_id: Option<String>,
+        /// Text contained by the target Markdown block. Mutually exclusive with old_block_id.
+        #[arg(long, conflicts_with = "old_block_id")]
+        content: Option<String>,
+        /// Desired lowercase block id. Omit to generate; pass an empty string to delete.
+        #[arg(long)]
+        block_id: Option<String>,
         /// Preview changed notes and references without writing. Defaults to true.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
@@ -357,7 +350,7 @@ impl Command {
             Self::DeleteSection { .. } => "delete_section",
             Self::RenameHeading { .. } => "rename_heading",
             Self::RenameNote { .. } => "rename_note",
-            Self::RenameBlockId { .. } => "rename_block_id",
+            Self::SetBlockId { .. } => "set_block_id",
         }
     }
     pub(crate) async fn run(self, vault: Vault) -> anyhow::Result<()> {
@@ -547,14 +540,11 @@ impl Command {
                 note,
                 heading,
                 block_id,
-                line,
                 content,
             } => {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(|_| {
-                        anyhow::anyhow!(
-                            "provide exactly one selector: --heading, --block-id, or --line"
-                        )
+                    edit_section_parts(note, heading, block_id).map_err(|_| {
+                        anyhow::anyhow!("provide exactly one selector: --heading or --block-id")
                     })?;
                 print_value(&mutations.append_section(&note, selector, &content)?)?
             }
@@ -562,14 +552,11 @@ impl Command {
                 note,
                 heading,
                 block_id,
-                line,
                 content,
             } => {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(|_| {
-                        anyhow::anyhow!(
-                            "provide exactly one selector: --heading, --block-id, or --line"
-                        )
+                    edit_section_parts(note, heading, block_id).map_err(|_| {
+                        anyhow::anyhow!("provide exactly one selector: --heading or --block-id")
                     })?;
                 print_value(&mutations.replace_section(&note, selector, &content)?)?
             }
@@ -577,13 +564,10 @@ impl Command {
                 note,
                 heading,
                 block_id,
-                line,
             } => {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(|_| {
-                        anyhow::anyhow!(
-                            "provide exactly one selector: --heading, --block-id, or --line"
-                        )
+                    edit_section_parts(note, heading, block_id).map_err(|_| {
+                        anyhow::anyhow!("provide exactly one selector: --heading or --block-id")
                     })?;
                 print_value(&mutations.delete_section(&note, selector)?)?
             }
@@ -603,15 +587,17 @@ impl Command {
                 new_path,
                 dry_run,
             } => print_value(&mutations.rename_note(&path, &new_path, dry_run)?)?,
-            Command::RenameBlockId {
+            Command::SetBlockId {
                 note,
                 old_block_id,
-                new_block_id,
+                content,
+                block_id,
                 dry_run,
-            } => print_value(&mutations.rename_block_id(
+            } => print_value(&mutations.set_block_id(
                 &note,
-                &old_block_id,
-                &new_block_id,
+                old_block_id.as_deref(),
+                content.as_deref(),
+                block_id.as_deref(),
                 dry_run,
             )?)?,
         }

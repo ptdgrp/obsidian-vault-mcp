@@ -1,5 +1,5 @@
 use crate::{
-    mutation::{EditSectionResult, RenameResult, VaultMutations},
+    mutation::{EditSectionResult, RenameResult, SetBlockIdResult, VaultMutations},
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
         GetCategoryResult, GetTagResult, ListCategoriesResult, ListNotesResult, ListTagsResult,
@@ -317,8 +317,6 @@ pub struct AppendSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
-    pub line: Option<String>,
     /// Text appended at the selected section boundary.
     pub content: String,
 }
@@ -332,8 +330,6 @@ pub struct ReplaceSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
-    pub line: Option<String>,
     /// Replacement content for the entire selected section.
     pub content: String,
 }
@@ -347,8 +343,6 @@ pub struct DeleteSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99.
-    pub line: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -378,14 +372,16 @@ pub struct RenameNoteRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for safely renaming one block id and its uniquely resolved wikilink references.
-pub struct RenameBlockIdRequest {
+/// Input for setting, generating, replacing, or deleting one block id.
+pub struct SetBlockIdRequest {
     /// Vault-relative path, note stem, or alias.
     pub note: String,
-    /// Existing block id without the leading caret.
-    pub old_block_id: String,
-    /// Replacement block id without the leading caret.
-    pub new_block_id: String,
+    /// Existing block id selector without the leading caret. Mutually exclusive with content.
+    pub old_block_id: Option<String>,
+    /// Text contained by the target Markdown block. Mutually exclusive with old_block_id.
+    pub content: Option<String>,
+    /// Desired lowercase block id. Omit to generate a timx8 id; pass an empty string to delete.
+    pub block_id: Option<String>,
     /// Preview changed notes and references without writing. Defaults to true.
     #[serde(default = "default_dry_run")]
     pub dry_run: bool,
@@ -412,6 +408,19 @@ pub(crate) fn section_parts(
         }
     };
 
+    Ok((note, selector))
+}
+
+pub(crate) fn edit_section_parts(
+    note: String,
+    heading: Option<String>,
+    block_id: Option<String>,
+) -> Result<(String, SectionSelector), String> {
+    let selector = match (heading, block_id) {
+        (Some(heading), None) => SectionSelector::Heading { heading },
+        (None, Some(block_id)) => SectionSelector::Block { block_id },
+        _ => return Err("provide exactly one selector: heading or block_id".to_string()),
+    };
     Ok((note, selector))
 }
 
@@ -774,7 +783,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching."
+        description = "Append content at the end of exactly one heading or block section. This uses structural selection, not text matching."
     )]
     fn append_section(
         &self,
@@ -787,18 +796,17 @@ impl ObsidianVaultMcp {
                  note,
                  heading,
                  block_id,
-                 line,
                  content,
              }| {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
                 self.mutations().append_section(&note, selector, &content)
             },
         )
     }
 
     #[tool(
-        description = "Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching."
+        description = "Replace exactly one heading or block section with new content. This uses structural selection, not text matching."
     )]
     fn replace_section(
         &self,
@@ -811,18 +819,17 @@ impl ObsidianVaultMcp {
                  note,
                  heading,
                  block_id,
-                 line,
                  content,
              }| {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
                 self.mutations().replace_section(&note, selector, &content)
             },
         )
     }
 
     #[tool(
-        description = "Delete exactly one heading, block, or line section. This uses structural selection, not text matching."
+        description = "Delete exactly one heading or block section. This uses structural selection, not text matching."
     )]
     fn delete_section(
         &self,
@@ -835,10 +842,9 @@ impl ObsidianVaultMcp {
                  note,
                  heading,
                  block_id,
-                 line,
              }| {
                 let (note, selector) =
-                    section_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
                 self.mutations().delete_section(&note, selector)
             },
         )
@@ -885,23 +891,29 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply."
+        description = "Set, generate, replace, or delete one lowercase block id. Select by existing id or unique block content. Replacements update resolved wikilinks; deletion is refused while references exist. Set dry_run to false to apply."
     )]
-    fn rename_block_id(
+    fn set_block_id(
         &self,
-        Parameters(request): Parameters<RenameBlockIdRequest>,
-    ) -> Result<Json<RenameResult>, String> {
+        Parameters(request): Parameters<SetBlockIdRequest>,
+    ) -> Result<Json<SetBlockIdResult>, String> {
         run_tool(
-            "rename_block_id",
+            "set_block_id",
             request,
-            |RenameBlockIdRequest {
+            |SetBlockIdRequest {
                  note,
                  old_block_id,
-                 new_block_id,
+                 content,
+                 block_id,
                  dry_run,
              }| {
-                self.mutations()
-                    .rename_block_id(&note, &old_block_id, &new_block_id, dry_run)
+                self.mutations().set_block_id(
+                    &note,
+                    old_block_id.as_deref(),
+                    content.as_deref(),
+                    block_id.as_deref(),
+                    dry_run,
+                )
             },
         )
     }

@@ -104,7 +104,9 @@ The public tools are organized around the question an agent is trying to answer:
 
 Editing tools use the same structural selectors: `append_section`,
 `replace_section`, `delete_section`, `rename_heading`, `rename_note`, and
-`rename_block_id`.
+`set_block_id`.
+Section edits accept only heading and block-id selectors; line selectors remain
+available for `read_note` only.
 
 ## Pagination and filters
 
@@ -170,7 +172,7 @@ Primary edit tools:
 - `delete_section`
 - `rename_heading`
 - `rename_note`
-- `rename_block_id`
+- `set_block_id`
 
 ## Recommended workflow
 

@@ -6,6 +6,7 @@ mod parser;
 mod query;
 mod resolver;
 mod server;
+mod timx8;
 mod vault;
 
 use clap::Parser;

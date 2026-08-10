@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{RenameResult, VaultMutations};
+use super::{RenameResult, SetBlockIdResult, VaultMutations};
 use crate::query::find_indexed_note;
 use crate::{
     parser::{LinkKind, ReferenceInfo, source_for_line},
@@ -94,54 +94,179 @@ impl VaultMutations {
         })
     }
 
-    pub fn rename_block_id(
+    pub fn set_block_id(
         &self,
         note: &str,
-        old_block_id: &str,
-        new_block_id: &str,
+        old_block_id: Option<&str>,
+        content: Option<&str>,
+        block_id: Option<&str>,
         dry_run: bool,
-    ) -> anyhow::Result<RenameResult> {
+    ) -> anyhow::Result<SetBlockIdResult> {
+        if old_block_id.is_some() == content.is_some() {
+            anyhow::bail!("provide exactly one block selector: old_block_id or content");
+        }
+        if content.is_some_and(|content| content.trim().is_empty()) {
+            anyhow::bail!("content selector must not be empty");
+        }
+        let new_block_id = block_id
+            .map(str::to_string)
+            .unwrap_or_else(crate::timx8::generate);
+        if !new_block_id.is_empty()
+            && !new_block_id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            anyhow::bail!(
+                "block_id must be lowercase and contain only ASCII letters, digits, or hyphens"
+            );
+        }
         let notes = self.queries.index_notes()?;
         let target = find_indexed_note(note, &notes)?;
-        let block = target
+        let candidates = target
             .parsed
-            .blocks
+            .block_candidates
             .iter()
-            .find(|block| block.id == old_block_id)
-            .ok_or_else(|| anyhow::anyhow!("block id not found: {old_block_id}"))?;
+            .filter(|candidate| match (old_block_id, content) {
+                (Some(old_block_id), None) => candidate.id.as_deref() == Some(old_block_id),
+                (None, Some(content)) => candidate.text.contains(content.trim()),
+                _ => false,
+            })
+            .collect::<Vec<_>>();
+        let block = match candidates.as_slice() {
+            [] => {
+                let selector = old_block_id.or(content).unwrap_or_default();
+                anyhow::bail!("block not found: {selector}");
+            }
+            [block] => *block,
+            _ => {
+                let previews = candidates
+                    .iter()
+                    .map(|candidate| {
+                        let mut preview = candidate.text.chars().take(120).collect::<String>();
+                        if candidate.text.chars().count() > 120 {
+                            preview.push('…');
+                        }
+                        format!("- {}: {preview}", candidate.source.path_with_line_ref())
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                anyhow::bail!(
+                    "block content is ambiguous: {} matches\n{previews}",
+                    candidates.len()
+                );
+            }
+        };
+        let previous_block_id = block.id.as_deref();
+        if new_block_id.is_empty() && previous_block_id.is_none() {
+            anyhow::bail!("target block does not have a block id to delete");
+        }
+        if new_block_id.is_empty() {
+            let mut inbound_references = Vec::new();
+            if let Some(previous_block_id) = previous_block_id {
+                for source_note in &notes {
+                    for link in &source_note.parsed.links {
+                        if matches!(
+                            &link.reference,
+                            Some(ReferenceInfo::BlockId { value }) if value == previous_block_id
+                        ) && link_targets_note(
+                            link.target.as_str(),
+                            source_note.file.relative_path.as_str(),
+                            target.file.relative_path.as_str(),
+                            &notes,
+                        ) {
+                            inbound_references.push(format!(
+                                "- {}: {}",
+                                link.source.path_with_line_ref(),
+                                link.raw
+                            ));
+                        }
+                    }
+                }
+            }
+            if !inbound_references.is_empty() {
+                anyhow::bail!(
+                    "cannot delete referenced block id `{}`:\n{}",
+                    previous_block_id.unwrap_or_default(),
+                    inbound_references.join("\n")
+                );
+            }
+        }
+        if previous_block_id != Some(new_block_id.as_str())
+            && target
+                .parsed
+                .blocks
+                .iter()
+                .any(|block| block.id == new_block_id)
+        {
+            anyhow::bail!("block id already exists in note: {new_block_id}");
+        }
+        let target_content = std::fs::read_to_string(&target.file.path)?;
         let mut edits: BTreeMap<String, Vec<TextEdit>> = BTreeMap::new();
+        let (start, end, replacement) = match previous_block_id {
+            Some(previous_block_id) => {
+                let start = block_id_byte_start(
+                    &target_content,
+                    block.source.byte_start,
+                    block.source.byte_end,
+                    previous_block_id,
+                )?;
+                if new_block_id.is_empty() {
+                    (
+                        block_id_deletion_start(&target_content, block.source.byte_start, start)?,
+                        start + previous_block_id.len() + 1,
+                        String::new(),
+                    )
+                } else {
+                    (
+                        start,
+                        start + previous_block_id.len() + 1,
+                        format!("^{new_block_id}"),
+                    )
+                }
+            }
+            None => {
+                let start = block_id_insertion_point(
+                    &target_content,
+                    block.source.byte_start,
+                    block.source.byte_end,
+                )?;
+                (start, start, format!(" ^{new_block_id}"))
+            }
+        };
         edits
             .entry(target.file.relative_path.clone())
             .or_default()
             .push(TextEdit {
-                start: block.source.byte_start,
-                end: block.source.byte_end,
-                replacement: format!("^{new_block_id}"),
+                start,
+                end,
+                replacement,
             });
         let mut updated_references = 0;
-        for source_note in &notes {
-            for link in &source_note.parsed.links {
-                if matches!(&link.reference, Some(ReferenceInfo::BlockId { value }) if value == old_block_id)
-                    && link_targets_note(
-                        link.target.as_str(),
-                        source_note.file.relative_path.as_str(),
-                        target.file.relative_path.as_str(),
-                        &notes,
-                    )
-                {
-                    edits
-                        .entry(source_note.file.relative_path.clone())
-                        .or_default()
-                        .push(TextEdit {
-                            start: link.source.byte_start,
-                            end: link.source.byte_end,
-                            replacement: link.raw.replacen(
-                                &format!("#^{old_block_id}"),
-                                &format!("#^{new_block_id}"),
-                                1,
-                            ),
-                        });
-                    updated_references += 1;
+        if let Some(previous_block_id) = previous_block_id {
+            for source_note in &notes {
+                for link in &source_note.parsed.links {
+                    if matches!(&link.reference, Some(ReferenceInfo::BlockId { value }) if value == previous_block_id)
+                        && link_targets_note(
+                            link.target.as_str(),
+                            source_note.file.relative_path.as_str(),
+                            target.file.relative_path.as_str(),
+                            &notes,
+                        )
+                    {
+                        edits
+                            .entry(source_note.file.relative_path.clone())
+                            .or_default()
+                            .push(TextEdit {
+                                start: link.source.byte_start,
+                                end: link.source.byte_end,
+                                replacement: link.raw.replacen(
+                                    &format!("#^{previous_block_id}"),
+                                    &format!("#^{new_block_id}"),
+                                    1,
+                                ),
+                            });
+                        updated_references += 1;
+                    }
                 }
             }
         }
@@ -154,8 +279,10 @@ impl VaultMutations {
                 self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
             }
         }
-        Ok(RenameResult {
+        Ok(SetBlockIdResult {
             dry_run,
+            previous_block_id: previous_block_id.map(str::to_string),
+            block_id: (!new_block_id.is_empty()).then_some(new_block_id),
             updated_references,
             changed_notes,
         })
@@ -243,6 +370,50 @@ impl VaultMutations {
             changed_notes,
         })
     }
+}
+
+fn block_id_insertion_point(
+    content: &str,
+    block_start: usize,
+    block_end: usize,
+) -> anyhow::Result<usize> {
+    let raw = content
+        .get(block_start..block_end)
+        .ok_or_else(|| anyhow::anyhow!("block source range is invalid"))?;
+    let trailing_line_breaks = raw.len() - raw.trim_end_matches(['\r', '\n']).len();
+    Ok(block_end - trailing_line_breaks)
+}
+
+fn block_id_deletion_start(
+    content: &str,
+    block_start: usize,
+    marker_start: usize,
+) -> anyhow::Result<usize> {
+    let prefix = content
+        .get(block_start..marker_start)
+        .ok_or_else(|| anyhow::anyhow!("block id source range is invalid"))?;
+    if prefix.ends_with("\r\n") {
+        Ok(marker_start - 2)
+    } else if prefix.ends_with(['\n', ' ']) {
+        Ok(marker_start - 1)
+    } else {
+        Ok(marker_start)
+    }
+}
+
+fn block_id_byte_start(
+    content: &str,
+    block_start: usize,
+    block_end: usize,
+    block_id: &str,
+) -> anyhow::Result<usize> {
+    let raw = content
+        .get(block_start..block_end)
+        .ok_or_else(|| anyhow::anyhow!("block source range is invalid"))?;
+    let marker = format!("^{block_id}");
+    raw.rfind(&marker)
+        .map(|offset| block_start + offset)
+        .ok_or_else(|| anyhow::anyhow!("block id source not found: {block_id}"))
 }
 
 fn heading_reference_matches(reference: &Option<ReferenceInfo>, old: &str) -> bool {

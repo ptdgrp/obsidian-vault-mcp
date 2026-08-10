@@ -59,3 +59,31 @@ impl Cli {
         self.command.unwrap_or(commands::Command::Serve)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn edit_commands_reject_line_selectors_while_read_note_accepts_them() {
+        for command in ["append-section", "replace-section", "delete-section"] {
+            let mut args = vec!["obsidian-vault-mcp", command, "note.md", "--line", "#L1"];
+            if command != "delete-section" {
+                args.push("content");
+            }
+            assert!(Cli::try_parse_from(args).is_err(), "{command}");
+        }
+
+        assert!(
+            Cli::try_parse_from([
+                "obsidian-vault-mcp",
+                "read-note",
+                "note.md",
+                "--line",
+                "#L1"
+            ])
+            .is_ok()
+        );
+    }
+}

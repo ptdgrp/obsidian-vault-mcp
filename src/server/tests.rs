@@ -64,13 +64,13 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "list_tags",
             "query_frontmatter",
             "read_note",
-            "rename_block_id",
             "rename_heading",
             "rename_note",
             "replace_section",
             "resolve_ref",
             "search_regex",
             "search_text",
+            "set_block_id",
         ]
     );
     for tool in tools {

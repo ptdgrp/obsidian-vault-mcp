@@ -83,7 +83,8 @@ cargo run -- --vault /path/to/vault \
 3. note 外部关系：`resolve_ref`、`get_outlinks`、`get_backlinks`、`get_note_neighborhood`、`list_tags`、`get_tag`、`list_categories`、`get_category`、`query_frontmatter`、`search_text` 和 `search_regex` 回答聚焦的跨 note 问题。
 4. 问题关系审计：`audit_links` 分页报告可见 notes 中无法解析和解析歧义的本地链接，让大范围工作先确认链接健康状态。
 
-编辑工具使用同一套结构化 selector：`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `rename_block_id`。
+编辑工具使用同一套结构化 selector：`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
+section 编辑仅支持 heading 和 block-id selector；line selector 仅保留给 `read_note`。
 
 ## 分页与过滤
 
@@ -132,7 +133,7 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 - `delete_section`
 - `rename_heading`
 - `rename_note`
-- `rename_block_id`
+- `set_block_id`
 
 ## 推荐使用顺序
 

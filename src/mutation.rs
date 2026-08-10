@@ -69,3 +69,17 @@ pub struct RenameResult {
     pub updated_references: usize,
     pub changed_notes: Vec<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SetBlockIdResult {
+    /// Whether changes were only previewed.
+    pub dry_run: bool,
+    /// Block id present before this operation, if any.
+    pub previous_block_id: Option<String>,
+    /// Resulting block id, including a generated proposal during dry-run; null after deletion.
+    pub block_id: Option<String>,
+    #[schemars(with = "McpNonNegativeInteger")]
+    pub updated_references: usize,
+    /// Vault-relative notes that would change or were changed.
+    pub changed_notes: Vec<String>,
+}

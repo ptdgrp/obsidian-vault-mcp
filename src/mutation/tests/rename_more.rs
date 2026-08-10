@@ -1,7 +1,7 @@
 use super::{fixture, read_note, write_note};
 
 #[test]
-fn rename_block_id_updates_resolved_references_after_preview() {
+fn set_block_id_replaces_id_without_deleting_block_content_and_updates_references() {
     let (dir, mutations) = fixture();
     write_note(&dir, "发动机.md", "# 发动机\n\n段落\n^state\n");
     write_note(
@@ -11,7 +11,7 @@ fn rename_block_id_updates_resolved_references_after_preview() {
     );
 
     let preview = mutations
-        .rename_block_id("发动机.md", "state", "status", true)
+        .set_block_id("发动机.md", Some("state"), None, Some("status"), true)
         .expect("preview");
     assert!(preview.dry_run);
     assert_eq!(preview.updated_references, 1);
@@ -21,13 +21,149 @@ fn rename_block_id_updates_resolved_references_after_preview() {
     );
 
     let applied = mutations
-        .rename_block_id("发动机.md", "state", "status", false)
+        .set_block_id("发动机.md", Some("state"), None, Some("status"), false)
         .expect("apply");
     assert!(!applied.dry_run);
-    assert_eq!(read_note(&dir, "发动机.md"), "# 发动机\n\n^status\n");
+    assert_eq!(applied.previous_block_id.as_deref(), Some("state"));
+    assert_eq!(applied.block_id.as_deref(), Some("status"));
+    assert_eq!(read_note(&dir, "发动机.md"), "# 发动机\n\n段落\n^status\n");
     assert_eq!(
         read_note(&dir, "引用.md"),
         "# 引用\n\n[[发动机.md#^status]]\n[[不存在#^state]]\n"
+    );
+}
+
+#[test]
+fn set_block_id_finds_unique_block_content_and_adds_an_id() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n\n其他段落\n");
+
+    let result = mutations
+        .set_block_id("块.md", None, Some("目标段落"), Some("target1"), false)
+        .expect("set block id by content");
+
+    assert_eq!(result.previous_block_id, None);
+    assert_eq!(result.block_id.as_deref(), Some("target1"));
+    assert_eq!(
+        read_note(&dir, "块.md"),
+        "# 块\n\n目标段落 ^target1\n\n其他段落\n"
+    );
+}
+
+#[test]
+fn set_block_id_reports_ambiguous_content_with_candidate_previews() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n重复内容 alpha\n\n重复内容 beta\n");
+
+    let error = mutations
+        .set_block_id("块.md", None, Some("重复内容"), Some("target1"), false)
+        .expect_err("ambiguous content should fail");
+    let message = error.to_string();
+
+    assert!(message.contains("块.md#L3"), "{message}");
+    assert!(message.contains("重复内容 alpha"), "{message}");
+    assert!(message.contains("块.md#L5"), "{message}");
+    assert!(message.contains("重复内容 beta"), "{message}");
+}
+
+#[test]
+fn set_block_id_generates_a_lowercase_timx8_when_id_is_omitted() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n");
+
+    let preview = mutations
+        .set_block_id("块.md", None, Some("目标段落"), None, true)
+        .expect("preview generated block id");
+    let generated = preview.block_id.expect("generated block id");
+
+    assert_eq!(generated.len(), 8);
+    assert!(
+        generated
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()),
+        "{generated}"
+    );
+    assert_eq!(read_note(&dir, "块.md"), "# 块\n\n目标段落\n");
+
+    mutations
+        .set_block_id("块.md", None, Some("目标段落"), Some(&generated), false)
+        .expect("apply generated block id");
+    assert!(read_note(&dir, "块.md").contains(&format!("^{generated}")));
+}
+
+#[test]
+fn set_block_id_rejects_explicit_ids_that_are_not_lowercase_obsidian_ids() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n");
+    let before = read_note(&dir, "块.md");
+
+    let error = mutations
+        .set_block_id("块.md", None, Some("目标段落"), Some("Bad_ID"), false)
+        .expect_err("uppercase and underscore should fail");
+
+    assert!(error.to_string().contains("lowercase"));
+    assert_eq!(read_note(&dir, "块.md"), before);
+}
+
+#[test]
+fn set_block_id_refuses_deletion_and_lists_inbound_references() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n^state\n");
+    write_note(&dir, "引用.md", "# 引用\n\n[[块.md#^state]]\n");
+    let before_target = read_note(&dir, "块.md");
+    let before_reference = read_note(&dir, "引用.md");
+
+    let error = mutations
+        .set_block_id("块.md", Some("state"), None, Some(""), false)
+        .expect_err("referenced block id should not be deleted");
+    let message = error.to_string();
+
+    assert!(message.contains("引用.md#L3"), "{message}");
+    assert!(message.contains("[[块.md#^state]]"), "{message}");
+    assert_eq!(read_note(&dir, "块.md"), before_target);
+    assert_eq!(read_note(&dir, "引用.md"), before_reference);
+}
+
+#[test]
+fn set_block_id_deletes_an_unreferenced_id_and_preserves_block_content() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n^state\n");
+
+    let result = mutations
+        .set_block_id("块.md", Some("state"), None, Some(""), false)
+        .expect("delete unreferenced block id");
+
+    assert_eq!(result.previous_block_id.as_deref(), Some("state"));
+    assert_eq!(result.block_id, None);
+    assert_eq!(read_note(&dir, "块.md"), "# 块\n\n目标段落\n");
+}
+
+#[test]
+fn set_block_id_rejects_deleting_from_a_block_without_an_id() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n");
+
+    let error = mutations
+        .set_block_id("块.md", None, Some("目标段落"), Some(""), false)
+        .expect_err("block without id cannot delete id");
+
+    assert!(error.to_string().contains("does not have a block id"));
+    assert_eq!(read_note(&dir, "块.md"), "# 块\n\n目标段落\n");
+}
+
+#[test]
+fn set_block_id_rejects_an_empty_content_selector() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\n目标段落\n");
+
+    let error = mutations
+        .set_block_id("块.md", None, Some("  "), Some("target1"), false)
+        .expect_err("empty content selector should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("content selector must not be empty")
     );
 }
 
@@ -135,15 +271,15 @@ fn rename_heading_updates_self_and_multi_heading_links() {
 }
 
 #[test]
-fn rename_block_id_reports_missing_block_without_writing() {
+fn set_block_id_reports_missing_block_without_writing() {
     let (dir, mutations) = fixture();
     write_note(&dir, "块.md", "# 块\n");
     let before = read_note(&dir, "块.md");
 
     let error = mutations
-        .rename_block_id("块.md", "missing", "status", false)
+        .set_block_id("块.md", Some("missing"), None, Some("status"), false)
         .expect_err("missing block should fail");
 
-    assert!(error.to_string().contains("block id not found: missing"));
+    assert!(error.to_string().contains("block not found: missing"));
     assert_eq!(read_note(&dir, "块.md"), before);
 }

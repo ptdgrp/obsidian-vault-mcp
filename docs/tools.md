@@ -10,9 +10,9 @@ server supports structural section edits as well as read operations.
 
 | Tool | Description |
 | --- | --- |
-| `append_section` | Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching. |
+| `append_section` | Append content at the end of exactly one heading or block section. This uses structural selection, not text matching. |
 | `audit_links` | Audit unresolved and ambiguous local links across the visible vault. |
-| `delete_section` | Delete exactly one heading, block, or line section. This uses structural selection, not text matching. |
+| `delete_section` | Delete exactly one heading or block section. This uses structural selection, not text matching. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
@@ -26,17 +26,17 @@ server supports structural section edits as well as read operations.
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
-| `rename_block_id` | Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
-| `replace_section` | Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching. |
+| `replace_section` | Replace exactly one heading or block section with new content. This uses structural selection, not text matching. |
 | `resolve_ref` | Resolve an Obsidian reference such as [[Note#Heading]] to a note, heading, or block without guessing ambiguous targets |
 | `search_regex` | Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
+| `set_block_id` | Set, generate, replace, or delete one lowercase block id. Select by existing id or unique block content. Replacements update resolved wikilinks; deletion is refused while references exist. Set dry_run to false to apply. |
 
 ## 🔧 `append_section`
 
-Append content at the end of exactly one heading, block, or line section. This uses structural selection, not text matching.
+Append content at the end of exactly one heading or block section. This uses structural selection, not text matching.
 
 Input:
 
@@ -45,7 +45,6 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Text appended at the selected section boundary. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -111,7 +110,7 @@ Nested types:
 
 ## 🔧 `delete_section`
 
-Delete exactly one heading, block, or line section. This uses structural selection, not text matching.
+Delete exactly one heading or block section. This uses structural selection, not text matching.
 
 Input:
 
@@ -119,7 +118,6 @@ Input:
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -637,29 +635,6 @@ Output:
 | `truncated` | `boolean \| null` | no |  |
 
 
-## 🔧 `rename_block_id`
-
-Rename one block id and update uniquely resolved Obsidian wikilinks. Set dry_run to false to apply.
-
-Input:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
-| `new_block_id` | `string` | yes | Replacement block id without the leading caret. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
-| `old_block_id` | `string` | yes | Existing block id without the leading caret. |
-
-
-Output:
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `changed_notes` | `string[]` | yes |  |
-| `dry_run` | `boolean` | yes |  |
-| `updated_references` | `integer` | yes |  |
-
-
 ## 🔧 `rename_heading`
 
 Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
@@ -707,7 +682,7 @@ Output:
 
 ## 🔧 `replace_section`
 
-Replace exactly one heading, block, or line section with new content. This uses structural selection, not text matching.
+Replace exactly one heading or block section with new content. This uses structural selection, not text matching.
 
 Input:
 
@@ -716,7 +691,6 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Replacement content for the entire selected section. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1-L99 or #L1-99. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 
 
@@ -826,3 +800,29 @@ Nested types:
 | --- | --- | --- | --- |
 | `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
 | `source` | `string` | yes | Vault-relative path with Obsidian-style line reference. |
+
+
+## 🔧 `set_block_id`
+
+Set, generate, replace, or delete one lowercase block id. Select by existing id or unique block content. Replacements update resolved wikilinks; deletion is refused while references exist. Set dry_run to false to apply.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Desired lowercase block id. Omit to generate a timx8 id; pass an empty string to delete. |
+| `content` | `string \| null` | no | Text contained by the target Markdown block. Mutually exclusive with old_block_id. |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
+| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `old_block_id` | `string \| null` | no | Existing block id selector without the leading caret. Mutually exclusive with content. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `block_id` | `string \| null` | no | Resulting block id, including a generated proposal during dry-run; null after deletion. |
+| `changed_notes` | `string[]` | yes | Vault-relative notes that would change or were changed. |
+| `dry_run` | `boolean` | yes | Whether changes were only previewed. |
+| `previous_block_id` | `string \| null` | no | Block id present before this operation, if any. |
+| `updated_references` | `integer` | yes |  |

@@ -7,7 +7,7 @@ use crate::query::{FrontmatterMatchMode, TagScope};
 use crate::server::{
     AppendSectionRequest, AuditLinksRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest,
     NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
-    RenameBlockIdRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
+    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, SetBlockIdRequest,
 };
 
 const TASK_DEFINITION_LIST_NOTES: &str =
@@ -57,7 +57,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "delete_section",
         "rename_note",
         "rename_heading",
-        "rename_block_id",
+        "set_block_id",
     ]
     .into_iter()
     .map(str::to_string)
@@ -131,6 +131,14 @@ fn public_tool_set_removed_inputs_stay_absent_from_schemas() {
 
     let outline = tool_properties("get_note_outline");
     assert!(!outline.contains_key("heading"));
+
+    for name in ["append_section", "replace_section", "delete_section"] {
+        let properties = tool_properties(name);
+        assert!(
+            !properties.contains_key("line"),
+            "{name} must only support heading and block_id selectors"
+        );
+    }
 }
 
 #[test]
@@ -382,7 +390,6 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
             note: "发动机.md".to_string(),
             heading: Some("原理".to_string()),
             block_id: None,
-            line: None,
             content: "## 原理\n\n已替换\n".to_string(),
         }))
         .expect("replace section");
@@ -404,7 +411,7 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
 }
 
 #[test]
-fn append_read_and_rename_block_id_tools_work_through_server_surface() {
+fn append_read_and_set_block_id_tools_work_through_server_surface() {
     let (dir, server) = fixture();
     fs::write(
         dir.path().join("块.md"),
@@ -418,7 +425,6 @@ fn append_read_and_rename_block_id_tools_work_through_server_surface() {
             note: "块.md".to_string(),
             heading: Some("正文".to_string()),
             block_id: None,
-            line: None,
             content: "\n补充说明\n".to_string(),
         }))
         .expect("append section");
@@ -439,10 +445,11 @@ fn append_read_and_rename_block_id_tools_work_through_server_surface() {
     assert!(read.content.contains("补充说明"));
 
     let Json(renamed) = server
-        .rename_block_id(Parameters(RenameBlockIdRequest {
+        .set_block_id(Parameters(SetBlockIdRequest {
             note: "块.md".to_string(),
-            old_block_id: "state".to_string(),
-            new_block_id: "status".to_string(),
+            old_block_id: Some("state".to_string()),
+            content: None,
+            block_id: Some("status".to_string()),
             dry_run: false,
         }))
         .expect("rename block id");

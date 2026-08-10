@@ -20,6 +20,16 @@ pub struct ParsedNote {
     pub embeds: Vec<EmbedInfo>,
     pub tags: Vec<TagInfo>,
     pub blocks: Vec<BlockInfo>,
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub(crate) block_candidates: Vec<BlockCandidate>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct BlockCandidate {
+    pub text: String,
+    pub id: Option<String>,
+    pub source: SourceSpan,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -211,6 +221,7 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
         embeds: Vec::new(),
         tags: Vec::new(),
         blocks: Vec::new(),
+        block_candidates: Vec::new(),
     };
 
     let mut heading_stack: Vec<HeadingInfo> = Vec::new();
@@ -343,6 +354,11 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
             }
             MarkdownNode::Paragraph => {
                 section_tag_window.mark_section_boundary();
+                parsed.block_candidates.push(BlockCandidate {
+                    text: collect_text(document, index).trim().to_string(),
+                    id: node.id.as_deref().cloned(),
+                    source: source_for_node(path_str, text, document, index, &heading_stack),
+                });
             }
             MarkdownNode::Code(code) => {
                 if matches!(code.as_ref(), Code::Fenced(_) | Code::Indented(_)) {
