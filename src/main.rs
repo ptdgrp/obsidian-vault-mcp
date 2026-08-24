@@ -37,9 +37,6 @@ async fn main() -> anyhow::Result<()> {
     let started = Instant::now();
     let (input_preview, input_truncated) = logging::input_preview(&cli);
     let config = VaultConfig::build(&cli);
-    let vault = vault_path
-        .map(|vault_path| Vault::open(&vault_path, config))
-        .transpose()?;
     let command = cli.command();
     let command_name = command.name();
     let command_span = tracing::info_span!(
@@ -49,17 +46,24 @@ async fn main() -> anyhow::Result<()> {
         input.truncated = input_truncated,
     );
     tracing::info!(parent: &command_span, command = command_name, input.preview = %input_preview, input.truncated = input_truncated, "cli.command.start");
-    let result = match (command, vault) {
+    let result = match (command, vault_path) {
         (cli::commands::Command::Serve, None) => {
             tracing::warn!(
                 parent: &command_span,
-                "no Obsidian vault found; starting inactive MCP server"
+                "no Obsidian vault found; starting project Markdown MCP server"
             );
-            server::run_inactive_mcp_server()
+            let root = std::env::current_dir()?;
+            let root = camino::Utf8PathBuf::from_path_buf(root).map_err(|path| {
+                anyhow::anyhow!("current directory is not valid UTF-8: {}", path.display())
+            })?;
+            server::run_project_mcp_server(root, config)
                 .instrument(command_span.clone())
                 .await
         }
-        (command, Some(vault)) => command.run(vault).instrument(command_span.clone()).await,
+        (command, Some(vault_path)) => {
+            let vault = Vault::open(&vault_path, config)?;
+            command.run(vault).instrument(command_span.clone()).await
+        }
         (_, None) => unreachable!("commands other than serve require a vault"),
     };
     let duration_ms = started.elapsed().as_millis() as u64;

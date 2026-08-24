@@ -80,6 +80,6 @@ pub struct SetBlockIdResult {
     pub block_id: Option<String>,
     #[schemars(with = "McpNonNegativeInteger")]
     pub updated_references: usize,
-    /// Vault-relative notes that would change or were changed.
+    /// Workspace-relative notes that would change or were changed.
     pub changed_notes: Vec<String>,
 }

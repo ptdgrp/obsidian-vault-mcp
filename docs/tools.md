@@ -45,7 +45,7 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Text appended at the selected section boundary. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -118,7 +118,7 @@ Input:
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -269,7 +269,7 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 | `page` | `integer` | no | One-based page number. Each page contains up to 100 headings. |
 
 
@@ -307,7 +307,7 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, alias, or bare heading/block reference. |
+| `note` | `string` | yes | Workspace-relative path, note stem, alias, or bare heading/block reference. |
 
 
 Output:
@@ -328,7 +328,7 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -362,7 +362,7 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 | `page` | `integer` | no | One-based page number. Each page contains up to 50 link occurrences. |
 
 
@@ -623,7 +623,7 @@ Input:
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
 | `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99. |
 | `max_chars` | `integer \| null` | no | Optional character limit for this request. |
-| `note` | `string` | yes | Vault-relative path, note stem, alias, or bare Obsidian reference. |
+| `note` | `string` | yes | Workspace-relative path, note stem, alias, or bare Obsidian reference. |
 
 
 Output:
@@ -691,7 +691,7 @@ Input:
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Replacement content for the entire selected section. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `note` | `string` | yes | Vault-relative path, note stem, or alias. |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -759,7 +759,7 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
-| `source` | `string` | yes | Vault-relative path with Obsidian-style line reference. |
+| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
 
 
 ## 🔧 `search_text`
@@ -799,7 +799,7 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
-| `source` | `string` | yes | Vault-relative path with Obsidian-style line reference. |
+| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
 
 
 ## 🔧 `set_block_id`
@@ -822,7 +822,7 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Resulting block id, including a generated proposal during dry-run; null after deletion. |
-| `changed_notes` | `string[]` | yes | Vault-relative notes that would change or were changed. |
+| `changed_notes` | `string[]` | yes | Workspace-relative notes that would change or were changed. |
 | `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 | `previous_block_id` | `string \| null` | no | Block id present before this operation, if any. |
 | `updated_references` | `integer` | yes |  |

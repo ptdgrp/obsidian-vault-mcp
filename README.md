@@ -73,9 +73,12 @@ cargo run -- --vault /path/to/vault serve
 `OBSIDIAN_VAULT_MCP_ROOT` is set, the server discovers the nearest vault by
 walking from its current working directory toward the filesystem root and
 selecting the first directory that contains `.obsidian/`. If `serve` cannot
-discover one, it starts in an inactive state, exposes no tools, and explains
-the missing vault in its MCP instructions. Other commands still report an
-error, as does an invalid explicitly configured vault path.
+discover one, it exposes file-local Markdown tools: `read_note`,
+`get_note_outline`, `get_note_structure`, `get_note_stats`, and the structural
+section edit tools. Their `note` values are paths relative to the current
+project directory; absolute paths and paths outside it are rejected. Vault-wide
+search, metadata, and link-graph tools remain unavailable. Other commands
+still report an error, as does an invalid explicitly configured vault path.
 
 Common cache settings:
 

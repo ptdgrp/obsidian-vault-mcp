@@ -184,7 +184,7 @@ pub struct SearchPagination {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct TextMatch {
-    /// Vault-relative path with Obsidian-style line reference.
+    /// Workspace-relative path with Obsidian-style line reference.
     pub source: String,
     /// Short centered preview text. Use read_note for full evidence.
     pub preview: String,

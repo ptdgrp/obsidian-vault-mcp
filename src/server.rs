@@ -24,15 +24,18 @@ use std::{sync::Arc, time::Instant};
 
 const ACTIVE_SERVER_INSTRUCTIONS: &str =
     "Obsidian vault structure tools for LLM agents, including structural section edits.";
-const INACTIVE_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found for the current project. \
-This server is inactive and should not be used for this project.";
+const PROJECT_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found. These tools operate on Markdown files below the current project directory using project-relative paths. Vault-wide search, metadata, and link-graph tools are unavailable.";
 
 pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
     serve_mcp(ObsidianVaultMcp::new(vault)).await
 }
 
-pub async fn run_inactive_mcp_server() -> anyhow::Result<()> {
-    serve_mcp(InactiveObsidianVaultMcp).await
+pub async fn run_project_mcp_server(
+    root: camino::Utf8PathBuf,
+    config: crate::vault::VaultConfig,
+) -> anyhow::Result<()> {
+    let workspace = Arc::new(Vault::open(&root, config)?);
+    serve_mcp(ProjectMarkdownMcp::new(workspace)).await
 }
 
 async fn serve_mcp(service: impl ServerHandler) -> anyhow::Result<()> {
@@ -41,15 +44,6 @@ async fn serve_mcp(service: impl ServerHandler) -> anyhow::Result<()> {
         .await?;
     server.waiting().await?;
     Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct InactiveObsidianVaultMcp;
-
-impl ServerHandler for InactiveObsidianVaultMcp {
-    fn get_info(&self) -> ServerInfo {
-        server_info(INACTIVE_SERVER_INSTRUCTIONS)
-    }
 }
 
 fn server_info(instructions: &'static str) -> ServerInfo {
@@ -94,6 +88,39 @@ impl ObsidianVaultMcp {
     }
 }
 
+/// The file-local subset available when the current project is not an Obsidian vault.
+#[derive(Clone)]
+pub struct ProjectMarkdownMcp {
+    state: Arc<AppState>,
+    tool_router: ToolRouter<Self>,
+}
+
+impl ProjectMarkdownMcp {
+    fn new(workspace: Arc<Vault>) -> Self {
+        let queries = VaultQueries::new(workspace);
+        Self {
+            state: Arc::new(AppState {
+                mutations: VaultMutations::new(queries.clone()),
+                queries,
+            }),
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    fn queries(&self) -> VaultQueries {
+        self.state.queries.clone()
+    }
+
+    fn mutations(&self) -> VaultMutations {
+        self.state.mutations.clone()
+    }
+
+    #[cfg(test)]
+    pub fn tool_definitions() -> Vec<Tool> {
+        Self::tool_router().list_all()
+    }
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Page through visible Markdown notes after optional vault-relative path filters.
 pub struct ListNotesRequest {
@@ -126,7 +153,7 @@ pub struct NeighborhoodRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one Markdown note.
 pub struct ReadNoteRequest {
-    /// Vault-relative path, note stem, alias, or bare Obsidian reference.
+    /// Workspace-relative path, note stem, alias, or bare Obsidian reference.
     pub note: String,
     /// Optional character limit for this request.
     #[schemars(with = "Option<McpNonNegativeInteger>")]
@@ -142,14 +169,14 @@ pub struct ReadNoteRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for inspecting one Markdown note's structure.
 pub struct NoteStructureRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for inspecting one note's heading outline.
 pub struct NoteOutlineRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
     /// One-based page number. Each page contains up to 100 headings.
     #[serde(default = "default_page")]
@@ -159,7 +186,7 @@ pub struct NoteOutlineRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct NoteStatsRequest {
-    /// Vault-relative path, note stem, alias, or bare heading/block reference.
+    /// Workspace-relative path, note stem, alias, or bare heading/block reference.
     pub note: String,
 }
 
@@ -190,7 +217,7 @@ pub struct BacklinksRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for outgoing local link lookup.
 pub struct OutlinksRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
     /// One-based page number. Each page contains up to 50 link occurrences.
     #[serde(default = "default_page")]
@@ -311,7 +338,7 @@ pub struct SearchRegexRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for appending content at the end of one selected section.
 pub struct AppendSectionRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
     /// Heading text, heading anchor, or slash-separated heading path.
     pub heading: Option<String>,
@@ -324,7 +351,7 @@ pub struct AppendSectionRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for replacing an entire selected section.
 pub struct ReplaceSectionRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
     /// Heading text, heading anchor, or slash-separated heading path.
     pub heading: Option<String>,
@@ -337,7 +364,7 @@ pub struct ReplaceSectionRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for deleting an entire selected section.
 pub struct DeleteSectionRequest {
-    /// Vault-relative path, note stem, or alias.
+    /// Workspace-relative path, note stem, or alias.
     pub note: String,
     /// Heading text, heading anchor, or slash-separated heading path.
     pub heading: Option<String>,
@@ -919,10 +946,152 @@ impl ObsidianVaultMcp {
     }
 }
 
+#[tool_router]
+impl ProjectMarkdownMcp {
+    #[tool(
+        description = "Read a project-relative Markdown file, heading section, block, or line range. Use a relative path such as docs/note.md; absolute paths and paths outside the project are rejected."
+    )]
+    fn read_note(
+        &self,
+        Parameters(request): Parameters<ReadNoteRequest>,
+    ) -> Result<Json<ReadNoteResult>, String> {
+        run_tool(
+            "read_note",
+            request,
+            |ReadNoteRequest {
+                 note,
+                 max_chars,
+                 heading,
+                 block_id,
+                 line,
+             }| {
+                let (note, selector) =
+                    read_note_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
+                self.queries().read_note(&note, max_chars, selector)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Return one project-relative Markdown file's compact structure: headings, local links, embeds, tags, block ids, and frontmatter."
+    )]
+    fn get_note_structure(
+        &self,
+        Parameters(request): Parameters<NoteStructureRequest>,
+    ) -> Result<Json<NoteStructureResult>, String> {
+        run_tool(
+            "get_note_structure",
+            request,
+            |NoteStructureRequest { note }| self.queries().get_note_structure(&note),
+        )
+    }
+
+    #[tool(
+        description = "Return one project-relative Markdown file or selected heading/block's word, character, and line counts."
+    )]
+    fn get_note_stats(
+        &self,
+        Parameters(request): Parameters<NoteStatsRequest>,
+    ) -> Result<Json<NoteStatsResult>, String> {
+        run_tool("get_note_stats", request, |NoteStatsRequest { note }| {
+            self.queries().get_note_stats(&note)
+        })
+    }
+
+    #[tool(
+        description = "Return one project-relative Markdown file's selectable non-H1 headings as a flat paged list without body text; use before read_note."
+    )]
+    fn get_note_outline(
+        &self,
+        Parameters(request): Parameters<NoteOutlineRequest>,
+    ) -> Result<Json<NoteOutlineResult>, String> {
+        run_tool(
+            "get_note_outline",
+            request,
+            |NoteOutlineRequest { note, page }| self.queries().get_note_outline(&note, page),
+        )
+    }
+
+    #[tool(
+        description = "Append content at the end of exactly one heading or block section in a project-relative Markdown file. This uses structural selection, not text matching."
+    )]
+    fn append_section(
+        &self,
+        Parameters(request): Parameters<AppendSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        run_tool(
+            "append_section",
+            request,
+            |AppendSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+                 content,
+             }| {
+                let (note, selector) =
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
+                self.mutations().append_section(&note, selector, &content)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Replace exactly one heading or block section in a project-relative Markdown file. This uses structural selection, not text matching."
+    )]
+    fn replace_section(
+        &self,
+        Parameters(request): Parameters<ReplaceSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        run_tool(
+            "replace_section",
+            request,
+            |ReplaceSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+                 content,
+             }| {
+                let (note, selector) =
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
+                self.mutations().replace_section(&note, selector, &content)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Delete exactly one heading or block section in a project-relative Markdown file. This uses structural selection, not text matching."
+    )]
+    fn delete_section(
+        &self,
+        Parameters(request): Parameters<DeleteSectionRequest>,
+    ) -> Result<Json<EditSectionResult>, String> {
+        run_tool(
+            "delete_section",
+            request,
+            |DeleteSectionRequest {
+                 note,
+                 heading,
+                 block_id,
+             }| {
+                let (note, selector) =
+                    edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
+                self.mutations().delete_section(&note, selector)
+            },
+        )
+    }
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for ObsidianVaultMcp {
     fn get_info(&self) -> ServerInfo {
         server_info(ACTIVE_SERVER_INSTRUCTIONS)
+    }
+}
+
+#[tool_handler(router = self.tool_router)]
+impl ServerHandler for ProjectMarkdownMcp {
+    fn get_info(&self) -> ServerInfo {
+        server_info(PROJECT_SERVER_INSTRUCTIONS)
     }
 }
 

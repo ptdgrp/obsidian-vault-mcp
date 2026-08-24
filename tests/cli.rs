@@ -893,16 +893,21 @@ fn mcp_stdio_initialize_lists_tools_and_calls_read_note() {
 }
 
 #[test]
-fn mcp_server_without_discovered_vault_is_inactive() {
+fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
     let working_directory = tempdir().expect("working directory");
+    write_note(
+        &working_directory,
+        "docs/guide.md",
+        "# Guide\n\nProject-local note\n",
+    );
     let mut client = McpStdioClient::spawn_without_vault(&working_directory);
 
     let initialize = initialize_mcp(&mut client);
     let instructions = initialize["result"]["instructions"]
         .as_str()
-        .expect("inactive server instructions");
+        .expect("project server instructions");
     assert!(instructions.contains("No Obsidian vault was found"));
-    assert!(instructions.contains("should not be used for this project"));
+    assert!(instructions.contains("project-relative paths"));
     assert!(initialize["result"]["capabilities"]["tools"].is_object());
 
     let tools = client.request(serde_json::json!({
@@ -911,7 +916,36 @@ fn mcp_server_without_discovered_vault_is_inactive() {
         "method": "tools/list",
         "params": {}
     }));
-    assert_eq!(tools["result"]["tools"], serde_json::json!([]));
+    let names = tools["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("tool name"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            "append_section",
+            "delete_section",
+            "get_note_outline",
+            "get_note_stats",
+            "get_note_structure",
+            "read_note",
+            "replace_section",
+        ]
+    );
+
+    let read_note = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {"name": "read_note", "arguments": {"note": "docs/guide.md"}}
+    }));
+    assert_eq!(read_note["id"], 3);
+    assert_eq!(
+        read_note["result"]["structuredContent"]["content"],
+        "# Guide\n\nProject-local note\n"
+    );
 
     client.shutdown();
 }
