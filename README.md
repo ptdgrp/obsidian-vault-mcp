@@ -74,11 +74,14 @@ cargo run -- --vault /path/to/vault serve
 walking from its current working directory toward the filesystem root and
 selecting the first directory that contains `.obsidian/`. If `serve` cannot
 discover one, it exposes file-local Markdown tools: `read_note`,
-`get_note_outline`, `get_note_structure`, `get_note_stats`, and the structural
-section edit tools. Their `note` values are paths relative to the current
-project directory; absolute paths and paths outside it are rejected. Vault-wide
-search, metadata, and link-graph tools remain unavailable. Other commands
-still report an error, as does an invalid explicitly configured vault path.
+`get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`, and
+the structural section edit tools. Their `note` values are paths relative to
+the current project directory; absolute paths and paths outside it are rejected.
+In this mode, `audit_links` checks only standard Markdown relative links such
+as `[text](../target.md)`, reporting targets whose files do not exist.
+Vault-wide search, metadata, and link-graph tools remain unavailable. Other
+commands still report an error, as does an invalid explicitly configured vault
+path.
 
 Common cache settings:
 

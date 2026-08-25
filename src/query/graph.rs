@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::resolver::{RefResolver, ResolveResult};
+use crate::{
+    parser::LinkKind,
+    resolver::{RefResolver, ResolveResult},
+};
 
 use super::notes::note_title;
 use super::{
@@ -10,6 +13,45 @@ use super::{
 };
 
 impl VaultQueries {
+    /// Audit only standard Markdown links whose relative targets are files below this workspace.
+    /// This intentionally does not use Obsidian aliases, wikilinks, or graph resolution.
+    pub fn audit_markdown_links(&self, page: usize) -> anyhow::Result<AuditLinksResult> {
+        if page == 0 {
+            anyhow::bail!("page must be greater than or equal to 1");
+        }
+        let notes = self.index_notes()?;
+        let mut unresolved = Vec::new();
+        for note in &notes {
+            for link in &note.parsed.links {
+                if !matches!(link.kind, LinkKind::Markdown) {
+                    continue;
+                }
+                let target_path = self.vault.resolve_path(&link.target)?;
+                if !target_path.is_file() {
+                    unresolved.push(AuditUnresolvedLink {
+                        source: super::link_location(&link.source.clone().into()),
+                        target: reference_display(&link.target, &link.reference),
+                    });
+                }
+            }
+        }
+        unresolved.sort_by(|left, right| natord::compare(&left.source, &right.source));
+        let totals = AuditLinkTotals {
+            unresolved: unresolved.len(),
+            ambiguous: 0,
+        };
+        let start = page.saturating_sub(1).saturating_mul(50);
+        Ok(AuditLinksResult {
+            unresolved: unresolved.into_iter().skip(start).take(50).collect(),
+            ambiguous: Vec::new(),
+            totals: totals.clone(),
+            pagination: Pagination {
+                page,
+                total_pages: totals.unresolved.div_ceil(50),
+            },
+        })
+    }
+
     #[tracing::instrument(
         name = "vault.query.get_note_neighborhood",
         fields(operation.kind = "query", operation.name = "get_note_neighborhood"),

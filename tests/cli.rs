@@ -897,8 +897,8 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
     let working_directory = tempdir().expect("working directory");
     write_note(
         &working_directory,
-        "docs/guide.md",
-        "# Guide\n\nProject-local note\n",
+        "docs/nested/guide.md",
+        "# Guide\n\nProject-local note\n\n[Missing](../../missing.md)\n\n[[Missing wiki]]\n",
     );
     let mut client = McpStdioClient::spawn_without_vault(&working_directory);
 
@@ -926,6 +926,7 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
         names,
         vec![
             "append_section",
+            "audit_links",
             "delete_section",
             "get_note_outline",
             "get_note_stats",
@@ -939,12 +940,28 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
         "jsonrpc": "2.0",
         "id": 3,
         "method": "tools/call",
-        "params": {"name": "read_note", "arguments": {"note": "docs/guide.md"}}
+        "params": {"name": "read_note", "arguments": {"note": "docs/nested/guide.md"}}
     }));
     assert_eq!(read_note["id"], 3);
     assert_eq!(
         read_note["result"]["structuredContent"]["content"],
-        "# Guide\n\nProject-local note\n"
+        "# Guide\n\nProject-local note\n\n[Missing](../../missing.md)\n\n[[Missing wiki]]\n"
+    );
+
+    let audit_links = client.request(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {"name": "audit_links", "arguments": {}}
+    }));
+    assert_eq!(audit_links["id"], 4);
+    assert_eq!(
+        audit_links["result"]["structuredContent"]["totals"]["unresolved"],
+        1
+    );
+    assert_eq!(
+        audit_links["result"]["structuredContent"]["unresolved"][0]["target"],
+        "missing.md"
     );
 
     client.shutdown();

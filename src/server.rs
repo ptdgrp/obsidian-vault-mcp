@@ -949,6 +949,18 @@ impl ObsidianVaultMcp {
 #[tool_router]
 impl ProjectMarkdownMcp {
     #[tool(
+        description = "Audit standard Markdown links such as [label](./target.md) below the current project directory. Reports links whose target file does not exist; Obsidian wikilinks and vault-wide link-graph checks are unavailable."
+    )]
+    fn audit_links(
+        &self,
+        Parameters(request): Parameters<AuditLinksRequest>,
+    ) -> Result<Json<AuditLinksResult>, String> {
+        run_tool("audit_links", request, |AuditLinksRequest { page }| {
+            self.queries().audit_markdown_links(page)
+        })
+    }
+
+    #[tool(
         description = "Read a project-relative Markdown file, heading section, block, or line range. Use a relative path such as docs/note.md; absolute paths and paths outside the project are rejected."
     )]
     fn read_note(
