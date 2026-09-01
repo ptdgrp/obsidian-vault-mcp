@@ -22,10 +22,10 @@ server supports structural section edits as well as read operations.
 | `get_outlinks` | Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups |
 | `get_tag` | Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_categories` | List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
-| `list_notes` | Page through visible Markdown notes for lightweight navigation. |
+| `list_notes` | Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. |
+| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
 | `replace_section` | Replace exactly one heading or block section with new content. This uses structural selection, not text matching. |
@@ -487,7 +487,7 @@ Nested types:
 
 ## 🔧 `list_notes`
 
-Page through visible Markdown notes for lightweight navigation.
+Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.
 
 Input:
 
@@ -495,6 +495,7 @@ Input:
 | --- | --- | --- | --- |
 | `exclude` | `string[]` | no |  |
 | `include` | `string[]` | no |  |
+| `limit` | `integer \| null` | no | Optional number of notes per page. Must be between 1 and 100; defaults to 100. |
 | `page` | `integer` | no |  |
 
 
@@ -613,7 +614,7 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary.
+Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line.
 
 Input:
 
@@ -631,6 +632,8 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `content` | `string` | yes |  |
+| `next_line` | `integer \| null` | no | First line to request to continue reading. May repeat the final returned line when it was cut mid-line. |
+| `returned_source` | `string \| null` | no | Source lines containing the returned content. Present only when truncated. |
 | `source` | `string` | yes |  |
 | `truncated` | `boolean \| null` | no |  |
 

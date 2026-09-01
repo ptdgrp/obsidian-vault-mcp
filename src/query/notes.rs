@@ -15,6 +15,9 @@ use super::{
 };
 
 impl VaultQueries {
+    const DEFAULT_LIST_NOTES_PAGE_SIZE: usize = 100;
+    const MAX_LIST_NOTES_PAGE_SIZE: usize = 100;
+
     #[tracing::instrument(
         name = "vault.query.list_notes",
         skip_all,
@@ -26,6 +29,7 @@ impl VaultQueries {
         include: &[String],
         exclude: &[String],
         page: usize,
+        limit: Option<usize>,
     ) -> anyhow::Result<ListNotesResult> {
         let filter = PathFilter::new(include, exclude)?;
         let files = self
@@ -34,7 +38,14 @@ impl VaultQueries {
             .into_iter()
             .filter(|file| filter.is_match(&file.relative_path))
             .collect();
-        let page = PageSlice::new(files, page, 100)?;
+        let limit = limit.unwrap_or(Self::DEFAULT_LIST_NOTES_PAGE_SIZE);
+        if limit == 0 || limit > Self::MAX_LIST_NOTES_PAGE_SIZE {
+            anyhow::bail!(
+                "limit must be between 1 and {}",
+                Self::MAX_LIST_NOTES_PAGE_SIZE
+            );
+        }
+        let page = PageSlice::new(files, page, limit)?;
         let total_notes = page.total_items();
         let pagination = page.pagination();
         let notes = page
@@ -93,6 +104,29 @@ impl VaultQueries {
         } else {
             selected
         };
+        let (returned_source, next_line) = if truncated {
+            let newline_count = content.bytes().filter(|byte| *byte == b'\n').count() as u64;
+            let returned_line_end = source
+                .line_start
+                .saturating_add(newline_count)
+                .saturating_sub(u64::from(content.ends_with('\n')))
+                .min(source.line_end);
+            let next_line = if content.ends_with('\n') {
+                returned_line_end.saturating_add(1)
+            } else {
+                returned_line_end
+            };
+            (
+                Some(Locator::lines(
+                    &relative_path,
+                    source.line_start,
+                    returned_line_end,
+                )),
+                Some(next_line),
+            )
+        } else {
+            (None, None)
+        };
         let returned_chars = selected_chars.min(budget);
         tracing::info!(
             selector.kind = selector_kind(selector.as_ref()),
@@ -106,6 +140,8 @@ impl VaultQueries {
             source: Locator::lines(&relative_path, source.line_start, source.line_end),
             content,
             truncated,
+            returned_source,
+            next_line,
         })
     }
 

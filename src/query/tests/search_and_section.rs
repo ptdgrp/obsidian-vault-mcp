@@ -72,6 +72,8 @@ fn read_note_truncates_selected_scope_by_unicode_characters() {
     assert_eq!(result.content, "##");
     assert!(result.truncated);
     assert_eq!(result.source, "字符范围.md#L3-L5");
+    assert_eq!(result.returned_source.as_deref(), Some("字符范围.md#L3"));
+    assert_eq!(result.next_line, Some(3));
 }
 
 #[test]

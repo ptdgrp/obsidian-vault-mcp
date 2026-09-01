@@ -80,6 +80,13 @@ pub struct ReadNoteResult {
     #[serde(skip_serializing_if = "is_false")]
     #[schemars(with = "Option<bool>")]
     pub truncated: bool,
+    /// Source lines containing the returned content. Present only when truncated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub returned_source: Option<String>,
+    /// First line to request to continue reading. May repeat the final returned line when it was cut mid-line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    pub next_line: Option<u64>,
 }
 
 fn is_false(value: &bool) -> bool {

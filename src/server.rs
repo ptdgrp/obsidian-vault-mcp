@@ -131,6 +131,9 @@ pub struct ListNotesRequest {
     #[serde(default = "default_page")]
     #[schemars(with = "McpNonNegativeInteger")]
     pub page: usize,
+    /// Optional number of notes per page. Must be between 1 and 100; defaults to 100.
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -504,7 +507,9 @@ fn default_neighborhood_depth() -> usize {
 
 #[tool_router]
 impl ObsidianVaultMcp {
-    #[tool(description = "Page through visible Markdown notes for lightweight navigation.")]
+    #[tool(
+        description = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100."
+    )]
     fn list_notes(
         &self,
         Parameters(request): Parameters<ListNotesRequest>,
@@ -516,7 +521,8 @@ impl ObsidianVaultMcp {
                  include,
                  exclude,
                  page,
-             }| { self.queries().list_notes(&include, &exclude, page) },
+                 limit,
+             }| { self.queries().list_notes(&include, &exclude, page, limit) },
         )
     }
 
@@ -550,7 +556,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary."
+        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line."
     )]
     fn read_note(
         &self,

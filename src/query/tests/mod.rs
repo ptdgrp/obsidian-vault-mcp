@@ -73,7 +73,7 @@ fn vault_path_cannot_escape_root() {
 #[test]
 fn list_notes_ignores_hidden_paths() {
     let (_dir, queries) = fixture();
-    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1, None).expect("list notes");
     assert_eq!(notes.notes.len(), 6);
     assert!(
         !notes
@@ -109,7 +109,7 @@ fn list_notes_title_prefers_h1_then_frontmatter_title_then_pathname() {
     .expect("write frontmatter title note");
     fs::write(dir.path().join("只有路径.md"), "## Section\n").expect("write pathname note");
 
-    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1, None).expect("list notes");
     let title_for = |path: &str| {
         notes
             .notes
@@ -135,6 +135,7 @@ fn list_notes_filters_before_fixed_page_and_omits_non_navigation_fields() {
             &["人物/**/*.md".to_string(), "正文/**/*.md".to_string()],
             &["**/草稿/**".to_string()],
             1,
+            None,
         )
         .expect("filtered notes");
 
@@ -177,7 +178,7 @@ fn list_notes_parses_only_the_requested_page() {
     }
 
     let result = queries
-        .list_notes(&["bulk/**".to_string()], &[], 2)
+        .list_notes(&["bulk/**".to_string()], &[], 2, None)
         .expect("second page");
 
     assert_eq!(result.pagination.total_notes, 101);
@@ -186,6 +187,22 @@ fn list_notes_parses_only_the_requested_page() {
     assert_eq!(result.notes[0].path, "bulk/note-101.md");
     assert_eq!(result.notes[0].title.as_deref(), Some("Note 101"));
     assert_eq!(queries.parse_cache.len(), 1);
+}
+
+#[test]
+fn list_notes_accepts_a_smaller_page_limit_and_rejects_unsafe_limits() {
+    let (_dir, queries) = fixture();
+
+    let first_page = queries
+        .list_notes(&[], &[], 1, Some(2))
+        .expect("limited first page");
+    assert_eq!(first_page.notes.len(), 2);
+    assert_eq!(first_page.pagination.total_pages, 3);
+
+    let error = queries
+        .list_notes(&[], &[], 1, Some(101))
+        .expect_err("limit above the safe maximum");
+    assert!(error.to_string().contains("between 1 and 100"));
 }
 
 #[test]
@@ -1372,6 +1389,8 @@ fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
     assert!(result.truncated);
     let value = serde_json::to_value(result).expect("read json");
     assert_eq!(value["source"], "发动机.md#L1-L5");
+    assert_eq!(value["returned_source"], "发动机.md#L1");
+    assert_eq!(value["next_line"], 2);
     assert!(value.get("path").is_none());
     assert!(value.get("next_step").is_none());
 }
@@ -1389,6 +1408,8 @@ fn read_note_omits_truncated_field_when_full_content_is_returned() {
     assert!(value.get("path").is_none());
     assert!(value.get("next_step").is_none());
     assert!(value.get("truncated").is_none());
+    assert!(value.get("returned_source").is_none());
+    assert!(value.get("next_line").is_none());
     assert!(
         value["content"]
             .as_str()

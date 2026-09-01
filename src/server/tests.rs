@@ -145,6 +145,14 @@ fn read_note_output_schema_allows_omitted_truncated() {
         !required.iter().any(|field| field == "truncated"),
         "read_note omits truncated when false, so the output schema must not require it"
     );
+    for field in ["returned_source", "next_line"] {
+        assert!(
+            !required
+                .iter()
+                .any(|required_field| required_field == field),
+            "read_note only includes {field} when truncated"
+        );
+    }
 }
 
 fn assert_schema_has_no_uint_format(schema: &serde_json::Value, tool_name: &str) {
@@ -244,6 +252,21 @@ fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
         .expect("read heading through MCP");
     assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.truncated);
+    assert_eq!(result.returned_source.as_deref(), Some("发动机.md#L3"));
+    assert_eq!(result.next_line, Some(3));
+}
+
+#[test]
+fn list_notes_schema_exposes_limit() {
+    let tool = ObsidianVaultMcp::tool_definitions()
+        .into_iter()
+        .find(|tool| tool.name == "list_notes")
+        .expect("list_notes tool");
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("list_notes input properties");
+
+    assert!(properties.contains_key("limit"));
 }
 
 #[test]

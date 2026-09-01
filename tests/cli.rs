@@ -317,7 +317,7 @@ fn command_help_uses_mcp_task_descriptions() {
     for (command, description) in [
         (
             "list-notes",
-            "Page through visible Markdown notes for lightweight navigation.",
+            "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.",
         ),
         (
             "audit-links",
@@ -402,14 +402,23 @@ fn get_note_structure_command_returns_machine_readable_json() {
 }
 
 #[test]
-fn list_notes_command_uses_request_filters_and_fixed_page_output() {
+fn list_notes_command_uses_request_filters_and_configurable_page_output() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "正文/keep.md", "# 保留\n");
+    write_note(&dir, "正文/next.md", "# 下一篇\n");
     write_note(&dir, "资料/skip.md", "# 跳过\n");
 
     let output = run_cli(
         &dir,
-        &["list-notes", "--include", "正文/**/*.md", "--page", "1"],
+        &[
+            "list-notes",
+            "--include",
+            "正文/**/*.md",
+            "--page",
+            "1",
+            "--limit",
+            "1",
+        ],
     );
     assert!(
         output.status.success(),
@@ -419,7 +428,8 @@ fn list_notes_command_uses_request_filters_and_fixed_page_output() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(value["notes"][0]["path"], "正文/keep.md");
     assert_eq!(value["pagination"]["page"], 1);
-    assert_eq!(value["pagination"]["total_notes"], 1);
+    assert_eq!(value["pagination"]["total_notes"], 2);
+    assert_eq!(value["pagination"]["total_pages"], 2);
     assert!(value["notes"][0].get("size").is_none());
 }
 

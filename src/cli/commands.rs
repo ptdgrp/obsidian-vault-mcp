@@ -22,7 +22,9 @@ pub(crate) enum Command {
     /// Check vault config and list readable notes
     Doctor,
 
-    #[command(about = "Page through visible Markdown notes for lightweight navigation.")]
+    #[command(
+        about = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100."
+    )]
     ListNotes {
         /// Vault-relative glob patterns that notes must match when non-empty.
         #[arg(long)]
@@ -34,6 +36,10 @@ pub(crate) enum Command {
 
         #[arg(long, default_value_t = 1)]
         page: usize,
+
+        /// Notes returned per page (1-100; defaults to 100)
+        #[arg(long)]
+        limit: Option<usize>,
     },
 
     #[command(about = "Audit unresolved and ambiguous local links across the visible vault.")]
@@ -372,14 +378,15 @@ impl Command {
             Command::Serve => crate::server::run_mcp_server(vault).await?,
             Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
             Command::Doctor => {
-                print_value(&queries.list_notes(&[], &[], 1)?)?;
+                print_value(&queries.list_notes(&[], &[], 1, None)?)?;
             }
             Command::ListNotes {
                 include,
                 exclude,
                 page,
+                limit,
             } => {
-                print_value(&queries.list_notes(&include, &exclude, page)?)?;
+                print_value(&queries.list_notes(&include, &exclude, page, limit)?)?;
             }
             Command::AuditLinks { page } => {
                 print_value(&queries.audit_links(page)?)?;

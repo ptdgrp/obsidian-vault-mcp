@@ -10,8 +10,7 @@ use crate::server::{
     ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, SetBlockIdRequest,
 };
 
-const TASK_DEFINITION_LIST_NOTES: &str =
-    "Page through visible Markdown notes for lightweight navigation.";
+const TASK_DEFINITION_LIST_NOTES: &str = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.";
 const TASK_DEFINITION_AUDIT_LINKS: &str =
     "Audit unresolved and ambiguous local links across the visible vault.";
 const TASK_DEFINITION_GET_NOTE_NEIGHBORHOOD: &str =
@@ -307,6 +306,7 @@ fn list_and_note_structure_tools_return_note_metadata() {
             include: vec![],
             exclude: vec![],
             page: 1,
+            limit: None,
         }))
         .expect("list notes");
     assert_eq!(listed.notes.len(), 3);

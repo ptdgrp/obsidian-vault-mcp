@@ -388,7 +388,7 @@ fn empty_vault_queries_return_empty_results() {
     let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
     let queries = VaultQueries::new(Arc::new(vault));
 
-    let notes = queries.list_notes(&[], &[], 1).expect("list notes");
+    let notes = queries.list_notes(&[], &[], 1, None).expect("list notes");
     assert!(notes.notes.is_empty());
 
     let categories = queries
