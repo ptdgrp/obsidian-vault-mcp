@@ -1,4 +1,5 @@
 use crate::{
+    attachment::ReadAttachmentResult,
     mutation::{EditSectionResult, RenameResult, SetBlockIdResult, VaultMutations},
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
@@ -167,6 +168,22 @@ pub struct ReadNoteRequest {
     pub block_id: Option<String>,
     /// Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99.
     pub line: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for reading one non-Markdown attachment.
+pub struct ReadAttachmentRequest {
+    /// Project-relative PDF, DOCX, PNG, or JPEG path. The extension is required.
+    pub path: String,
+    /// One-based PDF page number. Omit to read every page; not valid for DOCX or PNG.
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    pub page: Option<u32>,
+    /// Optional Unicode-character limit for this request.
+    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    pub max_chars: Option<usize>,
+    /// OCR embedded PNG or JPEG images in a DOCX. Defaults to false.
+    #[serde(default)]
+    pub include_embedded_images: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -580,6 +597,28 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
+        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters."
+    )]
+    fn read_attachment(
+        &self,
+        Parameters(request): Parameters<ReadAttachmentRequest>,
+    ) -> Result<Json<ReadAttachmentResult>, String> {
+        run_tool(
+            "read_attachment",
+            request,
+            |ReadAttachmentRequest {
+                 path,
+                 page,
+                 max_chars,
+                 include_embedded_images,
+             }| {
+                self.queries()
+                    .read_attachment(&path, page, max_chars, include_embedded_images)
+            },
+        )
+    }
+
+    #[tool(
         description = "Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter"
     )]
     fn get_note_structure(
@@ -986,6 +1025,28 @@ impl ProjectMarkdownMcp {
                 let (note, selector) =
                     read_note_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
                 self.queries().read_note(&note, max_chars, selector)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
+    )]
+    fn read_attachment(
+        &self,
+        Parameters(request): Parameters<ReadAttachmentRequest>,
+    ) -> Result<Json<ReadAttachmentResult>, String> {
+        run_tool(
+            "read_attachment",
+            request,
+            |ReadAttachmentRequest {
+                 path,
+                 page,
+                 max_chars,
+                 include_embedded_images,
+             }| {
+                self.queries()
+                    .read_attachment(&path, page, max_chars, include_embedded_images)
             },
         )
     }

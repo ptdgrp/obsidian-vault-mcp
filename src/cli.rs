@@ -86,4 +86,18 @@ mod tests {
             .is_ok()
         );
     }
+
+    #[test]
+    fn install_ocr_models_requires_a_target_directory() {
+        assert!(Cli::try_parse_from(["obsidian-vault-mcp", "install-ocr-models"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "obsidian-vault-mcp",
+                "install-ocr-models",
+                "--model-dir",
+                "./models",
+            ])
+            .is_ok()
+        );
+    }
 }

@@ -1,7 +1,9 @@
+mod attachment;
 mod cli;
 mod docs;
 mod logging;
 mod mutation;
+mod ocr;
 mod parser;
 mod query;
 mod resolver;
@@ -25,6 +27,23 @@ async fn main() -> anyhow::Result<()> {
         } else {
             docs::write_tools_markdown(output, &content)?;
         }
+        return Ok(());
+    }
+    if let Some(cli::commands::Command::InstallOcrModels { model_dir }) = cli.command_ref() {
+        let installed = ocr::install_models(model_dir.as_std_path())?;
+        println!(
+            "Installed checksum-verified {} ({}) in {}.",
+            installed.manifest_id,
+            installed.revision,
+            installed.model_directory.display()
+        );
+        println!(
+            "export OBSIDIAN_VAULT_MCP_OCR_MODEL_DIR={}",
+            shell_quote(&installed.model_directory.to_string_lossy())
+        );
+        println!(
+            "Build with --features ocr-local. Image OCR also requires ORT_DYLIB_PATH; scanned PDF OCR additionally requires PDFIUM_LIB_PATH."
+        );
         return Ok(());
     }
     let serves_mcp = matches!(
@@ -87,6 +106,10 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 fn resolve_vault_path(
     configured_path: Option<&camino::Utf8Path>,
     allow_missing: bool,
@@ -138,11 +161,16 @@ pub(crate) fn format_error_chain(error: &anyhow::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::format_error_chain;
+    use super::{format_error_chain, shell_quote};
 
     #[test]
     fn formats_complete_error_chain() {
         let error = anyhow::anyhow!("inner cause").context("outer context");
         assert_eq!(format_error_chain(&error), "outer context: inner cause");
+    }
+
+    #[test]
+    fn shell_quotes_environment_values() {
+        assert_eq!(shell_quote("a path/it's here"), "'a path/it'\"'\"'s here'");
     }
 }

@@ -25,6 +25,7 @@ server supports structural section edits as well as read operations.
 | `list_notes` | Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
+| `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters. |
 | `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
@@ -610,6 +611,44 @@ Nested types:
 | `page` | `integer` | yes |  |
 | `total_notes` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+
+
+## 🔧 `read_attachment`
+
+Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `include_embedded_images` | `boolean` | no | OCR embedded PNG or JPEG images in a DOCX. Defaults to false. |
+| `max_chars` | `integer \| null` | no | Optional Unicode-character limit for this request. |
+| `page` | `integer \| null` | no | One-based PDF page number. Omit to read every page; not valid for DOCX or PNG. |
+| `path` | `string` | yes | Project-relative PDF, DOCX, PNG, or JPEG path. The extension is required. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `content` | `string` | yes |  |
+| `extraction` | `string` | yes | Native extraction or local OCR. |
+| `format` | `string` | yes | `pdf`, `docx`, `png`, or `jpeg`. |
+| `ocr_required_pages` | `array \| null` | no | PDF pages that could not be read natively and require local OCR. |
+| `ocr_sources` | `array \| null` | no | OCR results from requested embedded DOCX images. |
+| `source` | `string` | yes | Attachment path, optionally narrowed to a one-based PDF page. |
+| `status` | `string` | yes | `complete`, `partial`, or `ocr_required`. |
+| `truncated` | `boolean \| null` | no |  |
+| `warnings` | `array \| null` | no |  |
+
+Nested types:
+
+### `AttachmentOcrSource`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `mean_confidence` | `number \| null` | no |  |
+| `source` | `string` | yes | Location inside the attachment package, for example `word/media/image1.png`. |
 
 
 ## 🔧 `read_note`

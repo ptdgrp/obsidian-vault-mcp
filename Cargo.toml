@@ -3,6 +3,12 @@ name = "obsidian-vault-mcp"
 version = "0.3.12"
 edition = "2024"
 
+[features]
+default = []
+# Adds local PP-OCRv6 inference for scanned PDFs and image attachments. The
+# runtime libraries and verified model files remain external to the binary.
+ocr-local = ["pdf-inspector/ocr", "dep:image"]
+
 [dependencies]
 aho-corasick = "1.1.4"
 anyhow = "1.0.102"
@@ -30,6 +36,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
 walkdir = "2.5.0"
 arc-swap = "1.9.2"
+pdf-inspector = "=1.17.0"
+quick-xml = "0.42.0"
+zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"], optional = true }
 
 [dev-dependencies]
 insta = "1"

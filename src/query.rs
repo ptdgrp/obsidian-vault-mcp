@@ -564,6 +564,7 @@ pub struct NeighborhoodLink {
 pub struct VaultQueries {
     pub vault: Arc<Vault>,
     pub(crate) parse_cache: Arc<ParseCache>,
+    pub(crate) ocr_runtime: Arc<crate::ocr::OcrRuntime>,
 }
 
 impl VaultQueries {
@@ -573,7 +574,11 @@ impl VaultQueries {
             config.parse_cache_ttl_secs,
             config.parse_cache_max_entries,
         ));
-        Self { vault, parse_cache }
+        Self {
+            vault,
+            parse_cache,
+            ocr_runtime: Arc::new(crate::ocr::OcrRuntime::new()),
+        }
     }
 
     #[tracing::instrument(

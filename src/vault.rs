@@ -12,6 +12,7 @@ use std::{
 use crate::cli;
 
 pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
+pub const DEFAULT_MAX_READ_ATTACHMENT_CHARS: usize = 16 * 1024;
 
 /// A bounded view over an Obsidian-style Markdown vault with atomic note writes.
 /// Vault 是一个受限、可即时扫描并支持原子笔记写入的 Obsidian Markdown 工作空间。
@@ -68,6 +69,24 @@ impl Vault {
             ));
         }
         self.resolve_path(input)
+    }
+
+    /// Resolves an existing project-relative attachment without changing its extension.
+    pub fn resolve_attachment_path(&self, input: &str) -> Result<Utf8PathBuf, VaultError> {
+        let path = Utf8Path::new(input);
+        if path.is_absolute() {
+            return Err(VaultError::AbsolutePathNotAllowed);
+        }
+        if path.extension().is_none() {
+            return Err(VaultError::AttachmentPathRequiresExtension(
+                input.to_string(),
+            ));
+        }
+        let normalized = normalize_path(&self.root.join(path));
+        if !normalized.starts_with(&self.root) {
+            return Err(VaultError::PathEscapesVault);
+        }
+        Ok(normalized)
     }
 
     pub fn relative_path(&self, path: &Utf8Path) -> String {
@@ -319,6 +338,8 @@ pub enum VaultError {
     PathEscapesVault,
     #[error("exact note path must end with .md: {0}")]
     ExactNotePathRequiresMarkdownExtension(String),
+    #[error("attachment path must include its extension: {0}")]
+    AttachmentPathRequiresExtension(String),
     #[error("non-utf8 path: {0}")]
     NonUtf8Path(String),
     #[error("invalid glob: {0}")]

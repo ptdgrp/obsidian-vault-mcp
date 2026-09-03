@@ -19,6 +19,13 @@ pub(crate) enum Command {
         output: Utf8PathBuf,
     },
 
+    /// Download checksum-verified PP-OCRv6 Small models for offline local OCR.
+    InstallOcrModels {
+        /// Directory used as the managed OCR model cache. The command prints the runtime directory to export.
+        #[arg(long)]
+        model_dir: Utf8PathBuf,
+    },
+
     /// Check vault config and list readable notes
     Doctor,
 
@@ -333,6 +340,7 @@ impl Command {
         match self {
             Self::Serve => "serve",
             Self::GenerateDocs { .. } => "generate_docs",
+            Self::InstallOcrModels { .. } => "install_ocr_models",
             Self::Doctor => "doctor",
             Self::ListNotes { .. } => "list_notes",
             Self::AuditLinks { .. } => "audit_links",
@@ -376,7 +384,9 @@ impl Command {
 
         match self {
             Command::Serve => crate::server::run_mcp_server(vault).await?,
-            Command::GenerateDocs { .. } => unreachable!("handled before opening vault"),
+            Command::GenerateDocs { .. } | Command::InstallOcrModels { .. } => {
+                unreachable!("handled before opening vault")
+            }
             Command::Doctor => {
                 print_value(&queries.list_notes(&[], &[], 1, None)?)?;
             }
