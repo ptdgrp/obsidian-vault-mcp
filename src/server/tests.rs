@@ -526,3 +526,47 @@ fn rename_note_defaults_to_dry_run_and_reports_changed_notes() {
             .contains(&"archive/引用.md".to_string())
     );
 }
+
+#[test]
+fn input_numeric_bounds_match_runtime_limits_in_both_server_modes() {
+    for definitions in [
+        ObsidianVaultMcp::tool_definitions(),
+        super::ProjectMarkdownMcp::tool_definitions(),
+    ] {
+        for tool in definitions {
+            let properties = tool.input_schema["properties"].as_object().unwrap();
+            if let Some(page) = properties.get("page") {
+                assert_eq!(page["minimum"].as_f64(), Some(1.0), "{} page", tool.name);
+                if tool.name != "read_attachment" {
+                    assert_eq!(page["default"], 1, "{} default page", tool.name);
+                }
+            }
+            if tool.name == "list_notes" {
+                let limit = &properties["limit"];
+                assert_eq!(limit["minimum"].as_f64(), Some(1.0));
+                assert_eq!(limit["maximum"].as_f64(), Some(100.0));
+                assert!(
+                    limit["type"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|value| value == "null")
+                );
+            }
+            if tool.name == "get_note_neighborhood" {
+                let depth = &properties["depth"];
+                assert_eq!(depth["minimum"].as_f64(), Some(1.0));
+                assert_eq!(depth["maximum"].as_f64(), Some(3.0));
+                assert_eq!(depth["default"], 1);
+            }
+            if let Some(budget) = properties.get("max_chars") {
+                assert_eq!(
+                    budget["minimum"].as_f64(),
+                    Some(0.0),
+                    "{} character budget",
+                    tool.name
+                );
+            }
+        }
+    }
+}

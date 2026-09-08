@@ -75,15 +75,17 @@ pub struct NoteSummary {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadNoteResult {
+    /// Selected source range before truncation, e.g. note.md#L3-L20.
     pub source: String,
     pub content: String,
+    /// True when selected content remains unread; omitted otherwise.
     #[serde(skip_serializing_if = "is_false")]
     #[schemars(with = "Option<bool>")]
     pub truncated: bool,
-    /// Source lines containing the returned content. Present only when content was omitted.
+    /// Actual returned source range when truncated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_source: Option<String>,
-    /// First line to request to continue reading. The returned content always ends at a line boundary.
+    /// Next unread line when truncated; resume with note#L{next_line}-.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub next_line: Option<u64>,
@@ -387,15 +389,15 @@ pub struct FrontmatterQueryOptions {
     /// Value used by equals or regex mode.
     #[serde(default)]
     pub value: Option<String>,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 100 matching notes.
+    /// Page of up to 100 matching notes (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 

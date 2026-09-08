@@ -125,22 +125,24 @@ impl ProjectMarkdownMcp {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Page through visible Markdown notes after optional vault-relative path filters.
 pub struct ListNotesRequest {
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
-    /// Optional number of notes per page. Must be between 1 and 100; defaults to 100.
-    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    /// Notes per page; defaults to 100.
+    #[schemars(with = "Option<McpNonNegativeInteger>", range(min = 1, max = 100))]
     pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AuditLinksRequest {
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -148,7 +150,7 @@ pub struct AuditLinksRequest {
 pub struct NeighborhoodRequest {
     pub target: String,
     #[serde(default = "default_neighborhood_depth")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1, max = 3))]
     pub depth: usize,
     #[serde(default)]
     pub direction: NeighborhoodDirection,
@@ -157,17 +159,16 @@ pub struct NeighborhoodRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one Markdown note.
 pub struct ReadNoteRequest {
-    /// Workspace-relative path, note stem, alias, or bare Obsidian reference.
+    /// Relative path, stem, alias, or reference: Note#Heading, Note#^id, Note#L1-L20.
     pub note: String,
-    /// Optional Unicode-character budget used to choose a line boundary for this request.
-    /// The complete boundary line may make the returned content exceed this value.
+    /// Unicode-character budget; the complete boundary line is returned even if it exceeds this value.
     #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub max_chars: Option<usize>,
-    /// Heading text, heading anchor, or slash-separated heading path.
+    /// Heading text, anchor, or slash-separated path; H1 and Markdown heading syntax are accepted.
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99.
+    /// Line or inclusive range, e.g. L3 or L3-L20.
     pub line: Option<String>,
 }
 
@@ -176,8 +177,8 @@ pub struct ReadNoteRequest {
 pub struct ReadAttachmentRequest {
     /// Project-relative PDF, DOCX, PNG, or JPEG path. The extension is required.
     pub path: String,
-    /// One-based PDF page number. Omit to read every page; not valid for DOCX or PNG.
-    #[schemars(with = "Option<McpNonNegativeInteger>")]
+    /// PDF page (1-based); omit for all pages. PDF only.
+    #[schemars(with = "Option<McpNonNegativeInteger>", range(min = 1))]
     pub page: Option<u32>,
     /// Optional Unicode-character limit for this request.
     #[schemars(with = "Option<McpNonNegativeInteger>")]
@@ -199,9 +200,9 @@ pub struct NoteStructureRequest {
 pub struct NoteOutlineRequest {
     /// Workspace-relative path, note stem, or alias.
     pub note: String,
-    /// One-based page number. Each page contains up to 100 headings.
+    /// Page of up to 100 headings (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -223,15 +224,15 @@ pub struct ResolveRefRequest {
 pub struct BacklinksRequest {
     /// Note path, stem, alias, or Obsidian reference to find inbound links for.
     pub target: String,
-    /// Vault-relative glob patterns. A backlink source note must match at least one when non-empty.
+    /// Include any matching source-note path glob; empty means all sources.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching backlink source notes are excluded.
+    /// Exclude matching source-note path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 50 backlink occurrences.
+    /// Page of up to 50 backlink occurrences (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -240,27 +241,27 @@ pub struct BacklinksRequest {
 pub struct OutlinksRequest {
     /// Workspace-relative path, note stem, or alias.
     pub note: String,
-    /// One-based page number. Each page contains up to 50 link occurrences.
+    /// Page of up to 50 link occurrences (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for listing tags.
 pub struct ListTagsRequest {
-    /// Scope to search: note, frontmatter, body, section, or line. Defaults to note.
+    /// Where to look for tags.
     #[serde(default)]
     pub scope: TagScope,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 100 tags.
+    /// Page of up to 100 tags (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -269,33 +270,33 @@ pub struct ListTagsRequest {
 pub struct GetTagRequest {
     /// Exact tag to locate. Both "状态/身体" and "#状态/身体" are accepted.
     pub tag: String,
-    /// Scope to search: note, frontmatter, body, section, or line. Defaults to note.
+    /// Where to look for tags.
     #[serde(default)]
     pub scope: TagScope,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 100 locators.
+    /// Page of up to 100 locators (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for listing folder-derived categories.
 pub struct ListCategoriesRequest {
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 100 categories.
+    /// Page of up to 100 categories (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -304,15 +305,15 @@ pub struct ListCategoriesRequest {
 pub struct GetCategoryRequest {
     /// Exact folder-derived category name to locate.
     pub category: String,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 100 notes.
+    /// Page of up to 100 notes (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -324,15 +325,15 @@ pub struct SearchTextRequest {
     /// Whether matching should be case-sensitive.
     #[serde(default)]
     pub case_sensitive: bool,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 50 matching lines.
+    /// Page of up to 50 matching lines (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -344,15 +345,15 @@ pub struct SearchRegexRequest {
     /// Whether matching should be case-sensitive.
     #[serde(default)]
     pub case_sensitive: bool,
-    /// Vault-relative glob patterns. A note must match at least one when non-empty.
+    /// Include any matching relative-path glob; empty means all.
     #[serde(default)]
     pub include: Vec<String>,
-    /// Vault-relative glob patterns. Matching notes are excluded.
+    /// Exclude matching relative-path globs; overrides include.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// One-based page number. Each page contains up to 50 matching lines.
+    /// Page of up to 50 matching lines (1-based).
     #[serde(default = "default_page")]
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
 }
 
@@ -574,7 +575,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a note, heading section, block, or line range. Prefer calling get_note_outline for the target file first, then read the relevant heading or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars locates the truncation line by Unicode-character count; the complete boundary line is returned, so content may exceed max_chars. When content is omitted, returned_source identifies the source lines represented in content and next_line identifies the next line to request. H1 headings can be read as heading selectors."
+        description = "Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note."
     )]
     fn read_note(
         &self,
@@ -598,7 +599,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters."
+        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
     )]
     fn read_attachment(
         &self,
@@ -620,7 +621,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter"
+        description = "Summarize one note: headings, tags, embeds, block IDs, frontmatter field names, and link count. Use get_outlinks for link targets."
     )]
     fn get_note_structure(
         &self,
@@ -659,9 +660,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "Search visible Markdown notes with literal text.")]
     fn search_text(
         &self,
         Parameters(request): Parameters<SearchTextRequest>,
@@ -682,9 +681,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "Search visible Markdown notes with a Rust regular expression.")]
     fn search_regex(
         &self,
         Parameters(request): Parameters<SearchRegexRequest>,
@@ -729,9 +726,7 @@ impl ObsidianVaultMcp {
         })
     }
 
-    #[tool(
-        description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence."
-    )]
+    #[tool(description = "Get backlinks to a uniquely resolved note, heading, or block.")]
     fn get_backlinks(
         &self,
         Parameters(request): Parameters<BacklinksRequest>,
@@ -751,9 +746,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "List unique tag names across visible notes.")]
     fn list_tags(
         &self,
         Parameters(request): Parameters<ListTagsRequest>,
@@ -770,9 +763,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "Locate one tag in visible notes.")]
     fn get_tag(
         &self,
         Parameters(request): Parameters<GetTagRequest>,
@@ -798,9 +789,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "List folder-derived categories from visible notes.")]
     fn list_categories(
         &self,
         Parameters(request): Parameters<ListCategoriesRequest>,
@@ -816,9 +805,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(
-        description = "Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
-    )]
+    #[tool(description = "Locate one folder-derived category in visible notes.")]
     fn get_category(
         &self,
         Parameters(request): Parameters<GetCategoryRequest>,
@@ -1007,7 +994,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Read a project-relative Markdown file, heading section, block, or line range. Prefer calling get_note_outline for the target file first, then read the relevant heading or line range. max_chars locates a line boundary by Unicode-character count and returns the complete boundary line; H1 headings can be read as selectors. Use a relative path such as docs/note.md; absolute paths and paths outside the project are rejected."
+        description = "Read raw Markdown from a project-relative file or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole file."
     )]
     fn read_note(
         &self,
@@ -1053,7 +1040,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Return one project-relative Markdown file's compact structure: headings, local links, embeds, tags, block ids, and frontmatter."
+        description = "Summarize one project-relative file: headings, tags, embeds, block IDs, frontmatter field names, and link count."
     )]
     fn get_note_structure(
         &self,

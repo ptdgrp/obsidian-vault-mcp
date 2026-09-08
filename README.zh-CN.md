@@ -32,50 +32,65 @@ cargo check
 cargo test
 ```
 
-## CLI 快速开始
-
-从第一页 notes 开始，再逐步进入精确读取和关系检查：
+从本仓库安装 CLI，供下面的示例使用：
 
 ```sh
-cargo run -- --vault /path/to/vault list-notes --page 1
-cargo run -- --vault /path/to/vault get-note-outline "人物/林动.md" --page 1
-cargo run -- --vault /path/to/vault read-note "人物/林动.md#身体" --max-chars 4096
-cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
-cargo run -- --vault /path/to/vault get-note-stats "人物/林动.md"
-cargo run -- --vault /path/to/vault resolve-ref '[[林动#身体]]'
-cargo run -- --vault /path/to/vault get-outlinks "人物/林动.md" --page 1
-cargo run -- --vault /path/to/vault get-backlinks '[[林动]]' --page 1
-cargo run -- --vault /path/to/vault get-note-neighborhood "林动" --depth 1 --direction both
-cargo run -- --vault /path/to/vault audit-links --page 1
-cargo run -- --vault /path/to/vault search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
-cargo run -- --vault /path/to/vault search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
-cargo run -- --vault /path/to/vault list-tags --page 1
-cargo run -- --vault /path/to/vault get-tag "状态/身体" --page 1
-cargo run -- --vault /path/to/vault list-categories --page 1
-cargo run -- --vault /path/to/vault get-category "人物" --page 1
-cargo run -- --vault /path/to/vault query-frontmatter phase --mode equals --value active --page 1
-cargo run -- --vault /path/to/vault append-section "人物/林动.md" "新增内容" --heading "身体"
-cargo run -- --vault /path/to/vault replace-section "人物/林动.md" "替换内容" --heading "身体"
-cargo run -- --vault /path/to/vault delete-section "人物/林动.md" --heading "旧设定"
-cargo run -- --vault /path/to/vault rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
+cargo install --path .
+```
+
+## CLI 快速开始
+
+在 Obsidian vault 或其任意子目录中运行已安装的 CLI。
+`--vault` 是可选参数：程序会从进程的当前工作目录向上查找，选择最近的包含
+`.obsidian/` 的目录作为 vault。从第一页 notes 开始，再逐步进入精确读取和关系检查：
+
+```sh
+obsidian-vault-mcp list-notes --page 1
+obsidian-vault-mcp get-note-outline "人物/林动.md" --page 1
+obsidian-vault-mcp read-note "人物/林动.md#身体" --max-chars 4096
+obsidian-vault-mcp get-note-structure "人物/林动.md"
+obsidian-vault-mcp get-note-stats "人物/林动.md"
+obsidian-vault-mcp resolve-ref '[[林动#身体]]'
+obsidian-vault-mcp get-outlinks "人物/林动.md" --page 1
+obsidian-vault-mcp get-backlinks '[[林动]]' --page 1
+obsidian-vault-mcp get-note-neighborhood "林动" --depth 1 --direction both
+obsidian-vault-mcp audit-links --page 1
+obsidian-vault-mcp search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
+obsidian-vault-mcp search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
+obsidian-vault-mcp list-tags --page 1
+obsidian-vault-mcp get-tag "状态/身体" --page 1
+obsidian-vault-mcp list-categories --page 1
+obsidian-vault-mcp get-category "人物" --page 1
+obsidian-vault-mcp query-frontmatter phase --mode equals --value active --page 1
+obsidian-vault-mcp append-section "人物/林动.md" "新增内容" --heading "身体"
+obsidian-vault-mcp replace-section "人物/林动.md" "替换内容" --heading "身体"
+obsidian-vault-mcp delete-section "人物/林动.md" --heading "旧设定"
+obsidian-vault-mcp rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
 ```
 
 启动 MCP server：
 
 ```sh
-cargo run -- --vault /path/to/vault serve
+obsidian-vault-mcp serve
 ```
 
-`--vault` 支持 `~` 和 `~/...` 路径。未传 `--vault` 且未设置
-`OBSIDIAN_VAULT_MCP_ROOT` 时，server 会从进程的当前工作目录开始逐级向上查找，
-并选择最近的包含 `.obsidian/` 的目录作为 vault。如果 `serve` 没有找到 vault，
-它会以 inactive 状态启动、不暴露任何工具，并在 MCP instructions 中说明原因。
-其他命令仍会报错，显式配置的 vault 路径无效时也仍会报错。
+需要从其他目录显式选择 vault 时，可使用
+`obsidian-vault-mcp --vault /path/to/vault serve`，或设置
+`OBSIDIAN_VAULT_MCP_ROOT`。显式配置优先于自动发现，`--vault` 优先于环境变量，
+并支持 `~` 和 `~/...` 路径。自动发现只查找当前目录及其祖先，不搜索子目录或整台电脑。
+
+如果 `serve` 没有发现 vault，会提供当前项目目录下的 Markdown 文件工具：
+`read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
+`audit_links`，以及 `append_section`、`replace_section`、`delete_section`。
+此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
+`audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
+全库搜索、元数据和链接图谱工具不可用。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
+显式配置的 vault 路径无效时也会报错。
 
 常用缓存参数：
 
 ```sh
-cargo run -- --vault /path/to/vault \
+obsidian-vault-mcp \
   --parse-cache-ttl-secs 600 \
   --parse-cache-max-entries 1024 \
   serve
@@ -160,16 +175,22 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 
 ## MCP 配置
 
+MCP 客户端在目标 vault 内启动服务时，无需传入 vault 参数：
+
 ```json
 {
   "context_servers": {
     "obsidian-vault": {
       "command": "/path/to/obsidian-vault-mcp",
-      "args": ["--vault", "/path/to/vault", "serve"]
+      "args": ["serve"]
     }
   }
 }
 ```
+
+自动发现依据服务进程的工作目录，而不是可执行文件所在目录。
+请让客户端在目标 vault 或其子目录中启动服务；如果客户端从其他目录启动，
+可在 `serve` 前显式添加 `--vault` 和 vault 路径，或设置 `OBSIDIAN_VAULT_MCP_ROOT`。
 
 协议输出只写 stdout；日志留在 stderr。
 
@@ -178,7 +199,7 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 服务通过 `tracing` 把日志写到 stderr，stdout 只用于 MCP 协议或 CLI JSON。`--log-level` 默认是 `debug`：
 
 ```sh
-cargo run -- --vault /path/to/vault --log-level debug serve
+obsidian-vault-mcp --log-level debug serve
 ```
 
 生命周期事件可关联 CLI 和 MCP 的工作：`logging.initialized` 表示日志已初始化；每条 CLI command 都会发出 `cli.command.start`，随后发出 `cli.command.ok` 或 `cli.command.error`。每次 MCP tool 调用仍会创建 `mcp.tool` span 并保留 `tool.call.*` events。start 事件会在 `input.preview` 字段记录 CLI 与 MCP 输入参数的预览，最多 1 KiB；`input.truncated=true` 表示已截断。error 事件会保留完整错误链，成功命令和工具的输出正文不会复制到日志中。

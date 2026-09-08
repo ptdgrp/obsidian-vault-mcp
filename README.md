@@ -44,46 +44,55 @@ cargo check
 cargo test
 ```
 
-## CLI quick start
-
-Start with the first page of notes, then move from broad navigation to precise
-reads and relation checks:
+Install the CLI from this repository for the examples below:
 
 ```sh
-cargo run -- --vault /path/to/vault list-notes --page 1
-cargo run -- --vault /path/to/vault get-note-outline "人物/林动.md" --page 1
-cargo run -- --vault /path/to/vault read-note "人物/林动.md#身体" --max-chars 4096
-cargo run -- --vault /path/to/vault get-note-structure "人物/林动.md"
-cargo run -- --vault /path/to/vault get-note-stats "人物/林动.md"
-cargo run -- --vault /path/to/vault resolve-ref '[[林动#身体]]'
-cargo run -- --vault /path/to/vault get-outlinks "人物/林动.md" --page 1
-cargo run -- --vault /path/to/vault get-backlinks '[[林动]]' --page 1
-cargo run -- --vault /path/to/vault get-note-neighborhood "林动" --depth 1 --direction both
-cargo run -- --vault /path/to/vault audit-links --page 1
-cargo run -- --vault /path/to/vault search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
-cargo run -- --vault /path/to/vault search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
-cargo run -- --vault /path/to/vault list-tags --page 1
-cargo run -- --vault /path/to/vault get-tag "状态/身体" --page 1
-cargo run -- --vault /path/to/vault list-categories --page 1
-cargo run -- --vault /path/to/vault get-category "人物" --page 1
-cargo run -- --vault /path/to/vault query-frontmatter phase --mode equals --value active --page 1
-cargo run -- --vault /path/to/vault append-section "人物/林动.md" "新增内容" --heading "身体"
-cargo run -- --vault /path/to/vault replace-section "人物/林动.md" "替换内容" --heading "身体"
-cargo run -- --vault /path/to/vault delete-section "人物/林动.md" --heading "旧设定"
-cargo run -- --vault /path/to/vault rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
+cargo install --path .
+```
+
+## CLI quick start
+
+Run the installed CLI from an Obsidian vault or any directory inside it.
+`--vault` is optional: discovery starts at the process working directory and
+walks upward to the nearest directory containing `.obsidian/`.
+Start with the first page of notes, then move to precise reads and relation checks:
+
+```sh
+obsidian-vault-mcp list-notes --page 1
+obsidian-vault-mcp get-note-outline "人物/林动.md" --page 1
+obsidian-vault-mcp read-note "人物/林动.md#身体" --max-chars 4096
+obsidian-vault-mcp get-note-structure "人物/林动.md"
+obsidian-vault-mcp get-note-stats "人物/林动.md"
+obsidian-vault-mcp resolve-ref '[[林动#身体]]'
+obsidian-vault-mcp get-outlinks "人物/林动.md" --page 1
+obsidian-vault-mcp get-backlinks '[[林动]]' --page 1
+obsidian-vault-mcp get-note-neighborhood "林动" --depth 1 --direction both
+obsidian-vault-mcp audit-links --page 1
+obsidian-vault-mcp search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
+obsidian-vault-mcp search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
+obsidian-vault-mcp list-tags --page 1
+obsidian-vault-mcp get-tag "状态/身体" --page 1
+obsidian-vault-mcp list-categories --page 1
+obsidian-vault-mcp get-category "人物" --page 1
+obsidian-vault-mcp query-frontmatter phase --mode equals --value active --page 1
+obsidian-vault-mcp append-section "人物/林动.md" "新增内容" --heading "身体"
+obsidian-vault-mcp replace-section "人物/林动.md" "替换内容" --heading "身体"
+obsidian-vault-mcp delete-section "人物/林动.md" --heading "旧设定"
+obsidian-vault-mcp rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
 ```
 
 Run the MCP server:
 
 ```sh
-cargo run -- --vault /path/to/vault serve
+obsidian-vault-mcp serve
 ```
 
-`--vault` accepts `~` and `~/...` paths. When neither `--vault` nor
-`OBSIDIAN_VAULT_MCP_ROOT` is set, the server discovers the nearest vault by
-walking from its current working directory toward the filesystem root and
-selecting the first directory that contains `.obsidian/`. If `serve` cannot
-discover one, it exposes file-local Markdown tools: `read_note`,
+To explicitly select a vault from another directory, use
+`obsidian-vault-mcp --vault /path/to/vault serve` or set
+`OBSIDIAN_VAULT_MCP_ROOT`. Explicit configuration overrides discovery;
+`--vault` takes precedence over the environment variable and accepts `~` and
+`~/...` paths. Discovery searches ancestors only, not child directories or the
+whole computer. If `serve` cannot discover a vault, it exposes file-local Markdown tools: `read_note`,
 `get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`, and
 the structural section edit tools. Their `note` values are paths relative to
 the current project directory; absolute paths and paths outside it are rejected.
@@ -96,7 +105,7 @@ path.
 Common cache settings:
 
 ```sh
-cargo run -- --vault /path/to/vault \
+obsidian-vault-mcp \
   --parse-cache-ttl-secs 600 \
   --parse-cache-max-entries 1024 \
   serve
@@ -213,16 +222,24 @@ Primary edit tools:
 
 ## MCP configuration
 
+No vault argument is needed when the MCP client starts the server with its
+working directory inside the target vault:
+
 ```json
 {
   "context_servers": {
     "obsidian-vault": {
       "command": "/path/to/obsidian-vault-mcp",
-      "args": ["--vault", "/path/to/vault", "serve"]
+      "args": ["serve"]
     }
   }
 }
 ```
+
+Discovery uses the server process working directory, not the executable's
+location. Configure the client to launch it in the target vault or a subdirectory.
+If the client launches it elsewhere, explicitly add `--vault` and the vault path
+before `serve`, or set `OBSIDIAN_VAULT_MCP_ROOT`.
 
 The server writes protocol data to stdout only. Logs stay on stderr.
 
@@ -232,7 +249,7 @@ The server emits `tracing` logs to stderr and keeps stdout reserved for MCP
 protocol data or CLI JSON. `--log-level` defaults to `debug`:
 
 ```sh
-cargo run -- --vault /path/to/vault --log-level debug serve
+obsidian-vault-mcp --log-level debug serve
 ```
 
 Lifecycle events let you correlate CLI and MCP work. `logging.initialized`
