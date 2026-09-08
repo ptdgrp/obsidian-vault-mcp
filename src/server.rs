@@ -1,5 +1,6 @@
+#[cfg(feature = "attachments")]
+use crate::attachment::ReadAttachmentResult;
 use crate::{
-    attachment::ReadAttachmentResult,
     mutation::{EditSectionResult, RenameResult, SetBlockIdResult, VaultMutations},
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
@@ -65,6 +66,36 @@ pub struct ObsidianVaultMcp {
 }
 
 impl ObsidianVaultMcp {
+    fn tool_router() -> ToolRouter<Self> {
+        let router = Self::markdown_tool_router();
+        #[cfg(feature = "attachments")]
+        let router = router.with_route((Self::read_attachment_tool_attr(), Self::read_attachment));
+        router
+    }
+
+    #[cfg(feature = "attachments")]
+    #[tool(
+        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
+    )]
+    fn read_attachment(
+        &self,
+        Parameters(request): Parameters<ReadAttachmentRequest>,
+    ) -> Result<Json<ReadAttachmentResult>, String> {
+        run_tool(
+            "read_attachment",
+            request,
+            |ReadAttachmentRequest {
+                 path,
+                 page,
+                 max_chars,
+                 include_embedded_images,
+             }| {
+                self.queries()
+                    .read_attachment(&path, page, max_chars, include_embedded_images)
+            },
+        )
+    }
+
     pub fn new(vault: Arc<Vault>) -> Self {
         let queries = VaultQueries::new(vault);
         Self {
@@ -97,6 +128,36 @@ pub struct ProjectMarkdownMcp {
 }
 
 impl ProjectMarkdownMcp {
+    fn tool_router() -> ToolRouter<Self> {
+        let router = Self::markdown_tool_router();
+        #[cfg(feature = "attachments")]
+        let router = router.with_route((Self::read_attachment_tool_attr(), Self::read_attachment));
+        router
+    }
+
+    #[cfg(feature = "attachments")]
+    #[tool(
+        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
+    )]
+    fn read_attachment(
+        &self,
+        Parameters(request): Parameters<ReadAttachmentRequest>,
+    ) -> Result<Json<ReadAttachmentResult>, String> {
+        run_tool(
+            "read_attachment",
+            request,
+            |ReadAttachmentRequest {
+                 path,
+                 page,
+                 max_chars,
+                 include_embedded_images,
+             }| {
+                self.queries()
+                    .read_attachment(&path, page, max_chars, include_embedded_images)
+            },
+        )
+    }
+
     fn new(workspace: Arc<Vault>) -> Self {
         let queries = VaultQueries::new(workspace);
         Self {
@@ -172,6 +233,7 @@ pub struct ReadNoteRequest {
     pub line: Option<String>,
 }
 
+#[cfg(feature = "attachments")]
 #[derive(Debug, Deserialize, JsonSchema)]
 /// Input for reading one non-Markdown attachment.
 pub struct ReadAttachmentRequest {
@@ -524,7 +586,7 @@ fn default_neighborhood_depth() -> usize {
     1
 }
 
-#[tool_router]
+#[tool_router(router = markdown_tool_router)]
 impl ObsidianVaultMcp {
     #[tool(
         description = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100."
@@ -594,28 +656,6 @@ impl ObsidianVaultMcp {
                 let (note, selector) =
                     read_note_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
                 self.queries().read_note(&note, max_chars, selector)
-            },
-        )
-    }
-
-    #[tool(
-        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
-    )]
-    fn read_attachment(
-        &self,
-        Parameters(request): Parameters<ReadAttachmentRequest>,
-    ) -> Result<Json<ReadAttachmentResult>, String> {
-        run_tool(
-            "read_attachment",
-            request,
-            |ReadAttachmentRequest {
-                 path,
-                 page,
-                 max_chars,
-                 include_embedded_images,
-             }| {
-                self.queries()
-                    .read_attachment(&path, page, max_chars, include_embedded_images)
             },
         )
     }
@@ -979,7 +1019,7 @@ impl ObsidianVaultMcp {
     }
 }
 
-#[tool_router]
+#[tool_router(router = markdown_tool_router)]
 impl ProjectMarkdownMcp {
     #[tool(
         description = "Audit standard Markdown links such as [label](./target.md) below the current project directory. Reports links whose target file does not exist; Obsidian wikilinks and vault-wide link-graph checks are unavailable."
@@ -1013,28 +1053,6 @@ impl ProjectMarkdownMcp {
                 let (note, selector) =
                     read_note_parts(note, heading, block_id, line).map_err(anyhow::Error::msg)?;
                 self.queries().read_note(&note, max_chars, selector)
-            },
-        )
-    }
-
-    #[tool(
-        description = "Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime."
-    )]
-    fn read_attachment(
-        &self,
-        Parameters(request): Parameters<ReadAttachmentRequest>,
-    ) -> Result<Json<ReadAttachmentResult>, String> {
-        run_tool(
-            "read_attachment",
-            request,
-            |ReadAttachmentRequest {
-                 path,
-                 page,
-                 max_chars,
-                 include_embedded_images,
-             }| {
-                self.queries()
-                    .read_attachment(&path, page, max_chars, include_embedded_images)
             },
         )
     }

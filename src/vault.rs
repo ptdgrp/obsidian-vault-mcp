@@ -12,6 +12,7 @@ use std::{
 use crate::cli;
 
 pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
+#[cfg(feature = "attachments")]
 pub const DEFAULT_MAX_READ_ATTACHMENT_CHARS: usize = 16 * 1024;
 
 /// A bounded view over an Obsidian-style Markdown vault with atomic note writes.
@@ -71,6 +72,7 @@ impl Vault {
         self.resolve_path(input)
     }
 
+    #[cfg(feature = "attachments")]
     /// Resolves an existing project-relative attachment without changing its extension.
     pub fn resolve_attachment_path(&self, input: &str) -> Result<Utf8PathBuf, VaultError> {
         let path = Utf8Path::new(input);
@@ -348,6 +350,7 @@ pub enum VaultError {
     PathEscapesVault,
     #[error("exact note path must end with .md: {0}")]
     ExactNotePathRequiresMarkdownExtension(String),
+    #[cfg(feature = "attachments")]
     #[error("attachment path must include its extension: {0}")]
     AttachmentPathRequiresExtension(String),
     #[error("non-utf8 path: {0}")]

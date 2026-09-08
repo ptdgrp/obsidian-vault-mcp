@@ -943,6 +943,7 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
             "get_note_outline",
             "get_note_stats",
             "get_note_structure",
+            #[cfg(feature = "attachments")]
             "read_attachment",
             "read_note",
             "replace_section",

@@ -39,6 +39,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "get_note_neighborhood",
         "get_note_structure",
         "get_note_outline",
+        #[cfg(feature = "attachments")]
         "read_attachment",
         "read_note",
         "get_note_stats",

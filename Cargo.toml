@@ -5,9 +5,11 @@ edition = "2024"
 
 [features]
 default = []
+# Enables PDF and DOCX attachment reading and the read_attachment MCP tool.
+attachments = ["dep:pdf-inspector", "dep:quick-xml", "dep:zip"]
 # Adds local PP-OCRv6 inference for scanned PDFs and image attachments. The
 # runtime libraries and verified model files remain external to the binary.
-ocr-local = ["pdf-inspector/ocr", "dep:image"]
+ocr-local = ["attachments", "pdf-inspector/ocr", "dep:image"]
 
 [dependencies]
 aho-corasick = "1.1.4"
@@ -36,9 +38,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
 walkdir = "2.5.0"
 arc-swap = "1.9.2"
-pdf-inspector = "=1.17.0"
-quick-xml = "0.42.0"
-zip = { version = "6.0.0", default-features = false, features = ["deflate"] }
+pdf-inspector = { version = "=1.17.0", optional = true }
+quick-xml = { version = "0.42.0", optional = true }
+zip = { version = "6.0.0", default-features = false, features = ["deflate"], optional = true }
 image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"], optional = true }
 
 [dev-dependencies]

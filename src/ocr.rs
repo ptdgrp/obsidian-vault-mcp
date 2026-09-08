@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "attachments")]
 #[derive(Debug)]
 pub(crate) struct OcrRuntime {
     #[cfg(feature = "ocr-local")]
@@ -49,6 +50,7 @@ pub(crate) fn install_models(_: &Path) -> anyhow::Result<InstalledOcrModels> {
     )
 }
 
+#[cfg(feature = "attachments")]
 impl OcrRuntime {
     pub(crate) fn new() -> Self {
         Self {

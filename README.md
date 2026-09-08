@@ -50,6 +50,13 @@ Install the CLI from this repository for the examples below:
 cargo install --path .
 ```
 
+The default build supports Markdown only. Enable PDF and DOCX attachment reading
+and the `read_attachment` MCP tool with `cargo install --path . --features attachments`.
+For local image and scanned-PDF OCR, use `--features ocr-local`, which also enables
+`attachments`; OCR runtime libraries and model files must be installed separately.
+Tool documentation is generated for the enabled features; use
+`cargo run --features attachments -- generate-docs` to include attachment tools.
+
 ## CLI quick start
 
 Run the installed CLI from an Obsidian vault or any directory inside it.

@@ -566,6 +566,7 @@ pub struct NeighborhoodLink {
 pub struct VaultQueries {
     pub vault: Arc<Vault>,
     pub(crate) parse_cache: Arc<ParseCache>,
+    #[cfg(feature = "attachments")]
     pub(crate) ocr_runtime: Arc<crate::ocr::OcrRuntime>,
 }
 
@@ -579,6 +580,7 @@ impl VaultQueries {
         Self {
             vault,
             parse_cache,
+            #[cfg(feature = "attachments")]
             ocr_runtime: Arc::new(crate::ocr::OcrRuntime::new()),
         }
     }
@@ -691,7 +693,7 @@ impl VaultQueries {
                 std::slice::from_ref(&note),
             ));
         }
-        return Ok(RefResolver::resolve(&reference, notes));
+        Ok(RefResolver::resolve(&reference, notes))
     }
 
     #[tracing::instrument(

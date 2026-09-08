@@ -63,6 +63,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "list_notes",
             "list_tags",
             "query_frontmatter",
+            #[cfg(feature = "attachments")]
             "read_attachment",
             "read_note",
             "rename_heading",

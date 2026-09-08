@@ -38,6 +38,13 @@ cargo test
 cargo install --path .
 ```
 
+默认构建仅支持 Markdown。使用 `cargo install --path . --features attachments`
+启用 PDF、DOCX 附件读取及 `read_attachment` MCP 工具。
+需要图片和扫描 PDF 的本地 OCR 时，使用 `--features ocr-local`，它会自动启用
+`attachments`；OCR 运行库和模型文件仍需单独安装。
+工具文档按当前启用的 features 生成；使用
+`cargo run --features attachments -- generate-docs` 可包含附件工具。
+
 ## CLI 快速开始
 
 在 Obsidian vault 或其任意子目录中运行已安装的 CLI。

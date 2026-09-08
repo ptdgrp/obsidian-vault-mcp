@@ -1,3 +1,4 @@
+#[cfg(feature = "attachments")]
 mod attachment;
 mod cli;
 mod docs;
