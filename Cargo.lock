@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian-vault-mcp"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "aho-corasick",
  "anyhow",
