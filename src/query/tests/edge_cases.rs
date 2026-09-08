@@ -251,7 +251,7 @@ fn audit_links_treats_missing_heading_and_block_selectors_as_unresolved() {
 }
 
 #[test]
-fn audit_links_resolves_relative_markdown_links_to_filtered_notes() {
+fn audit_links_resolves_explicit_links_to_filtered_notes() {
     let (dir, queries) = fixture();
     fs::write(dir.path().join("filtered-target.md"), "# Target\n").expect("write target");
     fs::write(
@@ -271,7 +271,7 @@ fn audit_links_resolves_relative_markdown_links_to_filtered_notes() {
             .filter(|link| link.source.starts_with("relative-audit.md#L"))
             .map(|link| link.target.as_str())
             .collect::<Vec<_>>(),
-        vec!["filtered-target"]
+        Vec::<&str>::new()
     );
 }
 
@@ -414,4 +414,60 @@ fn search_source_serializes_as_a_public_contract() {
     let source_json = serde_json::to_value(source).expect("source json");
     assert_eq!(source_json["path"], "note.md#L3-L5");
     assert!(source_json.get("line_start").is_none());
+}
+
+#[test]
+fn excluded_notes_allow_explicit_access_without_becoming_discoverable() {
+    let (dir, queries) = fixture();
+    fs::create_dir_all(dir.path().join("archive")).unwrap();
+    fs::write(dir.path().join("archive/target.md"),
+        "---\naliases: [SecretAlias]\n---\n# Archived\n\n## Detail\nsecret content\n\n[[../source]]\n").unwrap();
+    // This sibling must never be parsed, even when resolving a reference into archive.
+    fs::write(dir.path().join("archive/invalid.md"), [0xff, 0xfe]).unwrap();
+    fs::write(dir.path().join("source.md"), "[[archive/target#Detail]]\n").unwrap();
+    queries
+        .vault
+        .modify_config(|config| config.exclude = vec!["archive/**".into()]);
+
+    let read = queries
+        .read_note("[[archive/target#Detail]]", None, None)
+        .unwrap();
+    assert!(read.content.contains("secret content"));
+    assert!(queries.get_note_structure("archive/target.md").is_ok());
+    assert!(queries.get_note_stats("archive/target#Detail").is_ok());
+    let resolved =
+        serde_json::to_value(queries.resolve_ref("archive/target#Detail").unwrap()).unwrap();
+    assert_eq!(resolved["target"], "archive/target.md#Detail");
+    let outgoing = queries.get_outlinks("source.md", 1).unwrap();
+    assert_eq!(outgoing.targets[0].target, "archive/target.md#Detail");
+    let archived_outgoing = queries.get_outlinks("archive/target.md", 1).unwrap();
+    assert_eq!(archived_outgoing.targets[0].target, "source.md");
+    let backlinks = queries
+        .get_backlinks("archive/target#Detail", &[], &[], 1)
+        .unwrap();
+    assert_eq!(backlinks.pagination.total_backlinks, 1);
+    assert_eq!(backlinks.references[0].sources, vec!["source.md#L1"]);
+    assert!(
+        queries
+            .index_notes()
+            .unwrap()
+            .iter()
+            .all(|note| !note.file.relative_path.starts_with("archive/"))
+    );
+    assert!(
+        queries
+            .list_notes(&["archive/**".into()], &[], 1, None)
+            .unwrap()
+            .notes
+            .is_empty()
+    );
+    assert!(
+        queries
+            .search_text("secret content", false, &[], &[], 1)
+            .unwrap()
+            .matches
+            .is_empty()
+    );
+    assert!(queries.read_note("SecretAlias", None, None).is_err());
+    assert!(queries.read_note("target", None, None).is_err());
 }

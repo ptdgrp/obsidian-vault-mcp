@@ -18,6 +18,13 @@
 
 它不会推断“人物”“组织”“章节”等业务领域类型。文件路径、Markdown 标题、本地链接、标签和 frontmatter 才是语义来源；agent 应该基于这些证据继续推理，而不是让 MCP server 替它猜。
 
+排除规则只限制自动索引和探索，不是文件访问权限。扫描会跳过匹配排除规则的目录；
+`archive/**` 可排除整个目录树，`archive/**/*.md` 则只过滤匹配的文件。
+已知路径仍可用于读取正文、章节、结构、统计和出链，也可查询可见笔记指向该路径的反向链接。
+例如 `read_note("archive/记录.md")` 和 `[[archive/记录#摘要]]` 都可访问被排除的目标。
+列表、搜索、标签、分类及图谱探索仍限于可见笔记；不会进入排除目录搜索短文件名或别名。
+按需读取不会让文件重新进入索引，单文件大小限制仍然有效。
+
 ## 构建与测试
 
 ```sh
@@ -85,6 +92,12 @@ cargo run -- --vault /path/to/vault \
 
 编辑工具使用同一套结构化 selector：`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
 section 编辑仅支持 heading 和 block-id selector；line selector 仅保留给 `read_note`。
+
+建议先调用 `get_note_outline` 查看目标文件大纲，再用 `read_note` 读取标题或行范围。
+`max_chars` 按 Unicode 字符计数，到达预算后会补齐当前行，因此返回内容可能超过预算；
+可使用 `next_line` 无遗漏地继续读取。
+全文和行范围读取跳过 AST 解析；大纲和标题读取在扫描块结构后只解析标题的行内内容；
+block ID 读取保留完整解析。这些路径仍读取源文件，并遵守 `max_note_bytes`。
 
 ## 分页与过滤
 

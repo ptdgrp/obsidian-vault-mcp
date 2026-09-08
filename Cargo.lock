@@ -2391,9 +2391,9 @@ dependencies = [
 
 [[package]]
 name = "ptdgrp-markdown"
-version = "1.1.3"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1403b0655da7937a71c0c1428bbe3a2ae437b3662905f99285d95b256f86035c"
+checksum = "7ac7336ec0fd2634021ac90c8078f680f477413441a59656146b9053a3c5b0cf"
 dependencies = [
  "memchr",
  "rustc-hash",

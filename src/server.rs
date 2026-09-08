@@ -159,7 +159,8 @@ pub struct NeighborhoodRequest {
 pub struct ReadNoteRequest {
     /// Workspace-relative path, note stem, alias, or bare Obsidian reference.
     pub note: String,
-    /// Optional character limit for this request.
+    /// Optional Unicode-character budget used to choose a line boundary for this request.
+    /// The complete boundary line may make the returned content exceed this value.
     #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub max_chars: Option<usize>,
     /// Heading text, heading anchor, or slash-separated heading path.
@@ -573,7 +574,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line."
+        description = "Read a note, heading section, block, or line range. Prefer calling get_note_outline for the target file first, then read the relevant heading or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars locates the truncation line by Unicode-character count; the complete boundary line is returned, so content may exceed max_chars. When content is omitted, returned_source identifies the source lines represented in content and next_line identifies the next line to request. H1 headings can be read as heading selectors."
     )]
     fn read_note(
         &self,
@@ -1006,7 +1007,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Read a project-relative Markdown file, heading section, block, or line range. Use a relative path such as docs/note.md; absolute paths and paths outside the project are rejected."
+        description = "Read a project-relative Markdown file, heading section, block, or line range. Prefer calling get_note_outline for the target file first, then read the relevant heading or line range. max_chars locates a line boundary by Unicode-character count and returns the complete boundary line; H1 headings can be read as selectors. Use a relative path such as docs/note.md; absolute paths and paths outside the project are rejected."
     )]
     fn read_note(
         &self,

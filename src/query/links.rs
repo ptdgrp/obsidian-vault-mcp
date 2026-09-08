@@ -42,7 +42,11 @@ impl VaultQueries {
     )]
     pub fn get_outlinks(&self, note: &str, page: usize) -> anyhow::Result<OutlinksResult> {
         let notes = self.index_notes()?;
-        let indexed = find_indexed_note(note, &notes)?;
+        let direct = self.direct_note(&RefResolver::parse_ref(note).target)?;
+        let indexed = match direct.as_ref() {
+            Some(indexed) => find_indexed_note(note, std::slice::from_ref(indexed))?,
+            None => find_indexed_note(note, &notes)?,
+        };
         let mut occurrences = indexed
             .parsed
             .links
@@ -124,7 +128,11 @@ impl VaultQueries {
     ) -> anyhow::Result<BacklinksResult> {
         let filter = PathFilter::new(include, exclude)?;
         let notes = self.index_notes()?;
-        let resolution = RefResolver::resolve(target, &notes);
+        let direct = self.direct_note(&RefResolver::parse_ref(target).target)?;
+        let resolution = match direct.as_ref() {
+            Some(note) => RefResolver::resolve(target, std::slice::from_ref(note)),
+            None => RefResolver::resolve(target, &notes),
+        };
         let wanted = match resolved_reference_from_result(&resolution) {
             Some(reference) => reference,
             None => {
@@ -141,8 +149,7 @@ impl VaultQueries {
             .filter(|note| filter.is_match(&note.file.relative_path))
         {
             for link in &note.parsed.links {
-                let link_ref = reference_display(&link.target, &link.reference);
-                let link_resolution = RefResolver::resolve(&link_ref, &notes);
+                let link_resolution = self.resolve_link(link, &notes)?;
                 let Some(actual) = resolved_reference_from_result(&link_resolution) else {
                     continue;
                 };

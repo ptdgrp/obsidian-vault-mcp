@@ -298,3 +298,45 @@ fn ensure_benchmark_vault(note_count: usize) -> PathBuf {
     fs::write(marker, "v1\n").expect("mark benchmark corpus complete");
     root
 }
+
+#[cfg(unix)]
+#[test]
+fn excluded_directories_are_pruned_before_visiting_children() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".obsidian")).unwrap();
+    fs::write(
+        dir.path().join(".obsidian/app.json"),
+        r#"{"userIgnoreFilters":["obsidian-archive"]}"#,
+    )
+    .unwrap();
+    for folder in ["archive", "glob-archive", "obsidian-archive", ".hidden"] {
+        fs::create_dir_all(dir.path().join(folder)).unwrap();
+        // Following this loop would produce a walker error if the directory were visited.
+        symlink(
+            dir.path().join(folder),
+            dir.path().join(folder).join("loop"),
+        )
+        .unwrap();
+    }
+    fs::write(dir.path().join("visible.md"), "visible").unwrap();
+    let vault = Vault::open(
+        &Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap(),
+        VaultConfig::default(),
+    )
+    .unwrap();
+    vault.modify_config(|config| {
+        config.exclude = vec!["archive".into(), "glob-archive/**".into()];
+        config.follow_symlinks = true;
+    });
+    let notes = vault
+        .list_notes()
+        .expect("must not visit excluded symlink loops");
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].relative_path, "visible.md");
+    vault.modify_config(|config| config.exclude.clear());
+    assert!(
+        vault.list_notes().is_err(),
+        "the unexcluded loop must be visited"
+    );
+}

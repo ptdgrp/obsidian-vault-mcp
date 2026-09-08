@@ -254,7 +254,7 @@ fn read_note_schema_exposes_selectors_and_read_section_is_absent() {
     assert_eq!(result.source, "发动机.md#L3-L5");
     assert!(result.truncated);
     assert_eq!(result.returned_source.as_deref(), Some("发动机.md#L3"));
-    assert_eq!(result.next_line, Some(3));
+    assert_eq!(result.next_line, Some(4));
 }
 
 #[test]

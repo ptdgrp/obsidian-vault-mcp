@@ -18,7 +18,7 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) include: Vec<String>,
 
-    /// Exclude glob patterns
+    /// Exclude glob patterns for indexing and discovery; explicit paths remain accessible
     #[arg(long)]
     pub(crate) exclude: Vec<String>,
 
@@ -26,7 +26,7 @@ pub(crate) struct Cli {
     #[arg(long, default_value_t = false)]
     pub(crate) follow_symlinks: bool,
 
-    /// Max Unicode characters returned by read_note
+    /// Unicode-character budget used to choose read_note's line boundary
     #[arg(long, default_value_t = DEFAULT_MAX_READ_NOTE_CHARS)]
     pub(crate) max_read_note_chars: usize,
 

@@ -2,16 +2,17 @@ use std::fs;
 
 use rayon::prelude::*;
 
-use crate::parser::{ParsedNote, slice_text, source_for_line};
+use crate::parser::{ParsedNote, SourceSpan, byte_offset_for_line, slice_text};
 use crate::resolver::{IndexedNote, ObsidianRef, RefResolver};
 
 use super::path_filter::PathFilter;
 use super::public::{Locator, PageSlice, ResolvedReference};
-use super::section::{section_source, selector_from_reference};
+use super::section::{heading_source, section_source, selector_from_reference};
 use super::{
     CompactStructureHeading, ListNotesPagination, ListNotesResult, NoteStatsResult,
     NoteStructureResult, NoteSummary, ReadNoteResult, ResolveRefResult, SectionSelector,
-    VaultQueries, compact_resolve_result, find_indexed_note, read_and_parse, truncate_chars,
+    VaultQueries, compact_resolve_result, find_indexed_note, read_and_parse,
+    truncate_at_line_boundary,
 };
 
 impl VaultQueries {
@@ -89,20 +90,57 @@ impl VaultQueries {
         let selector = explicit_selector.or(selector_from_reference(&reference.reference)?);
         let path = self.resolve_reference_note_path(&reference)?;
         let relative_path = self.vault.relative_path(&path);
-        let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
-        let total_lines = content.lines().count().max(1) as u64;
-        let source = match selector.as_ref() {
-            Some(selector) => section_source(&relative_path, &content, &parsed, selector)?,
-            None => source_for_line(&relative_path, &content, &parsed, 1, total_lines),
+        let (content, source) = match selector.as_ref() {
+            None | Some(SectionSelector::Lines { .. }) => {
+                let content = self.read_note_content(&path)?;
+                let total_lines = content.lines().count().max(1) as u64;
+                let (line_start, line_end) = match selector.as_ref() {
+                    Some(SectionSelector::Lines {
+                        line_start,
+                        line_end,
+                    }) => {
+                        if *line_start == 0 || line_end < line_start {
+                            anyhow::bail!("invalid line range");
+                        }
+                        (*line_start, (*line_end).min(total_lines))
+                    }
+                    _ => (1, total_lines),
+                };
+                let source = SourceSpan {
+                    path: relative_path.clone(),
+                    line_start,
+                    line_end,
+                    byte_start: byte_offset_for_line(&content, line_start),
+                    byte_end: byte_offset_for_line(&content, line_end.saturating_add(1)),
+                    section: None,
+                };
+                (content, source)
+            }
+            Some(SectionSelector::Heading { heading }) => {
+                let content = self.read_note_content(&path)?;
+                let headings = crate::parser::NoteParser::parse_headings(
+                    &relative_path,
+                    &content,
+                    self.vault.config().max_note_bytes,
+                )?;
+                let source = heading_source(&relative_path, &content, &headings, heading)?;
+                (content, source)
+            }
+            Some(selector) => {
+                let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
+                let source = section_source(&relative_path, &content, &parsed, selector)?;
+                (content, source)
+            }
         };
         let selected = slice_text(&content, source.byte_start, source.byte_end);
         let budget = max_chars.unwrap_or(self.vault.config().max_read_note_chars);
         let selected_chars = selected.chars().count();
-        let truncated = selected_chars > budget;
-        let content = if truncated {
-            truncate_chars(&selected, budget)
+        let (content, truncated) = if selected_chars > budget {
+            let content = truncate_at_line_boundary(&selected, budget);
+            let truncated = content.len() < selected.len();
+            (content, truncated)
         } else {
-            selected
+            (selected, false)
         };
         let (returned_source, next_line) = if truncated {
             let newline_count = content.bytes().filter(|byte| *byte == b'\n').count() as u64;
@@ -127,7 +165,7 @@ impl VaultQueries {
         } else {
             (None, None)
         };
-        let returned_chars = selected_chars.min(budget);
+        let returned_chars = content.chars().count();
         tracing::info!(
             selector.kind = selector_kind(selector.as_ref()),
             result.truncated = truncated,
@@ -215,7 +253,18 @@ impl VaultQueries {
     }
 
     pub(crate) fn resolve_ref(&self, reference: &str) -> anyhow::Result<ResolveRefResult> {
-        let notes = self.index_notes()?;
+        let parsed = RefResolver::parse_ref(reference);
+        let mut notes = self.index_notes()?;
+        if matches!(
+            RefResolver::resolve(reference, &notes),
+            crate::resolver::ResolveResult::Unresolved { .. }
+        ) && let Some(note) = self.direct_note(&parsed.target)?
+            && !notes
+                .iter()
+                .any(|indexed| indexed.file.path == note.file.path)
+        {
+            notes.push(note);
+        }
         Ok(compact_resolve_result(
             RefResolver::resolve(reference, &notes),
             &notes,
@@ -235,6 +284,47 @@ impl VaultQueries {
             .collect::<anyhow::Result<_>>()?;
         notes.sort_by(|a, b| natord::compare(&a.file.relative_path, &b.file.relative_path));
         Ok(notes)
+    }
+
+    /// Read source text without constructing an AST or consulting the parse cache.
+    pub(crate) fn read_note_content(&self, path: &camino::Utf8Path) -> anyhow::Result<String> {
+        let maximum = self.vault.config().max_note_bytes;
+        let size = fs::metadata(path)?.len();
+        if size > maximum as u64 {
+            anyhow::bail!("note exceeds configured maximum size: {size} > {maximum} bytes");
+        }
+        let content = fs::read_to_string(path)?;
+        if content.len() > maximum {
+            anyhow::bail!(
+                "note exceeds configured maximum size: {} > {maximum} bytes",
+                content.len()
+            );
+        }
+        Ok(content)
+    }
+
+    /// Load only an explicitly addressed file, without adding it to discovery.
+    pub(crate) fn direct_note(&self, target: &str) -> anyhow::Result<Option<IndexedNote>> {
+        if target.is_empty() {
+            return Ok(None);
+        }
+        let Ok(path) = self.vault.resolve_path(target) else {
+            return Ok(None);
+        };
+        if !path.is_file() || path.extension() != Some("md") {
+            return Ok(None);
+        }
+        let relative_path = self.vault.relative_path(&path);
+        let (parsed, content) = self.parse_note_from_path(&path, &relative_path)?;
+        Ok(Some(IndexedNote {
+            file: crate::vault::NoteFile {
+                size_bytes: content.len() as u64,
+                modified_unix_ms: None,
+                path,
+                relative_path,
+            },
+            parsed,
+        }))
     }
 
     pub(crate) fn resolve_note_path(&self, note: &str) -> anyhow::Result<camino::Utf8PathBuf> {

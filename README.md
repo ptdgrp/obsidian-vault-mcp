@@ -27,6 +27,16 @@ It does not infer story domains such as "character", "organization", or
 the source of meaning. The server exposes those facts so an LLM can reason from
 evidence instead of guessing.
 
+Exclusions control automatic indexing and discovery, not file access. Scanning prunes
+excluded directories: `archive/**` excludes the whole subtree, while
+`archive/**/*.md` filters matching files. Known paths remain usable for content,
+section, structure, stats, and outlink queries, and as backlink targets from visible
+notes. For example, `read_note("archive/note.md")` and `[[archive/note#Summary]]`
+can address excluded notes. Lists, searches, tags, categories, and graph discovery
+remain limited to visible notes; short-name and alias lookup never scans excluded
+folders. On-demand reads do not add files to the discovery index, and per-file size
+limits still apply.
+
 ## Build
 
 ```sh
@@ -113,6 +123,13 @@ Editing tools use the same structural selectors: `append_section`,
 `set_block_id`.
 Section edits accept only heading and block-id selectors; line selectors remain
 available for `read_note` only.
+
+Prefer `get_note_outline` before `read_note`, then select a heading or line range.
+`max_chars` is a Unicode-character budget: reading continues through the boundary
+line, so the response may exceed it. Use `next_line` to continue without gaps.
+Whole-note and line reads skip AST parsing; outlines and heading reads parse only
+heading inline content after scanning block structure. Block-ID reads retain full
+parsing. These paths still read the source file and enforce `max_note_bytes`.
 
 ## Pagination and filters
 

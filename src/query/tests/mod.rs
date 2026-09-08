@@ -1440,15 +1440,17 @@ fn read_note_allows_per_request_max_chars_override() {
 #[test]
 fn read_note_counts_unicode_characters_not_utf8_bytes() {
     let (dir, queries) = fixture();
-    fs::write(dir.path().join("字符.md"), "甲乙丙丁").expect("write unicode note");
+    fs::write(dir.path().join("字符.md"), "甲乙\n丙丁\n戊己").expect("write unicode note");
     queries.vault.modify_config(|it| {
         it.max_read_note_chars = 2;
     });
 
     let result = queries.read_note("字符.md", None, None).expect("read note");
 
-    assert_eq!(result.content, "甲乙");
+    assert_eq!(result.content, "甲乙\n");
     assert!(result.truncated);
+    assert_eq!(result.returned_source.as_deref(), Some("字符.md#L1"));
+    assert_eq!(result.next_line, Some(2));
 }
 
 #[test]

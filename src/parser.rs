@@ -1,5 +1,5 @@
 use ptdgrp_markdown::{
-    Document, MarkdownNode, Parser, ParserOptions,
+    Document, InlineSelection, MarkdownNode, Parser, ParserOptions, VisitControl,
     code::Code,
     heading::{Heading, HeadingLevel},
     link::Link,
@@ -200,15 +200,86 @@ impl NoteParser {
         err
     )]
     pub fn parse(path_str: &str, text: &str, max_input_bytes: usize) -> anyhow::Result<ParsedNote> {
-        let options = ParserOptions::default()
-            .enabled_gfm()
-            .enabled_ofm()
-            .enabled_cjk_autocorrect()
-            .with_max_input_bytes(max_input_bytes);
-        let document = Parser::new_with_options(text, options)
+        let document = Parser::new_with_options(text, parser_options(max_input_bytes))
             .parse()
             .map_err(|err| anyhow::anyhow!("{err:?}"))?;
         Ok(extract(path_str, text, &document))
+    }
+
+    /// Parse heading text and hierarchy without materializing body inline content.
+    /// The block pass still examines the whole source to preserve Markdown context.
+    #[tracing::instrument(name = "parse_markdown_headings", skip(text), fields(input_bytes = text.len()), err)]
+    pub fn parse_headings(
+        path_str: &str,
+        text: &str,
+        max_input_bytes: usize,
+    ) -> anyhow::Result<Vec<HeadingInfo>> {
+        let mut phase = Parser::new_with_options(text, parser_options(max_input_bytes))
+            .parse_blocks()
+            .and_then(|blocks| blocks.prepare_semantics())
+            .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+        let mut selection = InlineSelection::default();
+        phase.visit_semantic_targets(
+            |target| target.heading().is_some(),
+            &mut selection,
+            |target, selection| {
+                selection.select(target.node_id());
+                VisitControl::Continue
+            },
+        );
+        let output = phase
+            .parse_selected_inlines(selection)
+            .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+        let mut stack = Vec::new();
+        let mut headings = Vec::new();
+        for index in active_node_indices(&output.document) {
+            if let MarkdownNode::Heading(heading) = &output.document.tree[index].body {
+                let info =
+                    extract_heading(path_str, text, &output.document, index, heading, &mut stack);
+                stack.push(info.clone());
+                headings.push(info);
+            }
+        }
+        Ok(headings)
+    }
+}
+
+fn parser_options(max_input_bytes: usize) -> ParserOptions {
+    ParserOptions::default()
+        .enabled_gfm()
+        .enabled_ofm()
+        .enabled_cjk_autocorrect()
+        .with_max_input_bytes(max_input_bytes)
+}
+
+fn extract_heading(
+    path_str: &str,
+    text: &str,
+    document: &Document,
+    index: usize,
+    heading: &Heading,
+    heading_stack: &mut Vec<HeadingInfo>,
+) -> HeadingInfo {
+    let level = heading_level(heading);
+    while heading_stack.last().is_some_and(|item| item.level >= level) {
+        heading_stack.pop();
+    }
+    let text_value = collect_text(document, index).trim().to_string();
+    let mut path_parts: Vec<String> = heading_stack
+        .iter()
+        .filter(|item| item.level != 1)
+        .map(|item| item.text.clone())
+        .collect();
+    if level != 1 {
+        path_parts.push(text_value.clone());
+    }
+    let source = source_for_node(path_str, text, document, index, heading_stack);
+    HeadingInfo {
+        text: text_value.clone(),
+        level,
+        anchor: heading_anchor(&text_value),
+        path: path_parts,
+        source,
     }
 }
 
@@ -235,27 +306,8 @@ pub fn extract(path_str: &str, text: &str, document: &Document) -> ParsedNote {
                 parsed.frontmatter = serde_json::to_value(value.as_ref()).ok();
             }
             MarkdownNode::Heading(heading) => {
-                let level = heading_level(heading);
-                while heading_stack.last().is_some_and(|item| item.level >= level) {
-                    heading_stack.pop();
-                }
-                let text_value = collect_text(document, index).trim().to_string();
-                let mut path_parts: Vec<String> = heading_stack
-                    .iter()
-                    .filter(|item| item.level != 1)
-                    .map(|item| item.text.clone())
-                    .collect();
-                if level != 1 {
-                    path_parts.push(text_value.clone());
-                }
-                let source = source_for_node(path_str, text, document, index, &heading_stack);
-                let info = HeadingInfo {
-                    text: text_value.clone(),
-                    level,
-                    anchor: heading_anchor(&text_value),
-                    path: path_parts,
-                    source,
-                };
+                let info =
+                    extract_heading(path_str, text, document, index, heading, &mut heading_stack);
                 heading_stack.push(info.clone());
                 parsed.headings.push(info);
                 body_scope_seen = true;
@@ -787,7 +839,7 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn byte_offset_for_line(text: &str, line: u64) -> usize {
+pub(crate) fn byte_offset_for_line(text: &str, line: u64) -> usize {
     if line <= 1 {
         return 0;
     }

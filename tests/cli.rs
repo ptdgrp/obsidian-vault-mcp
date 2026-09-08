@@ -743,7 +743,7 @@ fn invalid_tag_scope_exits_with_clear_diagnostic() {
 #[test]
 fn read_note_character_limit_uses_unicode_characters() {
     let dir = tempdir().expect("tempdir");
-    write_note(&dir, "字符.md", "甲乙丙丁");
+    write_note(&dir, "字符.md", "甲乙\n丙丁\n戊己");
 
     let output = run_cli(
         &dir,
@@ -756,8 +756,10 @@ fn read_note_character_limit_uses_unicode_characters() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(value["content"], "甲乙");
+    assert_eq!(value["content"], "甲乙\n");
     assert_eq!(value["truncated"], true);
+    assert_eq!(value["returned_source"], "字符.md#L1");
+    assert_eq!(value["next_line"], 2);
     assert!(value.get("path").is_none());
     assert!(value.get("next_step").is_none());
 }

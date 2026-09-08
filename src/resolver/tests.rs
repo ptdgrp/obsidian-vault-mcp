@@ -81,6 +81,40 @@ fn resolve_treats_missing_heading_selector_as_unresolved() {
 }
 
 #[test]
+fn resolve_accepts_level_one_heading_selector() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(dir.path().join("Target.md"), "# Target\n\nBody\n").expect("write note");
+    let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+    let vault = Vault::open(&root, VaultConfig::default()).expect("vault");
+    let file = vault
+        .list_notes()
+        .expect("list notes")
+        .into_iter()
+        .find(|file| file.relative_path == "Target.md")
+        .expect("target file");
+    let content = fs::read_to_string(&file.path).expect("read note");
+    let parsed = Arc::new(NoteParser::parse(&file.relative_path, &content, 1024).expect("parse"));
+    let notes = vec![IndexedNote { file, parsed }];
+
+    let result = RefResolver::resolve("Target#Target", &notes);
+
+    match result {
+        ResolveResult::Resolved {
+            reference, heading, ..
+        } => {
+            assert_eq!(heading.as_deref(), Some("Target"));
+            assert_eq!(
+                reference.reference,
+                Some(ReferenceInfo::Heading {
+                    value: "Target".to_string()
+                })
+            );
+        }
+        other => panic!("expected level-one heading to resolve, got {other:?}"),
+    }
+}
+
+#[test]
 fn resolve_treats_missing_block_selector_as_unresolved() {
     let dir = tempdir().expect("tempdir");
     fs::write(dir.path().join("Target.md"), "# Target\n\n^present\n").expect("write note");

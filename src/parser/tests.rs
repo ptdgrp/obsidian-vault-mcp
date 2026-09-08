@@ -254,3 +254,18 @@ fn parse_self_referential_wikilinks_normalizes_heading_and_block_targets() {
         })
     );
 }
+
+#[test]
+fn selective_headings_match_full_parse_with_markdown_context() {
+    let source = "---\ntitle: Metadata\n---\n# Root\n\n## **Strong** and [reference][ref]\n\nBody with [[links]], #tags and *formatting*.\n\n### 子章节 `code`\n\n```md\n## Not a heading\n```\n\n> ## Quoted heading\n> text\n\nSetext *heading*\n----------------\n\n## Same\n\n## Same\n\n[ref]: target.md\n";
+    let full = NoteParser::parse("note.md", source, usize::MAX).unwrap();
+    let headings = NoteParser::parse_headings("note.md", source, usize::MAX).unwrap();
+    assert!(!headings.is_empty());
+    assert_eq!(
+        serde_json::to_value(&headings).unwrap(),
+        serde_json::to_value(&full.headings).unwrap()
+    );
+    for (selective, full) in headings.iter().zip(&full.headings) {
+        assert_eq!(selective.source, full.source);
+    }
+}

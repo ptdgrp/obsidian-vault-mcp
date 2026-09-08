@@ -11,9 +11,15 @@ impl VaultQueries {
         err
     )]
     pub fn get_note_outline(&self, note: &str, page: usize) -> anyhow::Result<NoteOutlineResult> {
-        let (parsed, _) = self.parse_note(note)?;
-        let headings = parsed
-            .headings
+        let path = self.resolve_note_path(note)?;
+        let relative_path = self.vault.relative_path(&path);
+        let content = self.read_note_content(&path)?;
+        let headings = crate::parser::NoteParser::parse_headings(
+            &relative_path,
+            &content,
+            self.vault.config().max_note_bytes,
+        )?;
+        let headings = headings
             .iter()
             .filter(|heading| heading.level != 1)
             .map(|heading| OutlineHeading {
@@ -25,7 +31,7 @@ impl VaultQueries {
         let slice = PageSlice::new(headings, page, NOTE_OUTLINE_PAGE_SIZE)?;
         let pagination = slice.pagination();
         Ok(NoteOutlineResult {
-            note: parsed.path.to_owned(),
+            note: relative_path,
             headings: slice.into_items(),
             pagination: NoteOutlinePagination {
                 page: pagination.page,

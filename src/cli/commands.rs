@@ -64,7 +64,8 @@ pub(crate) enum Command {
         direction: String,
     },
 
-    /// Read one Markdown note, heading section, block, or line range
+    /// Read one Markdown note, heading section, block, or line range.
+    /// Prefer get-note-outline first, then select a heading or line range.
     ReadNote {
         note: String,
 
@@ -77,6 +78,7 @@ pub(crate) enum Command {
         #[arg(long)]
         line: Option<String>,
 
+        /// Unicode-character budget; return the complete boundary line even if it exceeds this value.
         #[arg(long)]
         max_chars: Option<usize>,
     },

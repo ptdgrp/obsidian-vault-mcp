@@ -1,4 +1,7 @@
-use crate::parser::{HeadingInfo, ParsedNote, ReferenceInfo, SourceSpan, source_for_line};
+use crate::parser::{
+    HeadingInfo, ParsedNote, ReferenceInfo, SectionInfo, SourceSpan, byte_offset_for_line,
+    source_for_line,
+};
 
 use super::{SectionSelector, levenshtein_distance::levenshtein_distance};
 
@@ -12,27 +15,7 @@ pub(crate) fn section_source(
     let total_lines = content.lines().count().max(1) as u64;
     let (line_start, line_end) = match selector {
         SectionSelector::Heading { heading } => {
-            let requested_heading = ParsedHeadingSelector::parse(heading);
-            let Some(current) = find_selectable_heading(parsed, &requested_heading) else {
-                return Err(anyhow::anyhow!(
-                    "{}",
-                    heading_not_found_message(heading, parsed)
-                ));
-            };
-            let next = parsed
-                .headings
-                .iter()
-                .filter(|candidate| {
-                    candidate.source.line_start > current.source.line_start
-                        && candidate.level <= current.level
-                })
-                .min_by_key(|candidate| candidate.source.line_start)
-                .map(|candidate| candidate.source.line_start.saturating_sub(1))
-                .unwrap_or(total_lines);
-            (
-                current.source.line_start,
-                next.max(current.source.line_start),
-            )
+            return heading_source(relative_path, content, &parsed.headings, heading);
         }
         SectionSelector::Block { block_id } => {
             let Some(block) = parsed
@@ -62,6 +45,41 @@ pub(crate) fn section_source(
         line_start,
         line_end,
     ))
+}
+
+/// Select a heading section using only heading metadata, shared with full-note selection.
+pub(crate) fn heading_source(
+    relative_path: &str,
+    content: &str,
+    headings: &[HeadingInfo],
+    heading: &str,
+) -> anyhow::Result<SourceSpan> {
+    let requested = ParsedHeadingSelector::parse(heading);
+    let current = find_heading(headings, &requested)
+        .ok_or_else(|| anyhow::anyhow!("{}", heading_not_found_message(heading, headings)))?;
+    let line_start = current.source.line_start;
+    let line_end = headings
+        .iter()
+        .filter(|candidate| {
+            candidate.source.line_start > line_start && candidate.level <= current.level
+        })
+        .map(|candidate| candidate.source.line_start.saturating_sub(1))
+        .min()
+        .unwrap_or(content.lines().count().max(1) as u64)
+        .max(line_start);
+    Ok(SourceSpan {
+        path: relative_path.to_string(),
+        line_start,
+        line_end,
+        byte_start: byte_offset_for_line(content, line_start),
+        byte_end: byte_offset_for_line(content, line_end.saturating_add(1)),
+        section: Some(SectionInfo {
+            heading: current.text.clone(),
+            heading_level: current.level,
+            heading_path: current.path.clone(),
+            heading_anchor: current.anchor.clone(),
+        }),
+    })
 }
 
 pub(crate) fn selector_from_reference(
@@ -170,14 +188,12 @@ impl<'a> ParsedHeadingSelector<'a> {
     }
 }
 
-pub(crate) fn find_selectable_heading<'a>(
-    parsed: &'a ParsedNote,
+pub(crate) fn find_heading<'a>(
+    headings: &'a [HeadingInfo],
     requested_heading: &ParsedHeadingSelector<'_>,
 ) -> Option<&'a HeadingInfo> {
-    parsed
-        .headings
+    headings
         .iter()
-        .filter(|heading| heading.level != 1)
         .find(|candidate| requested_heading.matches(candidate))
 }
 
@@ -206,17 +222,11 @@ fn markdown_heading_level(marker_len: usize) -> Option<u8> {
     }
 }
 
-pub(crate) fn heading_not_found_message(heading: &str, parsed: &ParsedNote) -> String {
-    let suggestions = closest_heading_suggestions(heading, parsed);
+pub(crate) fn heading_not_found_message(heading: &str, headings: &[HeadingInfo]) -> String {
+    let suggestions = closest_heading_suggestions(heading, headings);
 
     if suggestions.is_empty() {
-        if parsed.headings.iter().any(|it| it.level == 1) {
-            format!(
-                "heading not found: {heading:?}. Note has no selectable headings; level-one headings are note titles. Use a lower-level heading, block id, or line selector."
-            )
-        } else {
-            format!("heading not found: {heading:?}. Note has no headings.")
-        }
+        format!("heading not found: {heading:?}. Note has no headings.")
     } else {
         format!(
             "heading not found: {heading:?}. Did you mean: {}?",
@@ -233,12 +243,12 @@ fn wrapping_char(input: &str, ch: char) -> String {
     format!("{ch}{input}{ch}")
 }
 
-fn closest_heading_suggestions(heading: &str, parsed: &ParsedNote) -> Vec<String> {
+fn closest_heading_suggestions(heading: &str, headings: &[HeadingInfo]) -> Vec<String> {
     let requested_heading = ParsedHeadingSelector::parse(heading);
     let mut best_distance = usize::MAX;
     let mut suggestions = Vec::new();
 
-    for candidate in parsed.headings.iter().filter(|it| it.level != 1) {
+    for candidate in headings {
         let distance = levenshtein_distance(
             requested_heading.comparable_text,
             comparable_heading_text(candidate.text.as_str()),

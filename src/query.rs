@@ -80,10 +80,10 @@ pub struct ReadNoteResult {
     #[serde(skip_serializing_if = "is_false")]
     #[schemars(with = "Option<bool>")]
     pub truncated: bool,
-    /// Source lines containing the returned content. Present only when truncated.
+    /// Source lines containing the returned content. Present only when content was omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_source: Option<String>,
-    /// First line to request to continue reading. May repeat the final returned line when it was cut mid-line.
+    /// First line to request to continue reading. The returned content always ends at a line boundary.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<McpNonNegativeInteger>")]
     pub next_line: Option<u64>,
@@ -605,7 +605,7 @@ impl VaultQueries {
             .parse_note(&path, &relative_path, self.vault.config().max_note_bytes)
     }
 
-    /// Resolve a parsed link, allowing Markdown links to target notes excluded from discovery.
+    /// Resolve links by known paths before falling back to visible-note discovery.
     pub(crate) fn resolve_link(
         &self,
         link: &LinkInfo,
@@ -631,28 +631,28 @@ impl VaultQueries {
             });
         }
 
-        // A bare wikilink directly matches a root-level note with that name.
-        if !parsed_reference.target.contains('/') && !parsed_reference.target.ends_with(".md") {
-            let direct_target = format!("{}.md", parsed_reference.target);
-            if notes
-                .iter()
-                .any(|note| note.file.relative_path == direct_target)
-            {
-                return Ok(resolve_exact_link(&direct_target, &parsed_reference, notes));
-            }
-        }
-
-        if let Some(relative_target) =
-            source_relative_target(&link.source.path, &parsed_reference.target)
-            && notes
-                .iter()
-                .any(|note| note.file.relative_path == relative_target)
+        // Probe concrete root and source-relative paths only; never enumerate excluded folders.
+        let relative_target = source_relative_target(&link.source.path, &parsed_reference.target);
+        for target in std::iter::once(parsed_reference.target.as_str())
+            .chain(relative_target.as_deref())
+            .filter(|target| !target.is_empty())
         {
-            return Ok(resolve_exact_link(
-                &relative_target,
-                &parsed_reference,
-                notes,
-            ));
+            if let Ok(path) = self.vault.resolve_path(target)
+                && let Some(note) = notes.iter().find(|note| note.file.path == path)
+            {
+                return Ok(resolve_exact_link(
+                    &note.file.relative_path,
+                    &parsed_reference,
+                    std::slice::from_ref(note),
+                ));
+            }
+            if let Some(note) = self.direct_note(target)? {
+                return Ok(resolve_exact_link(
+                    &note.file.relative_path,
+                    &parsed_reference,
+                    std::slice::from_ref(&note),
+                ));
+            }
         }
 
         if !parsed_reference.target.is_empty() {
@@ -682,14 +682,11 @@ impl VaultQueries {
                     candidates,
                 });
             }
-        } else if let Some(note) = notes
-            .iter()
-            .find(|note| note.file.relative_path == link.source.path)
-        {
+        } else if let Some(note) = self.direct_note(&link.source.path)? {
             return Ok(resolve_exact_link(
                 &note.file.relative_path,
                 &parsed_reference,
-                notes,
+                std::slice::from_ref(&note),
             ));
         }
         return Ok(RefResolver::resolve(&reference, notes));
@@ -988,6 +985,17 @@ fn heading_path(reference: &Option<ReferenceInfo>) -> Vec<String> {
     }
 }
 
-fn truncate_chars(input: &str, max_chars: usize) -> String {
-    input.chars().take(max_chars).collect()
+fn truncate_at_line_boundary(input: &str, max_chars: usize) -> String {
+    let mut consumed_chars = 0;
+    let mut byte_end = 0;
+
+    for line in input.split_inclusive('\n') {
+        consumed_chars += line.chars().count();
+        byte_end += line.len();
+        if consumed_chars >= max_chars {
+            break;
+        }
+    }
+
+    input[..byte_end].to_string()
 }

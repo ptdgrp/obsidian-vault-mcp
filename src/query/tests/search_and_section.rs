@@ -69,11 +69,11 @@ fn read_note_truncates_selected_scope_by_unicode_characters() {
         .read_note("字符范围#部分", Some(2), None)
         .expect("read selected scope");
 
-    assert_eq!(result.content, "##");
+    assert_eq!(result.content, "## 部分\n");
     assert!(result.truncated);
     assert_eq!(result.source, "字符范围.md#L3-L5");
     assert_eq!(result.returned_source.as_deref(), Some("字符范围.md#L3"));
-    assert_eq!(result.next_line, Some(3));
+    assert_eq!(result.next_line, Some(4));
 }
 
 #[test]
@@ -359,7 +359,7 @@ fn read_note_supports_explicit_selectors_and_selected_truncation() {
         )
         .expect("read heading");
     assert!(truncated.truncated);
-    assert_eq!(truncated.content, "## 原理");
+    assert_eq!(truncated.content, "## 原理\n");
 }
 
 #[test]
@@ -382,11 +382,15 @@ fn read_note_clamps_line_ranges_to_existing_lines() {
 }
 
 #[test]
-fn read_note_rejects_level_one_heading_without_suggesting_it() {
+fn read_note_accepts_level_one_heading_and_reference() {
     let (dir, queries) = fixture();
-    fs::write(dir.path().join("根章节.md"), "# 根章节\n\n正文\n").expect("write root note");
+    fs::write(
+        dir.path().join("根章节.md"),
+        "# 根章节\n\n正文\n\n## 子章节\n\n子正文\n",
+    )
+    .expect("write root note");
 
-    let error = queries
+    let explicit = queries
         .read_note(
             "根章节",
             None,
@@ -394,12 +398,14 @@ fn read_note_rejects_level_one_heading_without_suggesting_it() {
                 heading: "根章节".to_string(),
             }),
         )
-        .expect_err("level-one heading should not be selectable");
+        .expect("read level-one heading");
+    assert_eq!(explicit.source, "根章节.md#L1-L7");
+    assert!(explicit.content.contains("## 子章节"));
 
-    assert_eq!(
-        error.to_string(),
-        "heading not found: \"根章节\". Note has no selectable headings; level-one headings are note titles. Use a lower-level heading, block id, or line selector."
-    );
+    let reference = queries
+        .read_note("根章节#根章节", None, None)
+        .expect("read level-one heading reference");
+    assert_eq!(reference.content, explicit.content);
 }
 
 #[test]
@@ -500,4 +506,62 @@ fn read_note_suggests_available_headings_when_heading_is_missing() {
         error.to_string(),
         "heading not found: \"Principl\". Did you mean: \"Principle\"?"
     );
+}
+
+#[test]
+fn read_note_returns_complete_budget_line_and_continues_without_gaps() {
+    let (dir, queries) = fixture();
+    for (name, content, budget, expected) in [
+        ("long-line.md", "甲乙丙丁戊己\nnext\n", 2, "甲乙丙丁戊己\n"),
+        ("crlf.md", "甲乙\r\n丙丁\r\n", 3, "甲乙\r\n"),
+        ("exact-line.md", "abc\nnext", 4, "abc\n"),
+        ("no-newline.md", "甲乙丙丁戊己", 2, "甲乙丙丁戊己"),
+    ] {
+        fs::write(dir.path().join(name), content).unwrap();
+        let result = queries.read_note(name, Some(budget), None).unwrap();
+        assert_eq!(result.content, expected, "{name}");
+        assert_eq!(result.truncated, expected.len() < content.len(), "{name}");
+        if let Some(next_line) = result.next_line {
+            assert_eq!(next_line, 2, "{name}");
+            let rest = queries
+                .read_note(&format!("{name}#L{next_line}-"), None, None)
+                .unwrap();
+            assert_eq!(
+                format!("{}{}", result.content, rest.content),
+                content,
+                "{name}"
+            );
+        } else {
+            assert!(result.returned_source.is_none(), "{name}");
+        }
+    }
+}
+
+#[test]
+fn targeted_reads_and_outline_do_not_populate_the_full_parse_cache() {
+    let (dir, queries) = fixture();
+    fs::write(
+        dir.path().join("targeted.md"),
+        "# Root\n\n## Part\n正文 [[link]] #tag\n\n## End\n尾部\n",
+    )
+    .unwrap();
+    let outline = queries.get_note_outline("targeted.md", 1).unwrap();
+    assert_eq!(outline.headings.len(), 2);
+    for reference in ["targeted.md", "targeted.md#L3-L4", "targeted.md#Part"] {
+        assert!(
+            queries
+                .read_note(reference, None, None)
+                .unwrap()
+                .content
+                .contains("正文 [[link]] #tag")
+        );
+    }
+    assert_eq!(queries.parse_cache.len(), 0);
+    queries
+        .vault
+        .modify_config(|config| config.max_note_bytes = 4);
+    for reference in ["targeted.md", "targeted.md#L3-L4", "targeted.md#Part"] {
+        assert!(queries.read_note(reference, None, None).is_err());
+    }
+    assert!(queries.get_note_outline("targeted.md", 1).is_err());
 }

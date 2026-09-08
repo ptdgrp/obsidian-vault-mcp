@@ -150,7 +150,7 @@ impl Vault {
                         return WalkState::Quit;
                     }
                 };
-                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                if entry.depth() == 0 {
                     return WalkState::Continue;
                 }
                 let path = match Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) {
@@ -161,17 +161,27 @@ impl Vault {
                         return WalkState::Quit;
                     }
                 };
-                if path.extension() != Some("md") {
-                    return WalkState::Continue;
-                }
                 let rel = path
                     .strip_prefix(&root)
                     .unwrap_or(&path)
                     .to_string()
                     .replace('\\', "/");
+                let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+                let directory_prefix = format!("{rel}/");
                 if default_ignored(&rel)
+                    || (is_dir && default_ignored(&directory_prefix))
+                    || (is_dir && exclude.is_match(&directory_prefix))
                     || exclude.is_match(&rel)
                     || obsidian_ignore.iter().any(|filter| filter.is_match(&rel))
+                {
+                    return if is_dir {
+                        WalkState::Skip
+                    } else {
+                        WalkState::Continue
+                    };
+                }
+                if !entry.file_type().is_some_and(|kind| kind.is_file())
+                    || path.extension() != Some("md")
                 {
                     return WalkState::Continue;
                 }

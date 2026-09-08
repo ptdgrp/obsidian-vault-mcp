@@ -153,21 +153,30 @@ impl RefResolver {
                 }),
             Some(ReferenceInfo::Heading { value }) => {
                 note.parsed.headings.iter().find_map(|heading| {
-                    (heading.level != 1 && heading_matches(value, heading))
-                        .then(|| canonical_heading_reference(&heading.path))
+                    heading_matches(value, heading).then(|| canonical_heading_reference(heading))
                 })
             }
             Some(ReferenceInfo::MultiHeading { value }) => {
                 note.parsed.headings.iter().find_map(|heading| {
                     (heading.level != 1 && heading_path_matches(value, &heading.path))
-                        .then(|| canonical_heading_reference(&heading.path))
+                        .then(|| canonical_heading_path_reference(&heading.path))
                 })
             }
         }
     }
 }
 
-fn canonical_heading_reference(path: &[String]) -> Option<ReferenceInfo> {
+fn canonical_heading_reference(heading: &crate::parser::HeadingInfo) -> Option<ReferenceInfo> {
+    if heading.level == 1 {
+        return Some(ReferenceInfo::Heading {
+            value: heading.text.clone(),
+        });
+    }
+
+    canonical_heading_path_reference(&heading.path)
+}
+
+fn canonical_heading_path_reference(path: &[String]) -> Option<ReferenceInfo> {
     match path {
         [] => None,
         [heading] => Some(ReferenceInfo::Heading {
