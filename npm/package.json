@@ -1,0 +1,17 @@
+{
+  "name": "@ptdgrp/obsidian-vault-mcp",
+  "version": "0.4.0",
+  "description": "A Rust MCP server for Obsidian vaults",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ptdgrp/obsidian-vault-mcp"
+  },
+  "homepage": "https://github.com/ptdgrp/obsidian-vault-mcp#readme",
+  "license": "MIT",
+  "bin": {
+    "obsidian-vault-mcp": "./bin/obsidian-vault-mcp.js"
+  },
+  "files": ["bin/", "vendor/"],
+  "engines": { "node": ">=18" },
+  "publishConfig": { "access": "public" }
+}

@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.10.0'
+          package-manager-cache: false
+      - name: Match tag and package versions
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$(node -p "require('./npm/package.json').version")"
+          test "$version" = "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "obsidian-vault-mcp") | .version')"
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x64
+            executable: obsidian-vault-mcp
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+            executable: obsidian-vault-mcp
+          - runner: macos-15-intel
+            platform: darwin-x64
+            executable: obsidian-vault-mcp
+          - runner: macos-15
+            platform: darwin-arm64
+            executable: obsidian-vault-mcp
+          - runner: windows-2025
+            platform: win32-x64
+            executable: obsidian-vault-mcp.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release binary
+        shell: bash
+        run: cargo build --locked --release
+      - name: Archive binary
+        shell: bash
+        run: |
+          mkdir -p release
+          tar -czf "release/obsidian-vault-mcp-${{ matrix.platform }}.tar.gz" -C target/release "${{ matrix.executable }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.platform }}
+          path: release/*.tar.gz
+          if-no-files-found: error
+
+  package:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.10.0'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release
+          merge-multiple: true
+      - name: Assemble npm package
+        shell: bash
+        run: bash scripts/package-npm.sh release
+      - name: Save first-publish package and release assets
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            release/*.tar.gz
+            release/*.tgz
+          if-no-files-found: error
+      - name: Publish to npm using OIDC
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@ptdgrp/obsidian-vault-mcp@${version}" version --silent; then
+            echo "Version ${version} is already on npm"
+          else
+            npm publish ./npm --access public
+          fi
+      - name: Create or update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/*.tar.gz --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/*.tar.gz --generate-notes --verify-tag
+          fi
