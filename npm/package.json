@@ -11,7 +11,13 @@
   "bin": {
     "obsidian-vault-mcp": "./bin/obsidian-vault-mcp.js"
   },
-  "files": ["bin/", "vendor/"],
+  "files": ["bin/"],
+  "optionalDependencies": {
+    "@ptdgrp/obsidian-vault-mcp-linux-x64": "0.4.0",
+    "@ptdgrp/obsidian-vault-mcp-linux-arm64": "0.4.0",
+    "@ptdgrp/obsidian-vault-mcp-darwin-arm64": "0.4.0",
+    "@ptdgrp/obsidian-vault-mcp-win32-x64": "0.4.0"
+  },
   "engines": { "node": ">=18" },
   "publishConfig": { "access": "public" }
 }

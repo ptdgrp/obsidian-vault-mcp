@@ -29,7 +29,7 @@
 
 ### 通过 npm 安装
 
-预编译包支持 Linux x64/arm64、macOS x64/arm64 和 Windows x64；启动器需要 Node.js 18 或更新版本：
+预编译包支持 Linux x64/arm64、macOS arm64 和 Windows x64；启动器需要 Node.js 18 或更新版本：
 
 ```sh
 npm install -g @ptdgrp/obsidian-vault-mcp
@@ -39,6 +39,7 @@ obsidian-vault-mcp serve
 配置 MCP 客户端时，命令可设为 `npx`，参数设为
 `["-y", "@ptdgrp/obsidian-vault-mcp", "--vault", "/笔记库的绝对路径", "serve"]`。
 npm 包只包含默认的 Markdown 功能；附件读取和 OCR 需要从源码构建。
+启动包通过可选平台依赖安装对应的二进制包；不要禁用 npm 的可选依赖。
 
 ### 从源码构建
 

@@ -42,7 +42,7 @@ limits still apply.
 ### Install from npm
 
 Node.js 18 or newer is required to launch the bundled binary. Prebuilt packages
-support Linux x64/arm64, macOS x64/arm64, and Windows x64:
+support Linux x64/arm64, macOS arm64, and Windows x64:
 
 ```sh
 npm install -g @ptdgrp/obsidian-vault-mcp
@@ -53,6 +53,8 @@ For an MCP client, set the command to `npx` and the arguments to
 `["-y", "@ptdgrp/obsidian-vault-mcp", "--vault", "/absolute/path/to/vault", "serve"]`.
 The npm package uses the default Markdown feature set. Build from source to enable
 attachment reading or OCR.
+The launcher uses optional platform packages, so npm downloads only the binary
+for the current operating system and CPU. Do not disable optional dependencies.
 
 ### Build from source
 

@@ -1,5 +1,7 @@
 target/
 .DS_Store
 .worktrees/
-npm/vendor/
 npm/LICENSE
+npm/platforms/
+release-bundle/
+release-split/

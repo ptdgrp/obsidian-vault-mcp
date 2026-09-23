@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 
 const { spawn } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
 
 const binaries = {
   "linux-x64": "obsidian-vault-mcp",
   "linux-arm64": "obsidian-vault-mcp",
-  "darwin-x64": "obsidian-vault-mcp",
   "darwin-arm64": "obsidian-vault-mcp",
   "win32-x64": "obsidian-vault-mcp.exe",
 };
@@ -19,9 +16,12 @@ if (!name) {
   process.exit(1);
 }
 
-const binary = path.join(__dirname, "..", "vendor", platform, name);
-if (!fs.existsSync(binary)) {
-  console.error(`obsidian-vault-mcp: missing binary for ${platform}; reinstall the package`);
+let binary;
+try {
+  binary = require.resolve(`@ptdgrp/obsidian-vault-mcp-${platform}/bin/${name}`);
+} catch (error) {
+  if (error.code !== "MODULE_NOT_FOUND") throw error;
+  console.error(`obsidian-vault-mcp: missing binary package for ${platform}; reinstall with optional dependencies enabled`);
   process.exit(1);
 }
 

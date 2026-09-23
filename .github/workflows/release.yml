@@ -3,6 +3,8 @@ name: Release
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -43,9 +45,6 @@ jobs:
           - runner: ubuntu-24.04-arm
             platform: linux-arm64
             executable: obsidian-vault-mcp
-          - runner: macos-15-intel
-            platform: darwin-x64
-            executable: obsidian-vault-mcp
           - runner: macos-15
             platform: darwin-arm64
             executable: obsidian-vault-mcp
@@ -55,15 +54,27 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Cargo dependencies and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ matrix.platform }}-
       - name: Build release binary
         shell: bash
         run: cargo build --locked --release
       - name: Archive binary
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           mkdir -p release
           tar -czf "release/obsidian-vault-mcp-${{ matrix.platform }}.tar.gz" -C target/release "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         with:
           name: binary-${{ matrix.platform }}
           path: release/*.tar.gz
@@ -71,6 +82,7 @@ jobs:
 
   package:
     needs: build
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -89,7 +101,7 @@ jobs:
           merge-multiple: true
       - name: Assemble npm package
         shell: bash
-        run: bash scripts/package-npm.sh release
+        run: node scripts/package-npm.mjs release
       - name: Save first-publish package and release assets
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
@@ -99,11 +111,23 @@ jobs:
             release/*.tar.gz
             release/*.tgz
           if-no-files-found: error
-      - name: Publish to npm using OIDC
+      - name: Publish platform packages and launcher to npm using OIDC
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" == "0.4.0" ]]; then
+            echo "Version 0.4.0 was published during npm bootstrap"
+            exit 0
+          fi
+          for platform in linux-x64 linux-arm64 darwin-arm64 win32-x64; do
+            package="@ptdgrp/obsidian-vault-mcp-${platform}"
+            if npm view "${package}@${version}" version --silent >/dev/null 2>&1; then
+              echo "${package}@${version} is already on npm"
+            else
+              npm publish "./npm/platforms/${platform}" --access public
+            fi
+          done
           if npm view "@ptdgrp/obsidian-vault-mcp@${version}" version --silent; then
             echo "Version ${version} is already on npm"
           else

@@ -20,6 +20,6 @@ Or run it directly from an MCP client:
 }
 ```
 
-Use `--vault /absolute/path/to/vault` before `serve` when the client does not launch in the vault directory. The package supports Linux x64/arm64, macOS x64/arm64, and Windows x64. Node.js is needed only to launch the bundled Rust binary.
+Use `--vault /absolute/path/to/vault` before `serve` when the client does not launch in the vault directory. The package supports Linux x64/arm64, macOS arm64, and Windows x64. npm installs only the matching optional platform package. Node.js is needed only to launch its Rust binary.
 
 The npm build contains the default Markdown feature set. See the [project README](https://github.com/ptdgrp/obsidian-vault-mcp#readme) for CLI options and source builds with attachment support.
