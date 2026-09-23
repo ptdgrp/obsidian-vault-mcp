@@ -49,10 +49,12 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
         names,
         vec![
             "append_section",
+            "apply_patch",
             "audit_links",
             "create_note",
             "delete_note",
             "delete_section",
+            "edit_note",
             "get_backlinks",
             "get_category",
             "get_note_neighborhood",

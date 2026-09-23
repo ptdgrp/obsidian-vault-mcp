@@ -11,10 +11,12 @@ server supports structural section edits as well as read operations.
 | Tool | Description |
 | --- | --- |
 | `append_section` | Append content at the end of exactly one heading or block section. This uses structural selection, not text matching. |
+| `apply_patch` | Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default. |
 | `audit_links` | Audit unresolved and ambiguous local links across the visible vault. |
 | `create_note` | Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file. |
 | `delete_note` | Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply. |
 | `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
+| `edit_note` | Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
@@ -56,6 +58,25 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `changed` | `string` | yes |  |
+
+
+## 🔧 `apply_patch`
+
+Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default; set `dry_run` to false to write. Use `create_note` or `delete_note` for file additions or removals. Every file in the patch must be an existing `.md` note; file headers use `--- a/path.md` and `+++ b/path.md`. The patch is validated across all changed notes before any write, then writes are performed one note at a time.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
+| `patch` | `string` | yes | Unified diff with one or more Markdown file hunks. |
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes | Vault-relative paths that were changed. |
+| `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 
 
 ## 🔧 `audit_links`
@@ -166,6 +187,27 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `changed` | `string` | yes |  |
+
+
+## 🔧 `edit_note`
+
+Replace exact `old_text` that occurs once in an existing Markdown note. Preview is the default; set `dry_run` to false to write. The edit is rejected if a preserved link or embed would become unresolved. New links introduced by the edit can be checked with `audit_links`.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
+| `new_text` | `string` | yes | Text to put in place of the old text. |
+| `old_text` | `string` | yes | Nonempty text that must occur exactly once. |
+| `path` | `string` | yes | Existing vault-relative Markdown path ending in .md. |
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | yes | Whether changes were only previewed. |
+| `path` | `string` | yes | Vault-relative path of the edited note. |
 
 
 ## 🔧 `get_backlinks`

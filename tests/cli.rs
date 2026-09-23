@@ -757,6 +757,57 @@ fn create_and_delete_note_commands_use_exact_paths_and_preview_deletion() {
 }
 
 #[test]
+fn edit_note_and_apply_patch_commands_update_existing_notes() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "Text.md", "# Text\n\nold\n");
+    let preview = run_cli(&dir, &["edit-note", "Text.md", "old", "new"]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview_value: Value = serde_json::from_slice(&preview.stdout).expect("preview json");
+    assert_eq!(preview_value["dry_run"], true);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\nold\n"
+    );
+    let edited = run_cli(
+        &dir,
+        &["edit-note", "Text.md", "old", "new", "--dry-run=false"],
+    );
+    assert!(
+        edited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited.stderr)
+    );
+    let patch = "--- a/Text.md\n+++ b/Text.md\n@@ -3 +3 @@\n-new\n+patched\n";
+    let patch_preview = run_cli(&dir, &["apply-patch", patch]);
+    assert!(
+        patch_preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&patch_preview.stderr)
+    );
+    let patch_preview_value: Value =
+        serde_json::from_slice(&patch_preview.stdout).expect("patch preview json");
+    assert_eq!(patch_preview_value["dry_run"], true);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\nnew\n"
+    );
+    let patched = run_cli(&dir, &["apply-patch", patch, "--dry-run=false"]);
+    assert!(
+        patched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&patched.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\npatched\n"
+    );
+}
+
+#[test]
 fn invalid_tag_scope_exits_with_clear_diagnostic() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "林动.md", "# 林动\n");
@@ -969,10 +1020,12 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
         names,
         vec![
             "append_section",
+            "apply_patch",
             "audit_links",
             "create_note",
             "delete_note",
             "delete_section",
+            "edit_note",
             "get_note_outline",
             "get_note_stats",
             "get_note_structure",

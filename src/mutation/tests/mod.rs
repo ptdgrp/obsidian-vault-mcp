@@ -11,6 +11,7 @@ use crate::{
 
 mod note_more;
 mod rename_more;
+mod text_more;
 
 fn fixture() -> (tempfile::TempDir, VaultMutations) {
     let dir = tempdir().expect("tempdir");

@@ -2,8 +2,8 @@
 use crate::attachment::ReadAttachmentResult;
 use crate::{
     mutation::{
-        CreateNoteResult, DeleteNoteResult, EditSectionResult, RenameResult, SetBlockIdResult,
-        VaultMutations,
+        ApplyPatchResult, CreateNoteResult, DeleteNoteResult, EditNoteResult, EditSectionResult,
+        RenameResult, SetBlockIdResult, VaultMutations,
     },
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
@@ -474,6 +474,30 @@ pub struct DeleteNoteRequest {
     /// Existing vault-relative path ending in .md.
     pub path: String,
     /// Preview without deleting. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for a unique exact-text replacement in an existing Markdown note.
+pub struct EditNoteRequest {
+    /// Existing vault-relative Markdown path ending in .md.
+    pub path: String,
+    /// Nonempty text that must occur exactly once.
+    pub old_text: String,
+    /// Text to put in its place.
+    pub new_text: String,
+    /// Preview without writing. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for applying a unified diff to existing Markdown notes.
+pub struct ApplyPatchRequest {
+    /// Unified diff with --- a/path.md and +++ b/path.md headers and one or more hunks.
+    pub patch: String,
+    /// Preview all changed notes without writing. Defaults to true.
     #[serde(default = "default_dry_run")]
     pub dry_run: bool,
 }
@@ -956,6 +980,42 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
+        description = "Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default."
+    )]
+    fn edit_note(
+        &self,
+        Parameters(request): Parameters<EditNoteRequest>,
+    ) -> Result<Json<EditNoteResult>, String> {
+        run_tool(
+            "edit_note",
+            request,
+            |EditNoteRequest {
+                 path,
+                 old_text,
+                 new_text,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .edit_note(&path, &old_text, &new_text, dry_run)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default."
+    )]
+    fn apply_patch(
+        &self,
+        Parameters(request): Parameters<ApplyPatchRequest>,
+    ) -> Result<Json<ApplyPatchResult>, String> {
+        run_tool(
+            "apply_patch",
+            request,
+            |ApplyPatchRequest { patch, dry_run }| self.mutations().apply_patch(&patch, dry_run),
+        )
+    }
+
+    #[tool(
         description = "Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links."
     )]
     fn replace_section(
@@ -1195,6 +1255,42 @@ impl ProjectMarkdownMcp {
             "delete_note",
             request,
             |DeleteNoteRequest { path, dry_run }| self.mutations().delete_note(&path, dry_run),
+        )
+    }
+
+    #[tool(
+        description = "Replace text that occurs exactly once in one project Markdown note. Refuse edits that break preserved links or embeds. Preview is the default."
+    )]
+    fn edit_note(
+        &self,
+        Parameters(request): Parameters<EditNoteRequest>,
+    ) -> Result<Json<EditNoteResult>, String> {
+        run_tool(
+            "edit_note",
+            request,
+            |EditNoteRequest {
+                 path,
+                 old_text,
+                 new_text,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .edit_note(&path, &old_text, &new_text, dry_run)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Apply a unified diff to existing project Markdown notes after validating every hunk and preserved reference. Preview is the default."
+    )]
+    fn apply_patch(
+        &self,
+        Parameters(request): Parameters<ApplyPatchRequest>,
+    ) -> Result<Json<ApplyPatchResult>, String> {
+        run_tool(
+            "apply_patch",
+            request,
+            |ApplyPatchRequest { patch, dry_run }| self.mutations().apply_patch(&patch, dry_run),
         )
     }
 

@@ -1,6 +1,7 @@
 mod edit;
 mod note;
 mod rename;
+mod text;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,18 @@ pub struct CreateNoteResult {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteNoteResult {
     pub path: String,
+    pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct EditNoteResult {
+    pub path: String,
+    pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ApplyPatchResult {
+    pub changed_notes: Vec<String>,
     pub dry_run: bool,
 }
 

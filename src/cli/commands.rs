@@ -310,6 +310,27 @@ pub(crate) enum Command {
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
+    /// Replace one exact text occurrence in an existing Markdown note. Preview is the default.
+    EditNote {
+        /// Existing vault-relative Markdown path ending in .md.
+        path: String,
+        /// Nonempty text that must occur exactly once.
+        old_text: String,
+        /// Replacement text.
+        new_text: String,
+        /// Preview without writing.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        dry_run: bool,
+    },
+    /// Apply a unified diff to existing Markdown notes. Preview is the default.
+    ApplyPatch {
+        /// Unified diff text with a/path.md and b/path.md file headers.
+        #[arg(allow_hyphen_values = true)]
+        patch: String,
+        /// Preview without writing.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        dry_run: bool,
+    },
     /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
     RenameHeading {
         /// Vault-relative path, note stem, or alias.
@@ -381,6 +402,8 @@ impl Command {
             Self::DeleteSection { .. } => "delete_section",
             Self::CreateNote { .. } => "create_note",
             Self::DeleteNote { .. } => "delete_note",
+            Self::EditNote { .. } => "edit_note",
+            Self::ApplyPatch { .. } => "apply_patch",
             Self::RenameHeading { .. } => "rename_heading",
             Self::RenameNote { .. } => "rename_note",
             Self::SetBlockId { .. } => "set_block_id",
@@ -612,6 +635,15 @@ impl Command {
             }
             Command::DeleteNote { path, dry_run } => {
                 print_value(&mutations.delete_note(&path, dry_run)?)?
+            }
+            Command::EditNote {
+                path,
+                old_text,
+                new_text,
+                dry_run,
+            } => print_value(&mutations.edit_note(&path, &old_text, &new_text, dry_run)?)?,
+            Command::ApplyPatch { patch, dry_run } => {
+                print_value(&mutations.apply_patch(&patch, dry_run)?)?
             }
             Command::RenameHeading {
                 note,

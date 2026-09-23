@@ -5,10 +5,10 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use super::fixture;
 use crate::query::{FrontmatterMatchMode, TagScope};
 use crate::server::{
-    AppendSectionRequest, AuditLinksRequest, CreateNoteRequest, DeleteNoteRequest, GetTagRequest,
-    ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest, NoteStructureRequest,
-    ObsidianVaultMcp, ReadNoteRequest, ReplaceSectionRequest, SearchRegexRequest,
-    SearchTextRequest, SetBlockIdRequest,
+    AppendSectionRequest, ApplyPatchRequest, AuditLinksRequest, CreateNoteRequest,
+    DeleteNoteRequest, EditNoteRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest,
+    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
+    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, SetBlockIdRequest,
 };
 
 const TASK_DEFINITION_LIST_NOTES: &str = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.";
@@ -35,6 +35,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         .map(|tool| tool.name.to_string())
         .collect::<BTreeSet<_>>();
     let expected = [
+        "apply_patch",
         "list_notes",
         "audit_links",
         "get_note_neighborhood",
@@ -57,6 +58,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "append_section",
         "create_note",
         "delete_note",
+        "edit_note",
         "replace_section",
         "delete_section",
         "rename_note",
@@ -447,6 +449,32 @@ fn create_and_delete_note_tools_work_through_server_surface() {
         .expect("delete note");
     assert!(!deleted.dry_run);
     assert!(!dir.path().join("drafts/New.md").exists());
+}
+
+#[test]
+fn text_edit_tools_work_through_server_surface() {
+    let (dir, server) = fixture();
+    fs::write(dir.path().join("Text.md"), "# Text\n\nold\n").expect("write text note");
+    let Json(edited) = server
+        .edit_note(Parameters(EditNoteRequest {
+            path: "Text.md".to_string(),
+            old_text: "old".to_string(),
+            new_text: "new".to_string(),
+            dry_run: false,
+        }))
+        .expect("edit note");
+    assert_eq!(edited.path, "Text.md");
+    let Json(patched) = server
+        .apply_patch(Parameters(ApplyPatchRequest {
+            patch: "--- a/Text.md\n+++ b/Text.md\n@@ -3 +3 @@\n-new\n+patched\n".to_string(),
+            dry_run: false,
+        }))
+        .expect("apply patch");
+    assert_eq!(patched.changed_notes, ["Text.md"]);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\npatched\n"
+    );
 }
 
 #[test]
