@@ -6,9 +6,10 @@ use super::fixture;
 use crate::query::{FrontmatterMatchMode, TagScope};
 use crate::server::{
     AppendSectionRequest, ApplyPatchRequest, AuditLinksRequest, CreateNoteRequest,
-    DeleteNoteRequest, EditNoteRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest,
-    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
-    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, SetBlockIdRequest,
+    DeleteNoteRequest, EditHistoryRequest, EditNoteRequest, GetTagRequest, ListNotesRequest,
+    NeighborhoodRequest, NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp,
+    ReadNoteRequest, ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest,
+    SetBlockIdRequest, UndoRedoRequest,
 };
 
 const TASK_DEFINITION_LIST_NOTES: &str = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.";
@@ -55,15 +56,18 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "list_categories",
         "get_category",
         "query_frontmatter",
+        "redo_edit",
         "append_section",
         "create_note",
         "delete_note",
+        "edit_history",
         "edit_note",
         "replace_section",
         "delete_section",
         "rename_note",
         "rename_heading",
         "set_block_id",
+        "undo_edit",
     ]
     .into_iter()
     .map(str::to_string)
@@ -474,6 +478,58 @@ fn text_edit_tools_work_through_server_surface() {
     assert_eq!(
         fs::read_to_string(dir.path().join("Text.md")).unwrap(),
         "# Text\n\npatched\n"
+    );
+}
+
+#[test]
+fn undo_and_redo_tools_apply_the_latest_server_edit() {
+    let (dir, server) = fixture();
+    fs::write(dir.path().join("Text.md"), "# Text\n\nold\n").unwrap();
+    server
+        .edit_note(Parameters(EditNoteRequest {
+            path: "Text.md".into(),
+            old_text: "old".into(),
+            new_text: "new".into(),
+            dry_run: false,
+        }))
+        .expect("edit note");
+    server
+        .edit_note(Parameters(EditNoteRequest {
+            path: "Text.md".into(),
+            old_text: "new".into(),
+            new_text: "latest".into(),
+            dry_run: false,
+        }))
+        .expect("second edit");
+    let Json(before) = server
+        .edit_history(Parameters(EditHistoryRequest {}))
+        .expect("history");
+    assert_eq!(before.undo.len(), 2);
+    assert!(before.redo.is_empty());
+    assert_eq!(before.undo[0].command, "edit_note");
+    assert_eq!(before.undo[0].affected_files, ["Text.md"]);
+    assert!(!before.undo[0].timestamp.is_empty());
+    let Json(undone) = server
+        .undo_edit(Parameters(UndoRedoRequest { steps: 2 }))
+        .expect("undo edit");
+    assert!(undone.conflicts.is_empty());
+    assert_eq!(undone.operation_ids.len(), 2);
+    assert_eq!(undone.changed_notes, ["Text.md"]);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\nold\n"
+    );
+    let Json(redone) = server
+        .redo_edit(Parameters(UndoRedoRequest { steps: 2 }))
+        .expect("redo edit");
+    assert!(redone.conflicts.is_empty());
+    assert_eq!(
+        redone.operation_ids,
+        undone.operation_ids.into_iter().rev().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "# Text\n\nlatest\n"
     );
 }
 

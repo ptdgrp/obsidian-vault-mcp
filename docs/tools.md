@@ -16,21 +16,23 @@ server supports structural section edits as well as read operations.
 | `create_note` | Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file. |
 | `delete_note` | Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply. |
 | `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
+| `edit_history` | Show undoable and redoable edits in this server process, newest first, with command, time, and affected files. |
 | `edit_note` | Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
 | `get_note_outline` | Return one note's selectable non-H1 headings as a flat paged list without body text; use before read_note. |
 | `get_note_stats` | Return one note or bare heading/block reference's word, character, and line counts |
-| `get_note_structure` | Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter |
+| `get_note_structure` | Summarize one note: headings, tags, embeds, block IDs, frontmatter field names, and link count. Use get_outlinks for link targets. |
 | `get_outlinks` | Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups |
 | `get_tag` | Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_categories` | List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_notes` | Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
-| `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters. |
-| `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line. |
+| `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. |
+| `read_note` | Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note. |
+| `redo_edit` | Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
 | `replace_section` | Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links. |
@@ -38,6 +40,7 @@ server supports structural section edits as well as read operations.
 | `search_regex` | Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `set_block_id` | Set, generate, replace, or delete one lowercase block id. Select by existing id or unique block content. Replacements update resolved wikilinks; deletion is refused while references exist. Set dry_run to false to apply. |
+| `undo_edit` | Undo the latest edit or requested number of steps in this server process. The whole request is rejected on conflict. |
 
 ## 🔧 `append_section`
 
@@ -57,25 +60,26 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed` | `string` | yes |  |
+| `changed` | `string` | yes | Vault-relative path of the note that was changed. |
 
 
 ## 🔧 `apply_patch`
 
-Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default; set `dry_run` to false to write. Use `create_note` or `delete_note` for file additions or removals. Every file in the patch must be an existing `.md` note; file headers use `--- a/path.md` and `+++ b/path.md`. The patch is validated across all changed notes before any write, then writes are performed one note at a time.
+Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
-| `patch` | `string` | yes | Unified diff with one or more Markdown file hunks. |
+| `dry_run` | `boolean` | no | Preview all changed notes without writing. Defaults to true. |
+| `patch` | `string` | yes | Unified diff with --- a/path.md and +++ b/path.md headers and one or more hunks. |
+
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed_notes` | `string[]` | yes | Vault-relative paths that were changed. |
+| `changed_notes` | `string[]` | yes | Vault-relative paths that would change or were changed. |
 | `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 
 
@@ -143,6 +147,7 @@ Input:
 | `content` | `string` | yes | Complete Markdown content for the new note. |
 | `path` | `string` | yes | New vault-relative path ending in .md; parent directories are created. |
 
+
 Output:
 
 | Field | Type | Required | Description |
@@ -160,6 +165,7 @@ Input:
 | --- | --- | --- | --- |
 | `dry_run` | `boolean` | no | Preview without deleting. Defaults to true. |
 | `path` | `string` | yes | Existing vault-relative path ending in .md. |
+
 
 Output:
 
@@ -186,21 +192,50 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed` | `string` | yes |  |
+| `changed` | `string` | yes | Vault-relative path of the note that was changed. |
+
+
+## 🔧 `edit_history`
+
+Show undoable and redoable edits in this server process, newest first, with command, time, and affected files.
+
+Input:
+
+Type: `object`
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `redo` | `EditHistoryEntry[]` | yes | Next operation to redo first. |
+| `undo` | `EditHistoryEntry[]` | yes | Most recent undoable operation first. |
+
+Nested types:
+
+### `EditHistoryEntry`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `affected_files` | `string[]` | yes | Vault-relative paths affected by the edit. |
+| `command` | `string` | yes | Tool or command that created the edit. |
+| `operation_id` | `string` | yes | Unique identifier for this undo or redo operation. |
+| `timestamp` | `string` | yes | Time the edit was recorded. |
 
 
 ## 🔧 `edit_note`
 
-Replace exact `old_text` that occurs once in an existing Markdown note. Preview is the default; set `dry_run` to false to write. The edit is rejected if a preserved link or embed would become unresolved. New links introduced by the edit can be checked with `audit_links`.
+Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
-| `new_text` | `string` | yes | Text to put in place of the old text. |
+| `new_text` | `string` | yes | Text to put in its place. |
 | `old_text` | `string` | yes | Nonempty text that must occur exactly once. |
 | `path` | `string` | yes | Existing vault-relative Markdown path ending in .md. |
+
 
 Output:
 
@@ -218,9 +253,9 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching backlink source notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A backlink source note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 50 backlink occurrences. |
+| `exclude` | `string[]` | no | Exclude matching source-note path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching source-note path glob; empty means all sources. |
+| `page` | `integer` | no | Page of up to 50 backlink occurrences (1-based). |
 | `target` | `string` | yes | Note path, stem, alias, or Obsidian reference to find inbound links for. |
 
 
@@ -259,9 +294,9 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `category` | `string` | yes | Exact folder-derived category name to locate. |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 notes. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 100 notes (1-based). |
 
 
 Output:
@@ -352,7 +387,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 headings. |
+| `page` | `integer` | no | Page of up to 100 headings (1-based). |
 
 
 Output:
@@ -404,7 +439,7 @@ Output:
 
 ## 🔧 `get_note_structure`
 
-Return one Markdown note's compact structure: headings, local links, embeds, tags, block ids, and frontmatter
+Summarize one note: headings, tags, embeds, block IDs, frontmatter field names, and link count. Use get_outlinks for link targets.
 
 Input:
 
@@ -445,7 +480,7 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 50 link occurrences. |
+| `page` | `integer` | no | Page of up to 50 link occurrences (1-based). |
 
 
 Output:
@@ -499,10 +534,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 locators. |
-| `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 100 locators (1-based). |
+| `scope` | `TagScope` | no | Where to look for tags. |
 | `tag` | `string` | yes | Exact tag to locate. Both "状态/身体" and "#状态/身体" are accepted. |
 
 Nested types:
@@ -544,9 +579,9 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 categories. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 100 categories (1-based). |
 
 
 Output:
@@ -575,9 +610,9 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no |  |
-| `include` | `string[]` | no |  |
-| `limit` | `integer \| null` | no | Optional number of notes per page. Must be between 1 and 100; defaults to 100. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `limit` | `integer \| null` | no | Notes per page; defaults to 100. |
 | `page` | `integer` | no |  |
 
 
@@ -614,10 +649,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 tags. |
-| `scope` | `TagScope` | no | Scope to search: note, frontmatter, body, section, or line. Defaults to note. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 100 tags (1-based). |
+| `scope` | `TagScope` | no | Where to look for tags. |
 
 Nested types:
 
@@ -658,11 +693,11 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `field` | `string` | yes | Top-level frontmatter field name. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
 | `mode` | `FrontmatterMatchMode` | yes | Match mode. Use exists to find notes that contain the field without matching a value. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 100 matching notes. |
+| `page` | `integer` | no | Page of up to 100 matching notes (1-based). |
 | `value` | `string \| null` | no | Value used by equals or regex mode. |
 
 Nested types:
@@ -696,7 +731,7 @@ Nested types:
 
 ## 🔧 `read_attachment`
 
-Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. max_chars limits returned Unicode characters.
+Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime.
 
 Input:
 
@@ -704,7 +739,7 @@ Input:
 | --- | --- | --- | --- |
 | `include_embedded_images` | `boolean` | no | OCR embedded PNG or JPEG images in a DOCX. Defaults to false. |
 | `max_chars` | `integer \| null` | no | Optional Unicode-character limit for this request. |
-| `page` | `integer \| null` | no | One-based PDF page number. Omit to read every page; not valid for DOCX or PNG. |
+| `page` | `integer \| null` | no | PDF page (1-based); omit for all pages. PDF only. |
 | `path` | `string` | yes | Project-relative PDF, DOCX, PNG, or JPEG path. The extension is required. |
 
 
@@ -734,17 +769,17 @@ Nested types:
 
 ## 🔧 `read_note`
 
-Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line.
+Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
-| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `line` | `string \| null` | no | Line reference with an optional second `L`, e.g. #L1, #L1-L99, or #L1-99. |
-| `max_chars` | `integer \| null` | no | Optional character limit for this request. |
-| `note` | `string` | yes | Workspace-relative path, note stem, alias, or bare Obsidian reference. |
+| `heading` | `string \| null` | no | Heading text, anchor, or slash-separated path; H1 and Markdown heading syntax are accepted. |
+| `line` | `string \| null` | no | Line or inclusive range, e.g. L3 or L3-L20. |
+| `max_chars` | `integer \| null` | no | Unicode-character budget; the complete boundary line is returned even if it exceeds this value. |
+| `note` | `string` | yes | Relative path, stem, alias, or reference: Note#Heading, Note#^id, Note#L1-L20. |
 
 
 Output:
@@ -752,10 +787,30 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `content` | `string` | yes |  |
-| `next_line` | `integer \| null` | no | First line to request to continue reading. May repeat the final returned line when it was cut mid-line. |
-| `returned_source` | `string \| null` | no | Source lines containing the returned content. Present only when truncated. |
-| `source` | `string` | yes |  |
-| `truncated` | `boolean \| null` | no |  |
+| `next_line` | `integer \| null` | no | Next unread line when truncated; resume with note#L{next_line}-. |
+| `returned_source` | `string \| null` | no | Actual returned source range when truncated. |
+| `source` | `string` | yes | Selected source range before truncation, e.g. note.md#L3-L20. |
+| `truncated` | `boolean \| null` | no | True when selected content remains unread; omitted otherwise. |
+
+
+## 🔧 `redo_edit`
+
+Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `steps` | `integer` | no | Number of consecutive operations to undo or redo. Defaults to 1. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes | Vault-relative paths changed by this request. |
+| `conflicts` | `string[]` | yes | Conflicts that prevented one or more operations from being redone. |
+| `operation_ids` | `string[]` | yes | Identifiers of operations redone by this request. |
 
 
 ## 🔧 `rename_heading`
@@ -821,7 +876,7 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed` | `string` | yes |  |
+| `changed` | `string` | yes | Vault-relative path of the note that was changed. |
 
 
 ## 🔧 `resolve_ref`
@@ -854,9 +909,9 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 50 matching lines. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 | `pattern` | `string` | yes | Rust regex pattern matched line by line. |
 
 
@@ -894,9 +949,9 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `exclude` | `string[]` | no | Vault-relative glob patterns. Matching notes are excluded. |
-| `include` | `string[]` | no | Vault-relative glob patterns. A note must match at least one when non-empty. |
-| `page` | `integer` | no | One-based page number. Each page contains up to 50 matching lines. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 | `query` | `string` | yes | Literal text to search for. |
 
 
@@ -949,3 +1004,23 @@ Output:
 | `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 | `previous_block_id` | `string \| null` | no | Block id present before this operation, if any. |
 | `updated_references` | `integer` | yes |  |
+
+
+## 🔧 `undo_edit`
+
+Undo the latest edit or requested number of steps in this server process. The whole request is rejected on conflict.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `steps` | `integer` | no | Number of consecutive operations to undo or redo. Defaults to 1. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed_notes` | `string[]` | yes | Vault-relative paths changed by this request. |
+| `conflicts` | `string[]` | yes | Conflicts that prevented one or more operations from being undone. |
+| `operation_ids` | `string[]` | yes | Identifiers of operations undone by this request. |

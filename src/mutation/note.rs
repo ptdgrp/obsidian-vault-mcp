@@ -1,11 +1,13 @@
-use std::io::Write;
-
+use super::history::FileChange;
 use super::{CreateNoteResult, DeleteNoteResult, VaultMutations, rename::link_targets_note};
 
 impl VaultMutations {
     pub fn create_note(&self, path: &str, content: &str) -> anyhow::Result<CreateNoteResult> {
         let destination = self.queries.vault.resolve_exact_note_path(path)?;
         let relative_path = self.queries.vault.relative_path(&destination);
+        if destination.exists() {
+            anyhow::bail!("cannot create note `{relative_path}`: destination already exists");
+        }
         let maximum = self.queries.vault.config().max_note_bytes;
         if content.len() > maximum {
             anyhow::bail!(
@@ -26,17 +28,14 @@ impl VaultMutations {
         if !std::fs::canonicalize(existing)?.starts_with(&root) {
             anyhow::bail!("note path escapes vault root: {path}");
         }
-        std::fs::create_dir_all(parent)?;
-        if !std::fs::canonicalize(parent)?.starts_with(root) {
-            anyhow::bail!("note path escapes vault root: {path}");
-        }
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        temporary.write_all(content.as_bytes())?;
-        temporary.flush()?;
-        temporary.persist_noclobber(&destination).map_err(|error| {
-            anyhow::anyhow!("cannot create note `{relative_path}`: {}", error.error)
-        })?;
-        self.queries.parse_cache.invalidate(&relative_path);
+        self.commit_changes(
+            "create_note",
+            vec![FileChange {
+                path: relative_path.clone(),
+                before: None,
+                after: Some(content.to_string()),
+            }],
+        )?;
         Ok(CreateNoteResult {
             path: relative_path,
         })
@@ -96,8 +95,15 @@ impl VaultMutations {
             );
         }
         if !dry_run {
-            std::fs::remove_file(&target_path)?;
-            self.queries.parse_cache.invalidate(&relative_path);
+            let original = std::fs::read_to_string(&target_path)?;
+            self.commit_changes(
+                "delete_note",
+                vec![FileChange {
+                    path: relative_path.clone(),
+                    before: Some(original),
+                    after: None,
+                }],
+            )?;
         }
         Ok(DeleteNoteResult {
             path: relative_path,

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use camino::Utf8PathBuf;
 
+use super::history::FileChange;
 use super::{ApplyPatchResult, EditNoteResult, VaultMutations};
 use crate::{
     parser::{NoteParser, ReferenceInfo},
@@ -55,7 +56,7 @@ impl VaultMutations {
                 updated,
             },
         );
-        self.apply_planned_edits(edits, dry_run)?;
+        self.apply_planned_edits("edit_note", edits, dry_run)?;
         Ok(EditNoteResult {
             path: relative_path,
             dry_run,
@@ -80,7 +81,7 @@ impl VaultMutations {
                 },
             );
         }
-        self.apply_planned_edits(edits, dry_run)
+        self.apply_planned_edits("apply_patch", edits, dry_run)
     }
 
     fn read_editable_note(&self, path: &str) -> anyhow::Result<(Utf8PathBuf, String, String)> {
@@ -101,6 +102,7 @@ impl VaultMutations {
 
     fn apply_planned_edits(
         &self,
+        operation: &str,
         edits: BTreeMap<String, PlannedEdit>,
         dry_run: bool,
     ) -> anyhow::Result<ApplyPatchResult> {
@@ -122,12 +124,15 @@ impl VaultMutations {
                 anyhow::bail!("note changed on disk before edit: `{relative_path}`");
             }
         }
-        let mut changed_notes = Vec::new();
-        for (relative_path, edit) in &edits {
-            if !dry_run {
-                self.write_note_atomic(&edit.path, relative_path, &edit.updated)?;
-            }
-            changed_notes.push(relative_path.clone());
+        let changed_notes = edits.keys().cloned().collect();
+        if !dry_run {
+            self.commit_changes(
+                operation,
+                edits
+                    .into_iter()
+                    .map(|(path, edit)| FileChange::replace(path, edit.original, edit.updated))
+                    .collect(),
+            )?;
         }
         Ok(ApplyPatchResult {
             changed_notes,

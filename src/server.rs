@@ -2,8 +2,9 @@
 use crate::attachment::ReadAttachmentResult;
 use crate::{
     mutation::{
-        ApplyPatchResult, CreateNoteResult, DeleteNoteResult, EditNoteResult, EditSectionResult,
-        RenameResult, SetBlockIdResult, VaultMutations,
+        ApplyPatchResult, CreateNoteResult, DeleteNoteResult, EditHistoryResult, EditNoteResult,
+        EditSectionResult, RedoEditResult, RenameResult, SetBlockIdResult, UndoEditResult,
+        VaultMutations,
     },
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
@@ -503,6 +504,17 @@ pub struct ApplyPatchRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct UndoRedoRequest {
+    /// Number of consecutive operations to undo or redo. Defaults to 1.
+    #[serde(default = "default_steps")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1, max = 100))]
+    pub steps: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EditHistoryRequest {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 /// Input for safely renaming one heading and its uniquely resolved wikilink references.
 pub struct RenameHeadingRequest {
     /// Vault-relative path, note stem, or alias.
@@ -622,6 +634,10 @@ pub type FrontmatterQueryRequest = FrontmatterQueryOptions;
 
 fn default_dry_run() -> bool {
     true
+}
+
+fn default_steps() -> usize {
+    1
 }
 
 fn default_page() -> usize {
@@ -746,7 +762,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Search visible Markdown notes with literal text.")]
+    #[tool(description = "Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn search_text(
         &self,
         Parameters(request): Parameters<SearchTextRequest>,
@@ -767,7 +783,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Search visible Markdown notes with a Rust regular expression.")]
+    #[tool(description = "Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn search_regex(
         &self,
         Parameters(request): Parameters<SearchRegexRequest>,
@@ -812,7 +828,7 @@ impl ObsidianVaultMcp {
         })
     }
 
-    #[tool(description = "Get backlinks to a uniquely resolved note, heading, or block.")]
+    #[tool(description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence.")]
     fn get_backlinks(
         &self,
         Parameters(request): Parameters<BacklinksRequest>,
@@ -832,7 +848,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "List unique tag names across visible notes.")]
+    #[tool(description = "List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn list_tags(
         &self,
         Parameters(request): Parameters<ListTagsRequest>,
@@ -849,7 +865,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Locate one tag in visible notes.")]
+    #[tool(description = "Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn get_tag(
         &self,
         Parameters(request): Parameters<GetTagRequest>,
@@ -875,7 +891,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "List folder-derived categories from visible notes.")]
+    #[tool(description = "List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn list_categories(
         &self,
         Parameters(request): Parameters<ListCategoriesRequest>,
@@ -891,7 +907,7 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Locate one folder-derived category in visible notes.")]
+    #[tool(description = "Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
     fn get_category(
         &self,
         Parameters(request): Parameters<GetCategoryRequest>,
@@ -1127,6 +1143,40 @@ impl ObsidianVaultMcp {
             },
         )
     }
+
+    #[tool(
+        description = "Show undoable and redoable edits in this server process, newest first, with command, time, and affected files."
+    )]
+    fn edit_history(
+        &self,
+        Parameters(request): Parameters<EditHistoryRequest>,
+    ) -> Result<Json<EditHistoryResult>, String> {
+        run_tool("edit_history", request, |_| self.mutations().edit_history())
+    }
+
+    #[tool(
+        description = "Undo the latest edit or requested number of steps in this server process. The whole request is rejected on conflict."
+    )]
+    fn undo_edit(
+        &self,
+        Parameters(request): Parameters<UndoRedoRequest>,
+    ) -> Result<Json<UndoEditResult>, String> {
+        run_tool("undo_edit", request, |UndoRedoRequest { steps }| {
+            self.mutations().undo_edit(steps)
+        })
+    }
+
+    #[tool(
+        description = "Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict."
+    )]
+    fn redo_edit(
+        &self,
+        Parameters(request): Parameters<UndoRedoRequest>,
+    ) -> Result<Json<RedoEditResult>, String> {
+        run_tool("redo_edit", request, |UndoRedoRequest { steps }| {
+            self.mutations().redo_edit(steps)
+        })
+    }
 }
 
 #[tool_router(router = markdown_tool_router)]
@@ -1337,6 +1387,40 @@ impl ProjectMarkdownMcp {
                 self.mutations().delete_section(&note, selector)
             },
         )
+    }
+
+    #[tool(
+        description = "Show undoable and redoable Markdown edits in this server process, newest first, with command, time, and affected files."
+    )]
+    fn edit_history(
+        &self,
+        Parameters(request): Parameters<EditHistoryRequest>,
+    ) -> Result<Json<EditHistoryResult>, String> {
+        run_tool("edit_history", request, |_| self.mutations().edit_history())
+    }
+
+    #[tool(
+        description = "Undo the latest edit or requested number of steps in this server process. The whole request is rejected on conflict."
+    )]
+    fn undo_edit(
+        &self,
+        Parameters(request): Parameters<UndoRedoRequest>,
+    ) -> Result<Json<UndoEditResult>, String> {
+        run_tool("undo_edit", request, |UndoRedoRequest { steps }| {
+            self.mutations().undo_edit(steps)
+        })
+    }
+
+    #[tool(
+        description = "Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict."
+    )]
+    fn redo_edit(
+        &self,
+        Parameters(request): Parameters<UndoRedoRequest>,
+    ) -> Result<Json<RedoEditResult>, String> {
+        run_tool("redo_edit", request, |UndoRedoRequest { steps }| {
+            self.mutations().redo_edit(steps)
+        })
     }
 }
 

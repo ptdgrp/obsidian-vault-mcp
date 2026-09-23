@@ -2134,7 +2134,6 @@ dependencies = [
  "camino",
  "chrono",
  "clap",
- "fs2",
  "globset",
  "ignore",
  "image",

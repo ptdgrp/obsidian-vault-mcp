@@ -1,3 +1,4 @@
+use super::history::FileChange;
 use super::{EditSectionResult, VaultMutations};
 
 use crate::{
@@ -19,12 +20,15 @@ impl VaultMutations {
         let mut updated = document.clone();
         updated.insert_str(source.byte_end, content);
         self.write_section_edit(
+            "append_section",
             &path,
             &relative_path,
             &document,
             &updated,
-            source.line_end + 1,
-            source.line_end + content.lines().count() as u64,
+            (
+                source.line_end + 1,
+                source.line_end + content.lines().count() as u64,
+            ),
         )
     }
 
@@ -64,14 +68,17 @@ impl VaultMutations {
             "replacement",
         )?;
         self.write_section_edit(
+            "replace_section",
             &path,
             &relative_path,
             &document,
             &updated,
-            source.line_start + u64::from(matches!(selector, SectionSelector::Heading { .. })),
-            source.line_start
-                + u64::from(matches!(selector, SectionSelector::Heading { .. }))
-                + content.lines().count().saturating_sub(1) as u64,
+            (
+                source.line_start + u64::from(matches!(selector, SectionSelector::Heading { .. })),
+                source.line_start
+                    + u64::from(matches!(selector, SectionSelector::Heading { .. }))
+                    + content.lines().count().saturating_sub(1) as u64,
+            ),
         )
     }
 
@@ -152,12 +159,12 @@ impl VaultMutations {
             "deletion",
         )?;
         self.write_section_edit(
+            "delete_section",
             &path,
             &relative_path,
             &document,
             &updated,
-            source.line_start,
-            source.line_start,
+            (source.line_start, source.line_start),
         )
     }
 
@@ -180,12 +187,12 @@ impl VaultMutations {
 
     fn write_section_edit(
         &self,
+        operation: &str,
         path: &camino::Utf8Path,
         relative_path: &str,
         original_content: &str,
         content: &str,
-        line_start: u64,
-        line_end: u64,
+        lines: (u64, u64),
     ) -> anyhow::Result<EditSectionResult> {
         if original_content == content {
             anyhow::bail!("section edit produced no changes for `{relative_path}`");
@@ -194,14 +201,21 @@ impl VaultMutations {
         if current_content != original_content.as_bytes() {
             anyhow::bail!("note changed on disk before section edit: `{relative_path}`");
         }
-        self.write_note_atomic(path, relative_path, content)?;
+        self.commit_changes(
+            operation,
+            vec![FileChange::replace(
+                relative_path.to_string(),
+                original_content.to_string(),
+                content.to_string(),
+            )],
+        )?;
         let written_content = std::fs::read(path)?;
         if written_content != content.as_bytes() {
             anyhow::bail!("section edit could not be verified on disk: `{relative_path}`");
         }
         let max_line = content.lines().count().max(1) as u64;
-        let line_start = line_start.clamp(1, max_line);
-        let line_end = line_end.clamp(line_start, max_line);
+        let line_start = lines.0.clamp(1, max_line);
+        let line_end = lines.1.clamp(line_start, max_line);
         Ok(EditSectionResult {
             changed: Locator::lines(relative_path, line_start, line_end),
         })

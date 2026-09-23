@@ -1025,6 +1025,7 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
             "create_note",
             "delete_note",
             "delete_section",
+            "edit_history",
             "edit_note",
             "get_note_outline",
             "get_note_stats",
@@ -1032,7 +1033,9 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
             #[cfg(feature = "attachments")]
             "read_attachment",
             "read_note",
+            "redo_edit",
             "replace_section",
+            "undo_edit",
         ]
     );
 

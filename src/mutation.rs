@@ -1,4 +1,5 @@
 mod edit;
+mod history;
 mod note;
 mod rename;
 mod text;
@@ -7,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::query::{McpNonNegativeInteger, VaultQueries};
+pub use history::{EditHistoryResult, RedoEditResult, UndoEditResult};
 
 #[cfg(test)]
 mod tests;
@@ -14,11 +16,15 @@ mod tests;
 #[derive(Clone)]
 pub struct VaultMutations {
     queries: VaultQueries,
+    history: std::sync::Arc<std::sync::Mutex<history::MemoryHistory>>,
 }
 
 impl VaultMutations {
     pub fn new(queries: VaultQueries) -> Self {
-        Self { queries }
+        Self {
+            queries,
+            history: std::sync::Arc::new(std::sync::Mutex::new(history::MemoryHistory::default())),
+        }
     }
 
     #[tracing::instrument(
@@ -40,50 +46,41 @@ impl VaultMutations {
         self.queries.parse_cache.invalidate(relative_path);
         Ok(())
     }
-
-    #[tracing::instrument(
-        name = "vault.mutation.rename_note_path",
-        skip_all,
-        fields(operation.kind = "mutation", operation.name = "rename_note_path"),
-        err
-    )]
-    pub(crate) fn rename_note_path(
-        &self,
-        from: &camino::Utf8Path,
-        to: &camino::Utf8Path,
-        relative_path: &str,
-    ) -> anyhow::Result<()> {
-        std::fs::rename(from, to)?;
-        self.queries.parse_cache.invalidate(relative_path);
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditSectionResult {
+    /// Vault-relative path of the note that was changed.
     pub changed: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateNoteResult {
+    /// Vault-relative path of the created note.
     pub path: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteNoteResult {
+    /// Vault-relative path of the note.
     pub path: String,
+    /// Whether the note was only previewed.
     pub dry_run: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditNoteResult {
+    /// Vault-relative path of the edited note.
     pub path: String,
+    /// Whether changes were only previewed.
     pub dry_run: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ApplyPatchResult {
+    /// Vault-relative paths that would change or were changed.
     pub changed_notes: Vec<String>,
+    /// Whether changes were only previewed.
     pub dry_run: bool,
 }
 

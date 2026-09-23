@@ -1,6 +1,6 @@
 # obsidian-vault-mcp
 
-[中文 README](./README.zh-CN.md)
+[Chinese README](./README.zh-CN.md)
 
 MCP server for Obsidian-style Markdown vaults with compact, task-oriented tools
 and structural section edits.
@@ -8,11 +8,11 @@ and structural section edits.
 The server is deliberately mechanical:
 
 - reads the current vault from disk for each tool call
-- keeps only an in-memory Markdown parse cache keyed by path, file size, and
-  modified time
+- keeps an in-memory Markdown parse cache keyed by path, file size, and
+  modified time, plus an in-memory edit history
 - expires parse cache entries after 10 minutes by default and caps the cache at
   1024 parsed notes
-- edits notes only through explicit section operations; each write is atomic
+- edits notes only through explicit mutation tools; each individual note write is atomic
 - ignores hidden dot paths by default, such as `.obsidian/`, `.git/`,
   `.agents/`, and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
@@ -66,26 +66,26 @@ Start with the first page of notes, then move to precise reads and relation chec
 
 ```sh
 obsidian-vault-mcp list-notes --page 1
-obsidian-vault-mcp get-note-outline "人物/林动.md" --page 1
-obsidian-vault-mcp read-note "人物/林动.md#身体" --max-chars 4096
-obsidian-vault-mcp get-note-structure "人物/林动.md"
-obsidian-vault-mcp get-note-stats "人物/林动.md"
-obsidian-vault-mcp resolve-ref '[[林动#身体]]'
-obsidian-vault-mcp get-outlinks "人物/林动.md" --page 1
-obsidian-vault-mcp get-backlinks '[[林动]]' --page 1
-obsidian-vault-mcp get-note-neighborhood "林动" --depth 1 --direction both
+obsidian-vault-mcp get-note-outline "People/Alex.md" --page 1
+obsidian-vault-mcp read-note "People/Alex.md#Health" --max-chars 4096
+obsidian-vault-mcp get-note-structure "People/Alex.md"
+obsidian-vault-mcp get-note-stats "People/Alex.md"
+obsidian-vault-mcp resolve-ref '[[Alex#Health]]'
+obsidian-vault-mcp get-outlinks "People/Alex.md" --page 1
+obsidian-vault-mcp get-backlinks '[[Alex]]' --page 1
+obsidian-vault-mcp get-note-neighborhood "Alex" --depth 1 --direction both
 obsidian-vault-mcp audit-links --page 1
-obsidian-vault-mcp search-text "求生本能" --include "正文/**/*.md" --include "资料/**/*.md" --exclude "**/草稿/**" --page 1
-obsidian-vault-mcp search-regex "林动.{0,20}代偿" --include "正文/**/*.md" --exclude "**/草稿/**" --page 1
+obsidian-vault-mcp search-text "survival instinct" --include "Content/**/*.md" --include "Research/**/*.md" --exclude "**/Drafts/**" --page 1
+obsidian-vault-mcp search-regex "Alex.{0,20}compensation" --include "Content/**/*.md" --exclude "**/Drafts/**" --page 1
 obsidian-vault-mcp list-tags --page 1
-obsidian-vault-mcp get-tag "状态/身体" --page 1
+obsidian-vault-mcp get-tag "status/health" --page 1
 obsidian-vault-mcp list-categories --page 1
-obsidian-vault-mcp get-category "人物" --page 1
+obsidian-vault-mcp get-category "People" --page 1
 obsidian-vault-mcp query-frontmatter phase --mode equals --value active --page 1
-obsidian-vault-mcp append-section "人物/林动.md" "新增内容" --heading "身体"
-obsidian-vault-mcp replace-section "人物/林动.md" "替换内容" --heading "身体"
-obsidian-vault-mcp delete-section "人物/林动.md" --heading "旧设定"
-obsidian-vault-mcp rename-heading "人物/林动.md" --old-heading "身体" --new-heading "身体状态"
+obsidian-vault-mcp append-section "People/Alex.md" "New content" --heading "Health"
+obsidian-vault-mcp replace-section "People/Alex.md" "Replacement content" --heading "Health"
+obsidian-vault-mcp delete-section "People/Alex.md" --heading "Old notes"
+obsidian-vault-mcp rename-heading "People/Alex.md" --old-heading "Health" --new-heading "Health status"
 ```
 
 Run the MCP server:
@@ -101,7 +101,8 @@ To explicitly select a vault from another directory, use
 `~/...` paths. Discovery searches ancestors only, not child directories or the
 whole computer. If `serve` cannot discover a vault, it exposes file-local Markdown tools: `read_note`,
 `get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`,
-`create_note`, `delete_note`, `edit_note`, `apply_patch`, and the structural section edit tools. Note paths
+`create_note`, `delete_note`, `edit_note`, `apply_patch`, the structural section edit tools,
+and edit history and undo/redo tools. Note paths
 are relative to the current project directory; absolute paths and paths outside
 it are rejected.
 In this mode, `audit_links` checks only standard Markdown relative links such
@@ -141,6 +142,21 @@ Editing tools include `create_note`, `delete_note`, `edit_note`, `apply_patch`, 
 Section edits accept only heading and block-id selectors; line selectors remain
 available for `read_note` only.
 
+`edit_history` lists undoable and redoable operations with their command, time,
+and affected files, without returning note content. `undo_edit` reverses the
+latest successful mutation, and `redo_edit` reapplies the latest undone mutation.
+Both accept optional `steps` (default 1). Every requested step is checked before
+writing; a conflict rejects the whole request and returns affected paths. A new
+mutation clears the redo stack.
+
+History stays in the current server process's memory. It keeps at most 100
+operations and roughly 64 MiB of serialized record data, retaining the newest operation even when it
+exceeds that size. Restarting the server clears undo and redo history. Dry runs
+and failed operations do not create history entries. Multi-file write failures
+are rolled back while the process is running; an abrupt process termination
+during a write can leave a partial operation because no recovery journal is
+written to disk.
+
 Prefer `get_note_outline` before `read_note`, then select a heading or line range.
 `max_chars` is a Unicode-character budget: reading continues through the boundary
 line, so the response may exceed it. Use `next_line` to continue without gaps.
@@ -167,12 +183,12 @@ you need a paged relation-health sweep.
 
 ## References and paths
 
-A path is a vault-relative Markdown note path such as `人物/林动.md`. It names a
+A path is a vault-relative Markdown note path such as `People/Alex.md`. It names a
 file directly and is the clearest choice once `list_notes` or another tool has
 returned a path.
 
-A reference is an Obsidian-style note target such as `[[林动#身体]]`,
-`林动#身体`, or `人物/林动.md#L1-L20`. References may point at a note, heading,
+A reference is an Obsidian-style note target such as `[[Alex#Health]]`,
+`Alex#Health`, or `People/Alex.md#L1-L20`. References may point at a note, heading,
 block id, or line range. Use `resolve_ref` when a human-facing reference must be
 checked before reading or following links.
 
@@ -217,6 +233,9 @@ Primary edit tools:
 - `rename_heading`
 - `rename_note`
 - `set_block_id`
+- `edit_history`
+- `undo_edit`
+- `redo_edit`
 
 ## Recommended workflow
 
@@ -274,8 +293,8 @@ output bodies are not copied into logs.
 
 ## Safety boundaries
 
-This server has no database, vector index, file watcher, or persistent on-disk
-cache. Default operation reads the vault; writes happen only through explicit
+This server has no database, vector index, file watcher, persistent parse cache,
+or edit journal. Edit history lives only in memory. Default operation reads the vault; writes happen only through explicit
 structural edit tools. Each tool call checks file metadata, and changed files
 are reparsed before use.
 

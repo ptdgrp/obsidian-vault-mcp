@@ -54,6 +54,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "create_note",
             "delete_note",
             "delete_section",
+            "edit_history",
             "edit_note",
             "get_backlinks",
             "get_category",
@@ -70,6 +71,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             #[cfg(feature = "attachments")]
             "read_attachment",
             "read_note",
+            "redo_edit",
             "rename_heading",
             "rename_note",
             "replace_section",
@@ -77,6 +79,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "search_regex",
             "search_text",
             "set_block_id",
+            "undo_edit",
         ]
     );
     for tool in tools {
@@ -539,7 +542,20 @@ fn input_numeric_bounds_match_runtime_limits_in_both_server_modes() {
         super::ProjectMarkdownMcp::tool_definitions(),
     ] {
         for tool in definitions {
-            let properties = tool.input_schema["properties"].as_object().unwrap();
+            let Some(properties) = tool
+                .input_schema
+                .get("properties")
+                .and_then(|value| value.as_object())
+            else {
+                assert_eq!(tool.name, "edit_history");
+                continue;
+            };
+            if tool.name == "undo_edit" || tool.name == "redo_edit" {
+                let steps = &properties["steps"];
+                assert_eq!(steps["minimum"], 1);
+                assert_eq!(steps["maximum"], 100);
+                assert_eq!(steps["default"], 1);
+            }
             if let Some(page) = properties.get("page") {
                 assert_eq!(page["minimum"].as_f64(), Some(1.0), "{} page", tool.name);
                 if tool.name != "read_attachment" {

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
+use super::history::FileChange;
 use super::{RenameResult, SetBlockIdResult, VaultMutations};
 use crate::query::find_indexed_note;
 use crate::{
     parser::{LinkKind, ReferenceInfo, source_for_line},
-    resolver::{RefResolver, ResolveResult},
+    resolver::{IndexedNote, RefResolver, ResolveResult},
 };
 
 struct TextEdit {
@@ -75,17 +76,27 @@ impl VaultMutations {
         changed_notes.sort_by(|left, right| natord::compare(left, right));
         changed_notes.dedup();
         if !dry_run {
-            let parent = destination
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("destination has no parent"))?;
-            std::fs::create_dir_all(parent)?;
-            for (path, note_edits) in edits {
-                let indexed = find_indexed_note(&path, &notes)?;
-                let updated =
-                    apply_edits(std::fs::read_to_string(&indexed.file.path)?, note_edits)?;
-                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
-            }
-            self.rename_note_path(&target.file.path, &destination, &target.file.relative_path)?;
+            let mut changes = plan_text_changes(edits, &notes)?;
+            let original = std::fs::read_to_string(&target.file.path)?;
+            let moved_content = if let Some(index) = changes
+                .iter()
+                .position(|change| change.path == target_relative_path)
+            {
+                changes.remove(index).after.expect("edited note content")
+            } else {
+                original.clone()
+            };
+            changes.push(FileChange {
+                path: target_relative_path,
+                before: Some(original),
+                after: None,
+            });
+            changes.push(FileChange {
+                path: new_relative_path,
+                before: None,
+                after: Some(moved_content),
+            });
+            self.commit_changes("rename_note", changes)?;
         }
         Ok(RenameResult {
             dry_run,
@@ -272,12 +283,7 @@ impl VaultMutations {
         }
         let changed_notes = edits.keys().cloned().collect();
         if !dry_run {
-            for (path, note_edits) in edits {
-                let indexed = find_indexed_note(&path, &notes)?;
-                let updated =
-                    apply_edits(std::fs::read_to_string(&indexed.file.path)?, note_edits)?;
-                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
-            }
+            self.commit_changes("set_block_id", plan_text_changes(edits, &notes)?)?;
         }
         Ok(SetBlockIdResult {
             dry_run,
@@ -357,12 +363,7 @@ impl VaultMutations {
 
         let changed_notes = edits.keys().cloned().collect();
         if !dry_run {
-            for (path, note_edits) in edits {
-                let indexed = find_indexed_note(&path, &notes)?;
-                let content = std::fs::read_to_string(&indexed.file.path)?;
-                let updated = apply_edits(content, note_edits)?;
-                self.write_note_atomic(&indexed.file.path, &indexed.file.relative_path, &updated)?;
-            }
+            self.commit_changes("rename_heading", plan_text_changes(edits, &notes)?)?;
         }
         Ok(RenameResult {
             dry_run,
@@ -370,6 +371,21 @@ impl VaultMutations {
             changed_notes,
         })
     }
+}
+
+fn plan_text_changes(
+    edits: BTreeMap<String, Vec<TextEdit>>,
+    notes: &[IndexedNote],
+) -> anyhow::Result<Vec<FileChange>> {
+    edits
+        .into_iter()
+        .map(|(path, note_edits)| {
+            let indexed = find_indexed_note(&path, notes)?;
+            let original = std::fs::read_to_string(&indexed.file.path)?;
+            let updated = apply_edits(original.clone(), note_edits)?;
+            Ok(FileChange::replace(path, original, updated))
+        })
+        .collect()
 }
 
 fn block_id_insertion_point(

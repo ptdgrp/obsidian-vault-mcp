@@ -7,9 +7,9 @@
 这个服务刻意保持机械、可验证：
 
 - 每次工具调用都从磁盘读取当前 vault 状态。
-- 只使用内存 Markdown 解析缓存，按路径、文件大小和修改时间失效。
+- 使用内存 Markdown 解析缓存（按路径、文件大小和修改时间失效）及内存编辑历史。
 - 解析缓存默认 10 分钟未使用即过期，最多保留 1024 篇已解析 note。
-- 只通过显式章节操作编辑 note，每次写入都是原子替换。
+- 只通过显式修改工具编辑 note；每个笔记的单次写入都是原子替换。
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
 - 扫描可见 Markdown note 时遵守 `.gitignore`、`.git/info/exclude` 和父目录规则。
 - 扫描可见 Markdown note 时遵守 Obsidian `.obsidian/app.json` 的
@@ -88,7 +88,7 @@ obsidian-vault-mcp serve
 
 如果 `serve` 没有发现 vault，会提供当前项目目录下的 Markdown 文件工具：
 `read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
-`audit_links`、`create_note`、`delete_note`、`edit_note`、`apply_patch`，以及 `append_section`、`replace_section`、`delete_section`。
+`audit_links`、`create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`，以及编辑历史、撤销与重做工具。
 此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
 `audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
 全库搜索、元数据和链接图谱工具不可用。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
@@ -114,6 +114,10 @@ obsidian-vault-mcp \
 
 编辑工具包括 `create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
 section 编辑仅支持 heading 和 block-id selector；line selector 仅保留给 `read_note`。
+
+`edit_history` 列出可撤销和可重做操作的触发命令、时间与受影响文件，不返回笔记正文。`undo_edit` 撤销最近一次成功修改，`redo_edit` 重做最近一次撤销；两者都支持可选的 `steps`（默认 1）。写入前会检查请求中的所有步骤，若有冲突则整次请求都不执行，并返回冲突路径。执行新的修改会清空重做栈。
+
+编辑历史只保存在当前服务进程的内存中，最多保留 100 次操作和约 64 MiB 的序列化记录数据；即使最新一条超过容量限制，也会保留它。重启服务会清空撤销与重做历史。dry-run 和失败操作不会进入历史。进程运行期间，多文件写入失败会回滚；若进程在写入中途突然终止，由于没有落盘恢复日志，仍可能留下部分已写入的文件。
 
 建议先调用 `get_note_outline` 查看目标文件大纲，再用 `read_note` 读取标题或行范围。
 `max_chars` 按 Unicode 字符计数，到达预算后会补齐当前行，因此返回内容可能超过预算；
@@ -173,6 +177,9 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 - `rename_heading`
 - `rename_note`
 - `set_block_id`
+- `edit_history`
+- `undo_edit`
+- `redo_edit`
 
 ## 推荐使用顺序
 
@@ -217,6 +224,6 @@ obsidian-vault-mcp --log-level debug serve
 
 ## 安全边界
 
-这个 server 没有数据库、向量索引、文件 watcher 或落盘缓存。默认操作读取 vault；写入只通过显式结构化编辑工具完成。每次工具调用都会检查文件元数据，变化后的文件会在使用前重新解析。
+这个 server 没有数据库、向量索引、文件 watcher、落盘解析缓存或编辑日志；编辑历史只保存在内存中。默认操作读取 vault；写入只通过显式编辑工具完成。每次工具调用都会检查文件元数据，变化后的文件会在使用前重新解析。
 
 隐藏路径和 gitignore 命中的路径默认不会进入可见 notes，避免 Obsidian 配置、git 数据、agent skill 文件或生成物进入常规 note 结果。
