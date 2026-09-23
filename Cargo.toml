@@ -1,7 +1,25 @@
 [package]
 name = "obsidian-vault-mcp"
-version = "0.3.13"
+version = "0.4.0"
 edition = "2024"
+description = "An MCP server for Obsidian vaults that lets AI assistants safely search, read, and edit Markdown notes while understanding their links, tags, categories, and structure."
+repository = "https://github.com/ptdgrp/obsidian-vault-mcp"
+license = "MIT"
+categories = ["command-line-utilities", "text-processing", "filesystem"]
+keywords = [
+  "mcp",
+  "obsidian",
+  "markdown",
+  "wikilink"
+]
+readme = "./README.md"
+include = [
+    "src/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+]
 
 [features]
 default = []
