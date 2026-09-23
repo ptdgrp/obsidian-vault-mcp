@@ -266,7 +266,7 @@ pub(crate) enum Command {
         /// Text appended at the selected section boundary.
         content: String,
     },
-    /// Replace exactly one heading or block section with new content. This uses structural selection, not text matching.
+    /// Replace a heading section's body while preserving its heading, or replace a block.
     ReplaceSection {
         /// Vault-relative path, note stem, or alias.
         note: String,
@@ -279,10 +279,10 @@ pub(crate) enum Command {
         #[arg(long)]
         block_id: Option<String>,
 
-        /// Replacement content for the entire selected section.
+        /// Replacement body for a heading section, or replacement content for a block.
         content: String,
     },
-    /// Delete exactly one heading or block section. This uses structural selection, not text matching.
+    /// Delete exactly one heading or block section. Refuse edits that break existing heading or block links.
     DeleteSection {
         /// Vault-relative path, note stem, or alias.
         note: String,

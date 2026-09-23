@@ -12,7 +12,7 @@ server supports structural section edits as well as read operations.
 | --- | --- |
 | `append_section` | Append content at the end of exactly one heading or block section. This uses structural selection, not text matching. |
 | `audit_links` | Audit unresolved and ambiguous local links across the visible vault. |
-| `delete_section` | Delete exactly one heading or block section. This uses structural selection, not text matching. |
+| `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
@@ -29,7 +29,7 @@ server supports structural section edits as well as read operations.
 | `read_note` | Read a note, heading section, block, or line range. Use a bare reference such as Note#Heading, Note#^block, Note#L1-L20, Note#L1-20, or exactly one explicit heading, block_id, or line selector. If provided, max_chars controls this request's Unicode-character truncation boundary. When truncated, returned_source identifies the source lines represented in content and next_line identifies where to resume; next_line repeats the final line when content ended mid-line. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
 | `rename_note` | Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply. |
-| `replace_section` | Replace exactly one heading or block section with new content. This uses structural selection, not text matching. |
+| `replace_section` | Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links. |
 | `resolve_ref` | Resolve an Obsidian reference such as [[Note#Heading]] to a note, heading, or block without guessing ambiguous targets |
 | `search_regex` | Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
@@ -111,7 +111,7 @@ Nested types:
 
 ## 🔧 `delete_section`
 
-Delete exactly one heading or block section. This uses structural selection, not text matching.
+Delete exactly one heading or block section. Refuse edits that break existing heading or block links.
 
 Input:
 
@@ -724,14 +724,14 @@ Output:
 
 ## 🔧 `replace_section`
 
-Replace exactly one heading or block section with new content. This uses structural selection, not text matching.
+Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
-| `content` | `string` | yes | Replacement content for the entire selected section. |
+| `content` | `string` | yes | Replacement body for a heading section, or replacement content for a block. |
 | `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
 | `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 

@@ -433,7 +433,7 @@ pub struct AppendSectionRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for replacing an entire selected section.
+/// Input for replacing the content of a selected section.
 pub struct ReplaceSectionRequest {
     /// Workspace-relative path, note stem, or alias.
     pub note: String,
@@ -441,12 +441,12 @@ pub struct ReplaceSectionRequest {
     pub heading: Option<String>,
     /// Block id without the leading caret.
     pub block_id: Option<String>,
-    /// Replacement content for the entire selected section.
+    /// Replacement body for a heading section, or replacement content for a block.
     pub content: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for deleting an entire selected section.
+/// Input for deleting an entire selected section unless existing references would break.
 pub struct DeleteSectionRequest {
     /// Workspace-relative path, note stem, or alias.
     pub note: String,
@@ -906,7 +906,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Replace exactly one heading or block section with new content. This uses structural selection, not text matching."
+        description = "Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links."
     )]
     fn replace_section(
         &self,
@@ -929,7 +929,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Delete exactly one heading or block section. This uses structural selection, not text matching."
+        description = "Delete exactly one heading or block section. Refuse edits that break existing heading or block links."
     )]
     fn delete_section(
         &self,
@@ -1121,7 +1121,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Replace exactly one heading or block section in a project-relative Markdown file. This uses structural selection, not text matching."
+        description = "Replace a heading section's body while preserving its heading, or replace a block in a project-relative Markdown file. Refuse edits that break existing heading or block links."
     )]
     fn replace_section(
         &self,
@@ -1144,7 +1144,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Delete exactly one heading or block section in a project-relative Markdown file. This uses structural selection, not text matching."
+        description = "Delete exactly one heading or block section in a project-relative Markdown file. Refuse edits that break existing heading or block links."
     )]
     fn delete_section(
         &self,

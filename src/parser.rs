@@ -248,7 +248,6 @@ fn parser_options(max_input_bytes: usize) -> ParserOptions {
     ParserOptions::default()
         .enabled_gfm()
         .enabled_ofm()
-        .enabled_cjk_autocorrect()
         .with_max_input_bytes(max_input_bytes)
 }
 

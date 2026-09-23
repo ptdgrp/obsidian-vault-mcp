@@ -54,7 +54,7 @@ fn section_edits_target_structural_boundaries_without_text_matching() {
             SectionSelector::Heading {
                 heading: "原理".to_string(),
             },
-            "## 原理\n\n已整体替换。\n",
+            "\n已整体替换。\n",
         )
         .expect("replace");
     mutations
@@ -95,12 +95,12 @@ fn section_edit_results_serialize_only_changed_locator() {
             SectionSelector::Heading {
                 heading: "原理".to_string(),
             },
-            "## 原理\n\n已整体替换。\n",
+            "\n已整体替换。\n",
         )
         .expect("replace");
     assert_eq!(
         serde_json::to_value(replaced).expect("replace json"),
-        serde_json::json!({"changed": "发动机.md#L3-L5"})
+        serde_json::json!({"changed": "发动机.md#L4-L5"})
     );
 }
 
@@ -115,7 +115,7 @@ fn section_edits_reject_operations_that_change_nothing() {
             SectionSelector::Heading {
                 heading: "原理".to_string(),
             },
-            "## 原理\n\n链接到 [[林动]]\n",
+            "\n链接到 [[林动]]\n",
         )
         .expect_err("unchanged replacement should be rejected");
 
@@ -196,7 +196,7 @@ fn section_edits_accept_markdown_heading_syntax() {
             SectionSelector::Heading {
                 heading: "## 原理".to_string(),
             },
-            "## 原理\n\n已整体替换。\n",
+            "\n已整体替换。\n",
         )
         .expect("replace heading with markdown marker");
 
@@ -204,6 +204,157 @@ fn section_edits_accept_markdown_heading_syntax() {
         read_note(&dir, "发动机.md"),
         "# 发动机\n\n## 原理\n\n已整体替换。\n"
     );
+}
+
+#[test]
+fn replacing_heading_body_preserves_heading_and_child_reference_when_reintroduced() {
+    let (dir, mutations) = fixture();
+    write_note(
+        &dir,
+        "章节.md",
+        "# Chapter007 Example\n\n## Child\n\nOld ^kept\n",
+    );
+    write_note(
+        &dir,
+        "引用.md",
+        "[[章节#Chapter007 Example]]\n[[章节#Child]]\n[[章节#^kept]]\n",
+    );
+
+    mutations
+        .replace_section(
+            "章节.md",
+            SectionSelector::Heading {
+                heading: "Chapter007 Example".into(),
+            },
+            "\n## Child\n\nNew ^kept\n",
+        )
+        .expect("replace while preserving references");
+
+    assert_eq!(
+        read_note(&dir, "章节.md"),
+        "# Chapter007 Example\n\n## Child\n\nNew ^kept\n"
+    );
+}
+
+#[test]
+fn replacing_heading_body_refuses_to_break_child_heading_or_block_links() {
+    let (dir, mutations) = fixture();
+    write_note(
+        &dir,
+        "章节.md",
+        "# Chapter007 Example\n\n## Child\n\nOld ^kept\n",
+    );
+    write_note(&dir, "引用.md", "[[章节#Child]]\n[[章节#^kept]]\n");
+    let before = read_note(&dir, "章节.md");
+
+    let error = mutations
+        .replace_section(
+            "章节.md",
+            SectionSelector::Heading {
+                heading: "Chapter007 Example".into(),
+            },
+            "\nNew\n",
+        )
+        .expect_err("inbound references must prevent replacement");
+
+    assert!(error.to_string().contains("[[章节#Child]]"));
+    assert!(error.to_string().contains("[[章节#^kept]]"));
+    assert_eq!(read_note(&dir, "章节.md"), before);
+}
+
+#[test]
+fn rename_heading_accepts_unformatted_heading_text() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "章节.md", "# Chapter007 Example\n\nBody\n");
+    mutations
+        .rename_heading("章节.md", "Chapter007 Example", "Chapter008 Example", false)
+        .expect("rename the exact visible heading");
+    assert_eq!(read_note(&dir, "章节.md"), "# Chapter008 Example\n\nBody\n");
+}
+
+#[test]
+fn replacing_heading_body_refuses_to_break_embeds() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "章节.md", "# Chapter007 Example\n\nOld ^kept\n");
+    write_note(&dir, "引用.md", "![[章节#^kept]]\n");
+    let error = mutations
+        .replace_section(
+            "章节.md",
+            SectionSelector::Heading {
+                heading: "Chapter007 Example".into(),
+            },
+            "\nNew\n",
+        )
+        .expect_err("embed must prevent replacement");
+    assert!(error.to_string().contains("![[章节#^kept]]"));
+}
+
+#[test]
+fn replacing_block_refuses_to_remove_referenced_id() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\nOld ^kept\n");
+    write_note(&dir, "引用.md", "[[块#^kept]]\n");
+    let error = mutations
+        .replace_section(
+            "块.md",
+            SectionSelector::Block {
+                block_id: "kept".into(),
+            },
+            "New\n",
+        )
+        .expect_err("referenced id must be preserved");
+    assert!(error.to_string().contains("[[块#^kept]]"));
+    assert_eq!(read_note(&dir, "块.md"), "# 块\n\nOld ^kept\n");
+}
+
+#[test]
+fn deleting_heading_refuses_to_break_heading_and_block_references() {
+    let (dir, mutations) = fixture();
+    write_note(
+        &dir,
+        "章节.md",
+        "# Chapter007 Example\n\n## Child\n\nOld ^kept\n",
+    );
+    write_note(
+        &dir,
+        "引用.md",
+        "[[章节#Chapter007 Example]]\n[[章节#Child]]\n[[章节#^kept]]\n",
+    );
+    let before = read_note(&dir, "章节.md");
+    let error = mutations
+        .delete_section(
+            "章节.md",
+            SectionSelector::Heading {
+                heading: "Chapter007 Example".into(),
+            },
+        )
+        .expect_err("referenced heading must not be deleted");
+    assert!(
+        error
+            .to_string()
+            .contains("deletion would break references")
+    );
+    assert!(error.to_string().contains("[[章节#Chapter007 Example]]"));
+    assert!(error.to_string().contains("[[章节#Child]]"));
+    assert!(error.to_string().contains("[[章节#^kept]]"));
+    assert_eq!(read_note(&dir, "章节.md"), before);
+}
+
+#[test]
+fn deleting_block_refuses_to_break_external_embed() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "块.md", "# 块\n\nOld ^kept\n");
+    write_note(&dir, "引用.md", "![[块#^kept]]\n");
+    let error = mutations
+        .delete_section(
+            "块.md",
+            SectionSelector::Block {
+                block_id: "kept".into(),
+            },
+        )
+        .expect_err("referenced block must not be deleted");
+    assert!(error.to_string().contains("![[块#^kept]]"));
+    assert_eq!(read_note(&dir, "块.md"), "# 块\n\nOld ^kept\n");
 }
 
 #[test]

@@ -424,7 +424,7 @@ fn heading_reference_matches(reference: &Option<ReferenceInfo>, old: &str) -> bo
     }
 }
 
-fn link_targets_note(
+pub(super) fn link_targets_note(
     target: &str,
     source_path: &str,
     wanted_path: &str,

@@ -392,12 +392,12 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
             note: "发动机.md".to_string(),
             heading: Some("原理".to_string()),
             block_id: None,
-            content: "## 原理\n\n已替换\n".to_string(),
+            content: "\n已替换\n".to_string(),
         }))
         .expect("replace section");
     assert_eq!(
         serde_json::to_value(replaced).expect("replace section json"),
-        serde_json::json!({"changed": "发动机.md#L3-L5"})
+        serde_json::json!({"changed": "发动机.md#L4-L5"})
     );
     assert!(
         fs::read_to_string(dir.path().join("发动机.md"))

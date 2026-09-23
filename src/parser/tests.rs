@@ -63,6 +63,15 @@ fn parse_markdown_span_omits_note_content() {
 }
 
 #[test]
+fn heading_parser_does_not_insert_typographic_spaces() {
+    let text = "# Chapter007 Example\n\nBody\n";
+    let full = NoteParser::parse("chapter.md", text, 4096).expect("full parse");
+    let headings = NoteParser::parse_headings("chapter.md", text, 4096).expect("headings");
+    assert_eq!(full.headings[0].text, "Chapter007 Example");
+    assert_eq!(headings[0].text, "Chapter007 Example");
+}
+
+#[test]
 fn parse_relative_markdown_links_support_current_note_and_percent_decoding() {
     let parsed = NoteParser::parse(
         "正文/001.md",
