@@ -5,9 +5,10 @@ use rmcp::handler::server::wrapper::{Json, Parameters};
 use super::fixture;
 use crate::query::{FrontmatterMatchMode, TagScope};
 use crate::server::{
-    AppendSectionRequest, AuditLinksRequest, GetTagRequest, ListNotesRequest, NeighborhoodRequest,
-    NoteOutlineRequest, NoteStructureRequest, ObsidianVaultMcp, ReadNoteRequest,
-    ReplaceSectionRequest, SearchRegexRequest, SearchTextRequest, SetBlockIdRequest,
+    AppendSectionRequest, AuditLinksRequest, CreateNoteRequest, DeleteNoteRequest, GetTagRequest,
+    ListNotesRequest, NeighborhoodRequest, NoteOutlineRequest, NoteStructureRequest,
+    ObsidianVaultMcp, ReadNoteRequest, ReplaceSectionRequest, SearchRegexRequest,
+    SearchTextRequest, SetBlockIdRequest,
 };
 
 const TASK_DEFINITION_LIST_NOTES: &str = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100.";
@@ -54,6 +55,8 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "get_category",
         "query_frontmatter",
         "append_section",
+        "create_note",
+        "delete_note",
         "replace_section",
         "delete_section",
         "rename_note",
@@ -410,6 +413,40 @@ fn replace_section_and_link_health_tools_work_through_server_surface() {
         .expect("audit links");
     assert!(!audit.unresolved.is_empty());
     assert!(audit.ambiguous.is_empty());
+}
+
+#[test]
+fn create_and_delete_note_tools_work_through_server_surface() {
+    let (dir, server) = fixture();
+    let Json(created) = server
+        .create_note(Parameters(CreateNoteRequest {
+            path: "drafts/New.md".to_string(),
+            content: "# New\n".to_string(),
+        }))
+        .expect("create note");
+    assert_eq!(created.path, "drafts/New.md");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("drafts/New.md")).unwrap(),
+        "# New\n"
+    );
+
+    let Json(preview) = server
+        .delete_note(Parameters(DeleteNoteRequest {
+            path: "drafts/New.md".to_string(),
+            dry_run: true,
+        }))
+        .expect("preview deletion");
+    assert!(preview.dry_run);
+    assert!(dir.path().join("drafts/New.md").exists());
+
+    let Json(deleted) = server
+        .delete_note(Parameters(DeleteNoteRequest {
+            path: "drafts/New.md".to_string(),
+            dry_run: false,
+        }))
+        .expect("delete note");
+    assert!(!deleted.dry_run);
+    assert!(!dir.path().join("drafts/New.md").exists());
 }
 
 #[test]

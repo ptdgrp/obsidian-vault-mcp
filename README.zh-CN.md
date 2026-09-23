@@ -88,7 +88,7 @@ obsidian-vault-mcp serve
 
 如果 `serve` 没有发现 vault，会提供当前项目目录下的 Markdown 文件工具：
 `read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
-`audit_links`，以及 `append_section`、`replace_section`、`delete_section`。
+`audit_links`、`create_note`、`delete_note`，以及 `append_section`、`replace_section`、`delete_section`。
 此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
 `audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
 全库搜索、元数据和链接图谱工具不可用。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
@@ -112,7 +112,7 @@ obsidian-vault-mcp \
 3. note 外部关系：`resolve_ref`、`get_outlinks`、`get_backlinks`、`get_note_neighborhood`、`list_tags`、`get_tag`、`list_categories`、`get_category`、`query_frontmatter`、`search_text` 和 `search_regex` 回答聚焦的跨 note 问题。
 4. 问题关系审计：`audit_links` 分页报告可见 notes 中无法解析和解析歧义的本地链接，让大范围工作先确认链接健康状态。
 
-编辑工具使用同一套结构化 selector：`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
+编辑工具包括 `create_note`、`delete_note`、`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
 section 编辑仅支持 heading 和 block-id selector；line selector 仅保留给 `read_note`。
 
 建议先调用 `get_note_outline` 查看目标文件大纲，再用 `read_note` 读取标题或行范围。
@@ -163,6 +163,8 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 
 主要编辑工具：
 
+- `create_note`
+- `delete_note`
 - `append_section`
 - `replace_section`
 - `delete_section`

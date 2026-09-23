@@ -1,7 +1,10 @@
 #[cfg(feature = "attachments")]
 use crate::attachment::ReadAttachmentResult;
 use crate::{
-    mutation::{EditSectionResult, RenameResult, SetBlockIdResult, VaultMutations},
+    mutation::{
+        CreateNoteResult, DeleteNoteResult, EditSectionResult, RenameResult, SetBlockIdResult,
+        VaultMutations,
+    },
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
         GetCategoryResult, GetTagResult, ListCategoriesResult, ListNotesResult, ListTagsResult,
@@ -457,6 +460,25 @@ pub struct DeleteSectionRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+/// Input for creating a new Markdown note without overwriting an existing file.
+pub struct CreateNoteRequest {
+    /// New vault-relative path ending in .md; parent directories are created.
+    pub path: String,
+    /// Complete Markdown content for the new note.
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+/// Input for deleting a visible Markdown note with no inbound references from visible notes.
+pub struct DeleteNoteRequest {
+    /// Existing vault-relative path ending in .md.
+    pub path: String,
+    /// Preview without deleting. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 /// Input for safely renaming one heading and its uniquely resolved wikilink references.
 pub struct RenameHeadingRequest {
     /// Vault-relative path, note stem, or alias.
@@ -906,6 +928,34 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
+        description = "Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file."
+    )]
+    fn create_note(
+        &self,
+        Parameters(request): Parameters<CreateNoteRequest>,
+    ) -> Result<Json<CreateNoteResult>, String> {
+        run_tool(
+            "create_note",
+            request,
+            |CreateNoteRequest { path, content }| self.mutations().create_note(&path, &content),
+        )
+    }
+
+    #[tool(
+        description = "Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply."
+    )]
+    fn delete_note(
+        &self,
+        Parameters(request): Parameters<DeleteNoteRequest>,
+    ) -> Result<Json<DeleteNoteResult>, String> {
+        run_tool(
+            "delete_note",
+            request,
+            |DeleteNoteRequest { path, dry_run }| self.mutations().delete_note(&path, dry_run),
+        )
+    }
+
+    #[tool(
         description = "Replace a heading section's body while preserving its heading, or replace a block. Refuse edits that break existing heading or block links."
     )]
     fn replace_section(
@@ -1117,6 +1167,34 @@ impl ProjectMarkdownMcp {
                     edit_section_parts(note, heading, block_id).map_err(anyhow::Error::msg)?;
                 self.mutations().append_section(&note, selector, &content)
             },
+        )
+    }
+
+    #[tool(
+        description = "Create a new Markdown note at an exact project-relative .md path without overwriting an existing file."
+    )]
+    fn create_note(
+        &self,
+        Parameters(request): Parameters<CreateNoteRequest>,
+    ) -> Result<Json<CreateNoteResult>, String> {
+        run_tool(
+            "create_note",
+            request,
+            |CreateNoteRequest { path, content }| self.mutations().create_note(&path, &content),
+        )
+    }
+
+    #[tool(
+        description = "Delete a visible Markdown note with no inbound references from visible project notes. Preview is the default; set dry_run to false to apply."
+    )]
+    fn delete_note(
+        &self,
+        Parameters(request): Parameters<DeleteNoteRequest>,
+    ) -> Result<Json<DeleteNoteResult>, String> {
+        run_tool(
+            "delete_note",
+            request,
+            |DeleteNoteRequest { path, dry_run }| self.mutations().delete_note(&path, dry_run),
         )
     }
 

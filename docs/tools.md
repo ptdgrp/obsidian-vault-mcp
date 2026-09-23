@@ -12,6 +12,8 @@ server supports structural section edits as well as read operations.
 | --- | --- |
 | `append_section` | Append content at the end of exactly one heading or block section. This uses structural selection, not text matching. |
 | `audit_links` | Audit unresolved and ambiguous local links across the visible vault. |
+| `create_note` | Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file. |
+| `delete_note` | Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply. |
 | `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
@@ -107,6 +109,43 @@ Nested types:
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+
+
+## 🔧 `create_note`
+
+Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `content` | `string` | yes | Complete Markdown content for the new note. |
+| `path` | `string` | yes | New vault-relative path ending in .md; parent directories are created. |
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Vault-relative path of the created note. |
+
+
+## 🔧 `delete_note`
+
+Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | no | Preview without deleting. Defaults to true. |
+| `path` | `string` | yes | Existing vault-relative path ending in .md. |
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `dry_run` | `boolean` | yes | Whether the note was only previewed. |
+| `path` | `string` | yes | Vault-relative path of the note. |
 
 
 ## 🔧 `delete_section`

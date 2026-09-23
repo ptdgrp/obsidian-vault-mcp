@@ -100,9 +100,10 @@ To explicitly select a vault from another directory, use
 `--vault` takes precedence over the environment variable and accepts `~` and
 `~/...` paths. Discovery searches ancestors only, not child directories or the
 whole computer. If `serve` cannot discover a vault, it exposes file-local Markdown tools: `read_note`,
-`get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`, and
-the structural section edit tools. Their `note` values are paths relative to
-the current project directory; absolute paths and paths outside it are rejected.
+`get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`,
+`create_note`, `delete_note`, and the structural section edit tools. Note paths
+are relative to the current project directory; absolute paths and paths outside
+it are rejected.
 In this mode, `audit_links` checks only standard Markdown relative links such
 as `[text](../target.md)`, reporting targets whose files do not exist.
 Vault-wide search, metadata, and link-graph tools remain unavailable. Other
@@ -134,7 +135,7 @@ The public tools are organized around the question an agent is trying to answer:
 4. Relation audit: `audit_links` reports unresolved and ambiguous local links
    across visible notes so broad work can start from a known link-health state.
 
-Editing tools use the same structural selectors: `append_section`,
+Editing tools include `create_note`, `delete_note`, `append_section`,
 `replace_section`, `delete_section`, `rename_heading`, `rename_note`, and
 `set_block_id`.
 Section edits accept only heading and block-id selectors; line selectors remain
@@ -206,6 +207,8 @@ Primary read/query tools:
 
 Primary edit tools:
 
+- `create_note`
+- `delete_note`
 - `append_section`
 - `replace_section`
 - `delete_section`

@@ -295,6 +295,21 @@ pub(crate) enum Command {
         #[arg(long)]
         block_id: Option<String>,
     },
+    /// Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file.
+    CreateNote {
+        /// New vault-relative path ending in .md.
+        path: String,
+        /// Complete Markdown content for the note.
+        content: String,
+    },
+    /// Delete a visible Markdown note with no inbound references from visible notes. Preview is the default.
+    DeleteNote {
+        /// Existing vault-relative path ending in .md.
+        path: String,
+        /// Preview without deleting.
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        dry_run: bool,
+    },
     /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
     RenameHeading {
         /// Vault-relative path, note stem, or alias.
@@ -364,6 +379,8 @@ impl Command {
             Self::AppendSection { .. } => "append_section",
             Self::ReplaceSection { .. } => "replace_section",
             Self::DeleteSection { .. } => "delete_section",
+            Self::CreateNote { .. } => "create_note",
+            Self::DeleteNote { .. } => "delete_note",
             Self::RenameHeading { .. } => "rename_heading",
             Self::RenameNote { .. } => "rename_note",
             Self::SetBlockId { .. } => "set_block_id",
@@ -589,6 +606,12 @@ impl Command {
                         anyhow::anyhow!("provide exactly one selector: --heading or --block-id")
                     })?;
                 print_value(&mutations.delete_section(&note, selector)?)?
+            }
+            Command::CreateNote { path, content } => {
+                print_value(&mutations.create_note(&path, &content)?)?
+            }
+            Command::DeleteNote { path, dry_run } => {
+                print_value(&mutations.delete_note(&path, dry_run)?)?
             }
             Command::RenameHeading {
                 note,

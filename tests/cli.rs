@@ -726,6 +726,37 @@ fn rename_note_command_requires_exact_markdown_paths() {
 }
 
 #[test]
+fn create_and_delete_note_commands_use_exact_paths_and_preview_deletion() {
+    let dir = tempdir().expect("tempdir");
+    let created = run_cli(&dir, &["create-note", "drafts/New.md", "# New\n"]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("drafts/New.md")).expect("created note"),
+        "# New\n"
+    );
+    let preview = run_cli(&dir, &["delete-note", "drafts/New.md"]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let value: Value = serde_json::from_slice(&preview.stdout).expect("preview json");
+    assert_eq!(value["dry_run"], true);
+    assert!(dir.path().join("drafts/New.md").exists());
+    let applied = run_cli(&dir, &["delete-note", "drafts/New.md", "--dry-run=false"]);
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert!(!dir.path().join("drafts/New.md").exists());
+}
+
+#[test]
 fn invalid_tag_scope_exits_with_clear_diagnostic() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "林动.md", "# 林动\n");
@@ -939,6 +970,8 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
         vec![
             "append_section",
             "audit_links",
+            "create_note",
+            "delete_note",
             "delete_section",
             "get_note_outline",
             "get_note_stats",

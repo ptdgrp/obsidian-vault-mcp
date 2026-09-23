@@ -50,6 +50,8 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
         vec![
             "append_section",
             "audit_links",
+            "create_note",
+            "delete_note",
             "delete_section",
             "get_backlinks",
             "get_category",

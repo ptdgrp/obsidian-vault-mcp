@@ -1,4 +1,5 @@
 mod edit;
+mod note;
 mod rename;
 
 use schemars::JsonSchema;
@@ -60,6 +61,17 @@ impl VaultMutations {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditSectionResult {
     pub changed: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CreateNoteResult {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DeleteNoteResult {
+    pub path: String,
+    pub dry_run: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

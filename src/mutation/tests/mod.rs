@@ -9,6 +9,7 @@ use crate::{
     vault::{Vault, VaultConfig},
 };
 
+mod note_more;
 mod rename_more;
 
 fn fixture() -> (tempfile::TempDir, VaultMutations) {
