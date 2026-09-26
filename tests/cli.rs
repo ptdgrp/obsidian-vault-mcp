@@ -808,6 +808,41 @@ fn edit_note_and_apply_patch_commands_update_existing_notes() {
 }
 
 #[test]
+fn edit_note_replace_all_flag_updates_repeated_text() {
+    let dir = tempdir().expect("tempdir");
+    write_note(&dir, "Text.md", "old old\n");
+    let rejected = run_cli(
+        &dir,
+        &["edit-note", "Text.md", "old", "new", "--dry-run=false"],
+    );
+    assert!(!rejected.status.success());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "old old\n"
+    );
+    let edited = run_cli(
+        &dir,
+        &[
+            "edit-note",
+            "Text.md",
+            "old",
+            "new",
+            "--replace-all",
+            "--dry-run=false",
+        ],
+    );
+    assert!(
+        edited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "new new\n"
+    );
+}
+
+#[test]
 fn invalid_tag_scope_exits_with_clear_diagnostic() {
     let dir = tempdir().expect("tempdir");
     write_note(&dir, "林动.md", "# 林动\n");

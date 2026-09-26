@@ -21,6 +21,7 @@ impl VaultMutations {
         path: &str,
         old_text: &str,
         new_text: &str,
+        replace_all: bool,
         dry_run: bool,
     ) -> anyhow::Result<EditNoteResult> {
         if old_text.is_empty() {
@@ -39,14 +40,24 @@ impl VaultMutations {
                     .expect("match has a character")
                     .len_utf8();
         }
-        let [start] = matches.as_slice() else {
-            anyhow::bail!(
-                "old_text must match exactly once in `{relative_path}`; found {} matches",
-                matches.len()
-            );
+        let updated = if replace_all {
+            if matches.is_empty() {
+                anyhow::bail!(
+                    "old_text must match at least once in `{relative_path}`; found 0 matches"
+                );
+            }
+            original.replace(old_text, new_text)
+        } else {
+            let [start] = matches.as_slice() else {
+                anyhow::bail!(
+                    "old_text must match exactly once in `{relative_path}`; found {} matches",
+                    matches.len()
+                );
+            };
+            let mut updated = original.clone();
+            updated.replace_range(*start..*start + old_text.len(), new_text);
+            updated
         };
-        let mut updated = original.clone();
-        updated.replace_range(*start..*start + old_text.len(), new_text);
         let mut edits = BTreeMap::new();
         edits.insert(
             relative_path.clone(),

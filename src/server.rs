@@ -480,14 +480,17 @@ pub struct DeleteNoteRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-/// Input for a unique exact-text replacement in an existing Markdown note.
+/// Input for exact-text replacement in an existing Markdown note.
 pub struct EditNoteRequest {
     /// Existing vault-relative Markdown path ending in .md.
     pub path: String,
-    /// Nonempty text that must occur exactly once.
+    /// Nonempty text that must occur exactly once unless replace_all is true.
     pub old_text: String,
     /// Text to put in its place.
     pub new_text: String,
+    /// Replace every occurrence instead of requiring a unique match. Defaults to false.
+    #[serde(default)]
+    pub replace_all: bool,
     /// Preview without writing. Defaults to true.
     #[serde(default = "default_dry_run")]
     pub dry_run: bool,
@@ -996,7 +999,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default."
+        description = "Replace exact text in one Markdown note. By default the text must occur exactly once; set replace_all to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default."
     )]
     fn edit_note(
         &self,
@@ -1009,10 +1012,11 @@ impl ObsidianVaultMcp {
                  path,
                  old_text,
                  new_text,
+                 replace_all,
                  dry_run,
              }| {
                 self.mutations()
-                    .edit_note(&path, &old_text, &new_text, dry_run)
+                    .edit_note(&path, &old_text, &new_text, replace_all, dry_run)
             },
         )
     }
@@ -1309,7 +1313,7 @@ impl ProjectMarkdownMcp {
     }
 
     #[tool(
-        description = "Replace text that occurs exactly once in one project Markdown note. Refuse edits that break preserved links or embeds. Preview is the default."
+        description = "Replace exact text in one project Markdown note. By default the text must occur exactly once; set replace_all to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default."
     )]
     fn edit_note(
         &self,
@@ -1322,10 +1326,11 @@ impl ProjectMarkdownMcp {
                  path,
                  old_text,
                  new_text,
+                 replace_all,
                  dry_run,
              }| {
                 self.mutations()
-                    .edit_note(&path, &old_text, &new_text, dry_run)
+                    .edit_note(&path, &old_text, &new_text, replace_all, dry_run)
             },
         )
     }

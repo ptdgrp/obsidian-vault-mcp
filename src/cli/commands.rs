@@ -310,14 +310,17 @@ pub(crate) enum Command {
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
-    /// Replace one exact text occurrence in an existing Markdown note. Preview is the default.
+    /// Replace exact text in an existing Markdown note. Preview is the default.
     EditNote {
         /// Existing vault-relative Markdown path ending in .md.
         path: String,
-        /// Nonempty text that must occur exactly once.
+        /// Nonempty text that must occur exactly once unless --replace-all is set.
         old_text: String,
         /// Replacement text.
         new_text: String,
+        /// Replace every occurrence instead of requiring a unique match.
+        #[arg(long)]
+        replace_all: bool,
         /// Preview without writing.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
@@ -640,8 +643,15 @@ impl Command {
                 path,
                 old_text,
                 new_text,
+                replace_all,
                 dry_run,
-            } => print_value(&mutations.edit_note(&path, &old_text, &new_text, dry_run)?)?,
+            } => print_value(&mutations.edit_note(
+                &path,
+                &old_text,
+                &new_text,
+                replace_all,
+                dry_run,
+            )?)?,
             Command::ApplyPatch { patch, dry_run } => {
                 print_value(&mutations.apply_patch(&patch, dry_run)?)?
             }

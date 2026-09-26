@@ -17,7 +17,7 @@ server supports structural section edits as well as read operations.
 | `delete_note` | Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply. |
 | `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
 | `edit_history` | Show undoable and redoable edits in this server process, newest first, with command, time, and affected files. |
-| `edit_note` | Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default. |
+| `edit_note` | Replace exact text in one Markdown note. Require a unique match by default, or replace every occurrence with `replace_all: true`. Refuse edits that break preserved links or embeds. Preview is the default. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
@@ -225,7 +225,7 @@ Nested types:
 
 ## 🔧 `edit_note`
 
-Replace text that occurs exactly once in one Markdown note. Refuse edits that break preserved links or embeds. Preview is the default.
+Replace exact text in one Markdown note. By default the text must occur exactly once. Set `replace_all: true` to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default.
 
 Input:
 
@@ -233,8 +233,9 @@ Input:
 | --- | --- | --- | --- |
 | `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
 | `new_text` | `string` | yes | Text to put in its place. |
-| `old_text` | `string` | yes | Nonempty text that must occur exactly once. |
+| `old_text` | `string` | yes | Nonempty text that must occur exactly once unless `replace_all` is true. |
 | `path` | `string` | yes | Existing vault-relative Markdown path ending in .md. |
+| `replace_all` | `boolean` | no | Replace every occurrence. Defaults to false. |
 
 
 Output:

@@ -464,6 +464,7 @@ fn text_edit_tools_work_through_server_surface() {
             path: "Text.md".to_string(),
             old_text: "old".to_string(),
             new_text: "new".to_string(),
+            replace_all: false,
             dry_run: false,
         }))
         .expect("edit note");
@@ -482,6 +483,34 @@ fn text_edit_tools_work_through_server_surface() {
 }
 
 #[test]
+fn edit_note_replace_all_defaults_to_false_and_can_be_enabled() {
+    let (dir, server) = fixture();
+    fs::write(dir.path().join("Text.md"), "old old\n").unwrap();
+    let request: EditNoteRequest = serde_json::from_value(serde_json::json!({
+        "path": "Text.md",
+        "old_text": "old",
+        "new_text": "new",
+        "dry_run": false
+    }))
+    .unwrap();
+    assert!(!request.replace_all);
+    assert!(server.edit_note(Parameters(request)).is_err());
+    let request: EditNoteRequest = serde_json::from_value(serde_json::json!({
+        "path": "Text.md",
+        "old_text": "old",
+        "new_text": "new",
+        "replace_all": true,
+        "dry_run": false
+    }))
+    .unwrap();
+    server.edit_note(Parameters(request)).expect("replace all");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Text.md")).unwrap(),
+        "new new\n"
+    );
+}
+
+#[test]
 fn undo_and_redo_tools_apply_the_latest_server_edit() {
     let (dir, server) = fixture();
     fs::write(dir.path().join("Text.md"), "# Text\n\nold\n").unwrap();
@@ -490,6 +519,7 @@ fn undo_and_redo_tools_apply_the_latest_server_edit() {
             path: "Text.md".into(),
             old_text: "old".into(),
             new_text: "new".into(),
+            replace_all: false,
             dry_run: false,
         }))
         .expect("edit note");
@@ -498,6 +528,7 @@ fn undo_and_redo_tools_apply_the_latest_server_edit() {
             path: "Text.md".into(),
             old_text: "new".into(),
             new_text: "latest".into(),
+            replace_all: false,
             dry_run: false,
         }))
         .expect("second edit");

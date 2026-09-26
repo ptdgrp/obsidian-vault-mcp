@@ -5,12 +5,12 @@ fn edit_note_replaces_one_exact_occurrence() {
     let (dir, mutations) = fixture();
     write_note(&dir, "Text.md", "# Text\n\nold value\n");
     let preview = mutations
-        .edit_note("Text.md", "old value", "new value", true)
+        .edit_note("Text.md", "old value", "new value", false, true)
         .expect("preview edit");
     assert!(preview.dry_run);
     assert_eq!(read_note(&dir, "Text.md"), "# Text\n\nold value\n");
     let result = mutations
-        .edit_note("Text.md", "old value", "new value", false)
+        .edit_note("Text.md", "old value", "new value", false, false)
         .expect("edit");
     assert_eq!(result.path, "Text.md");
     assert!(!result.dry_run);
@@ -22,13 +22,47 @@ fn edit_note_rejects_missing_or_ambiguous_text_without_writing() {
     let (dir, mutations) = fixture();
     write_note(&dir, "Text.md", "old old\n");
     for old in ["", "missing", "old"] {
-        assert!(mutations.edit_note("Text.md", old, "new", false).is_err());
+        assert!(
+            mutations
+                .edit_note("Text.md", old, "new", false, false)
+                .is_err()
+        );
     }
     assert_eq!(read_note(&dir, "Text.md"), "old old\n");
 
     write_note(&dir, "Text.md", "banana\n");
-    assert!(mutations.edit_note("Text.md", "ana", "x", false).is_err());
+    assert!(
+        mutations
+            .edit_note("Text.md", "ana", "x", false, false)
+            .is_err()
+    );
     assert_eq!(read_note(&dir, "Text.md"), "banana\n");
+}
+
+#[test]
+fn edit_note_replace_all_replaces_every_non_overlapping_match() {
+    let (dir, mutations) = fixture();
+    write_note(&dir, "Text.md", "old old\n");
+    let preview = mutations
+        .edit_note("Text.md", "old", "new", true, true)
+        .expect("preview all replacements");
+    assert!(preview.dry_run);
+    assert_eq!(read_note(&dir, "Text.md"), "old old\n");
+    mutations
+        .edit_note("Text.md", "old", "new", true, false)
+        .expect("replace all");
+    assert_eq!(read_note(&dir, "Text.md"), "new new\n");
+    assert!(
+        mutations
+            .edit_note("Text.md", "missing", "new", true, false)
+            .is_err()
+    );
+    assert!(
+        mutations
+            .edit_note("Text.md", "new", "new", true, false)
+            .is_err()
+    );
+    assert_eq!(read_note(&dir, "Text.md"), "new new\n");
 }
 
 #[test]
@@ -37,11 +71,11 @@ fn edit_note_refuses_to_break_preserved_heading_and_block_links() {
     write_note(&dir, "Target.md", "# Old\n\nBody ^keep\n");
     write_note(&dir, "Source.md", "[[Target#Old]]\n[[Target#^keep]]\n");
     let heading = mutations
-        .edit_note("Target.md", "# Old", "# New", false)
+        .edit_note("Target.md", "# Old", "# New", false, false)
         .expect_err("heading link");
     assert!(heading.to_string().contains("[[Target#Old]]"));
     let block = mutations
-        .edit_note("Target.md", "^keep", "^gone", false)
+        .edit_note("Target.md", "^keep", "^gone", false, false)
         .expect_err("block link");
     assert!(block.to_string().contains("[[Target#^keep]]"));
     assert_eq!(read_note(&dir, "Target.md"), "# Old\n\nBody ^keep\n");
