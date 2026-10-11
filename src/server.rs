@@ -86,7 +86,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages."
+        description = "Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Return path, view, view_type, output_format=markdown, content and pagination {page,total_pages}; every Markdown data row includes its full vault-relative path, and resolved links use full readable paths. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. If page is less than total_pages, request page+1 with the same max_chars."
     )]
     fn read_base(
         &self,
@@ -110,7 +110,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated."
+        description = "Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. Return path, output_format=mermaid, content and pagination {page,total_pages}; group-inference diagnostics stay in Mermaid comments. No source-line references are fabricated."
     )]
     fn read_canvas(
         &self,

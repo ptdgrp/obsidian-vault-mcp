@@ -161,6 +161,9 @@ MCP 的 project 模式也提供此文件局部工具。
 编辑历史只保存在当前服务进程的内存中，最多保留 100 次操作和约 64 MiB 的序列化记录数据；即使最新一条超过容量限制，也会保留它。重启服务会清空撤销与重做历史。dry-run 和失败操作不会进入历史。进程运行期间，多文件写入失败会回滚；若进程在写入中途突然终止，由于没有落盘恢复日志，仍可能留下部分已写入的文件。
 
 建议先调用 `get_note_outline` 查看目标文件大纲，再用 `read_note` 读取标题或行范围。
+`read_note`、`read_base` 和 `read_canvas` 共享默认 8192 个 Unicode 字符的预算。
+可用 `--max-read-note-chars` 修改默认值，或用单次请求的 `max_chars`（命令行
+`--max-chars`）覆盖。
 `max_chars` 按 Unicode 字符计数，到达预算后会补齐当前行，因此返回内容可能超过预算；
 可使用 `next_line` 无遗漏地继续读取。
 全文和行范围读取跳过 AST 解析；大纲和标题读取在扫描块结构后只解析标题的行内内容；
@@ -174,14 +177,21 @@ block ID 读取保留完整解析。这些路径仍读取源文件，并遵守 `
 视图统一表达为 Markdown 表格。先用 `query_base_views` 按文件顺序列出视图名称和类型，
 它不执行公式或插件视图，忠实保留无名称与重复名称。`read_base.view`（CLI `--view`）
 只接受精确且唯一的名称，名称缺失或重复会报错；省略时选择第一视图。`context_note` 指定嵌入宿主作为
-`this`，省略时 `this` 指向 Base 自身。每页 `row_paths` 提供精确路径，便于继续核对记录。
+`this`，省略时 `this` 指向 Base 自身。响应仅包含 `path`、`view`、`view_type`、
+`output_format: "markdown"`、`content` 和 `pagination`（`page`、`total_pages`）。
+每个数据行自身携带完整的 vault 相对路径：
+`file.name`、`file.basename` 链接到该路径，未配置身份列的视图会补充 `file.path` 列，
+保留原有列显示名称。已解析的笔记链接使用完整路径，Unicode 保持可读。
 
 `read_canvas` 输出完整 Mermaid，保留全部文本、明确类型的文件/图片引用、URL、
-带标签箭头和显式分组成员关系。路径及 subpath 均保留，不需要打开图片或复现坐标。
+带标签箭头和显式分组成员关系。响应仅包含 `path`、`output_format: "mermaid"`、
+`content` 和 `pagination`（`page`、`total_pages`），分组推断提示保留为 Mermaid 注释。
+路径及 subpath 均保留，不需要打开图片或复现坐标。
 两项读取均不依赖正在运行的 Obsidian 桌面，只读且保持 `read_note` 原始 Markdown 契约。
 
 渲染分页按 Unicode 字符预算 `max_chars` 保留完整语义单元，因此单行、节点及必要上下文
-可能超过预算。使用相同预算跟随 `pagination.next_page`。汇总针对应用视图 limit 后的
+可能超过预算。在 `page < total_pages` 时请求 `page + 1`，后续页保持相同预算。
+汇总针对应用视图 limit 后的
 全部结果，不仅当前页。渲染内容不提供源文件行号引用。详细范围与限制见
 [语义读取说明](docs/semantic-readers.md)，接口见[生成的工具契约](docs/tools.md)。
 

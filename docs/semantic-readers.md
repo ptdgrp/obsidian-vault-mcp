@@ -106,10 +106,21 @@ summary formulas evaluate the complete `values` list. Group summaries cover all
 limited rows in the group; overall summaries cover all limited rows across groups.
 Both are labeled with their scope and remain independent of the current page.
 
-Markdown cells escape pipes, line breaks, HTML, and link aliases. Every page
-returns `row_paths` in data-row order, independently of selected columns, so the
-caller can follow up with an exact source read. Empty group markers do not add
-row paths. This is a local compatibility implementation, not an embedded Obsidian
+`read_base` returns exactly `path`, `view`, `view_type`, `output_format` (always
+`"markdown"`), `content` and `pagination` containing only `page` and `total_pages`.
+The Markdown title identifies the selected view. Each data
+row includes a full vault-relative source path: configured `file.name` and
+`file.basename` cells link to it, `file.path` displays it directly, and `file.file`
+provides a file link. If none of these identity columns is configured, `file.path`
+is prepended. Column display names are preserved. A context-file column or an
+arbitrary formula does not replace the current row's identity.
+
+Markdown cells escape pipes, line breaks, HTML, and link aliases. Resolved links
+use the complete vault-relative target and retain their original heading/block
+fragment and display alias. Unresolved and external targets retain their original
+destination. Angle destinations keep Unicode and spaces readable, encoding
+literal filename delimiters and Markdown control characters when required.
+This is a local compatibility implementation, not an embedded Obsidian
 runtime: plugin-defined expression functions, locale customization, or future
 undocumented syntax require explicit implementation. Expression and formula
 nesting is capped at 128, with a per-record evaluation budget of 1,000,000 steps.
@@ -123,7 +134,7 @@ Images are file references; not opening their pixels is not conversion loss.
 Coordinates are used only to infer containment: a node's full rectangle must fit
 inside a group. Nested and overlapping groups retain all memberships through
 explicit dotted `contains` edges. Empty groups remain nodes. Coincident group
-bounds are reported as ambiguous in warnings rather than creating mutual nesting.
+bounds produce diagnostic Mermaid comments rather than creating mutual nesting.
 
 Generated node IDs cannot inject Mermaid syntax. Labels encode source punctuation
 and HTML characters, and Mermaid HTML labels are disabled so literal HTML remains
@@ -133,6 +144,10 @@ are retained. Unknown node types, duplicate IDs, invalid rectangles, unknown arr
 ends, invalid subpaths, and missing edge endpoints produce clear errors. Empty
 Canvas files and pages beyond the end still return complete Mermaid syntax.
 
+`read_canvas` returns exactly `path`, `output_format` (always `"mermaid"`),
+`content` and `pagination`. Non-fatal group-inference diagnostics are retained
+as Mermaid comments in the content and count toward its character budget.
+
 ## Rendered pagination
 
 Both readers accept one-based `page` and a Unicode-character `max_chars` budget
@@ -140,12 +155,12 @@ Both readers accept one-based `page` and a Unicode-character `max_chars` budget
 units: Base rows (plus explicit empty-group markers), or Canvas nodes, connections,
 and memberships. Necessary table headings/summaries and Canvas endpoint
 declarations are repeated. One unit plus that context can exceed the budget; text
-and references are never truncated for presentation. `pagination` returns the
-requested page, total pages/units, returned units, and optional `next_page`.
-Use the same budget and unchanged files when following pages. Beyond-end pages
-have zero returned units and a complete empty rendering. These are result-unit
-positions, never Markdown source-line selectors. `total_rows` counts Base data
-rows after filters/visibility/limit, while `total_units` also counts empty groups.
+and references are never truncated for presentation. Both readers' pagination
+contains only `page` and `total_pages`: request `page + 1` while
+`page < total_pages`. Use the same budget and unchanged files when following
+pages. Beyond-end pages return a complete empty rendering. Pages describe
+rendered result units, never Markdown source-line selectors; explicit empty Base
+groups still occupy pagination units.
 
 ## Implementation and verification
 

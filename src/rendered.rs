@@ -13,22 +13,14 @@ pub fn default_page() -> usize {
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct RenderPagination {
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub page: usize,
-    #[schemars(with = "McpNonNegativeInteger")]
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
     pub total_pages: usize,
-    /// Canvas nodes/connections/memberships, or Base rows/empty-group markers, across all pages.
-    #[schemars(with = "McpNonNegativeInteger")]
-    pub total_units: usize,
-    #[schemars(with = "McpNonNegativeInteger")]
-    pub returned_units: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<McpNonNegativeInteger>")]
-    pub next_page: Option<usize>,
 }
 
 /// Pack complete semantic units. A single unit plus its necessary context may
-/// exceed the budget; the same budget must be used when following next_page.
+/// exceed the budget; the same budget must be used when requesting the next page.
 pub fn paginate<T>(
     items: &[T],
     page: usize,
@@ -84,17 +76,7 @@ pub fn paginate<T>(
         .cloned()
         .unwrap_or(items.len()..items.len());
     let content = render(&items[span.clone()]);
-    Ok((
-        content,
-        RenderPagination {
-            page,
-            total_pages,
-            total_units: items.len(),
-            returned_units: span.len(),
-            next_page: (page < total_pages).then_some(page + 1),
-        },
-        span,
-    ))
+    Ok((content, RenderPagination { page, total_pages }, span))
 }
 
 pub fn read_source(

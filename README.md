@@ -208,6 +208,9 @@ during a write can leave a partial operation because no recovery journal is
 written to disk.
 
 Prefer `get_note_outline` before `read_note`, then select a heading or line range.
+`read_note`, `read_base` and `read_canvas` share a default budget of 8192 Unicode
+characters. Change the default with `--max-read-note-chars`, or override one read
+with `max_chars` (command line `--max-chars`).
 `max_chars` is a Unicode-character budget: reading continues through the boundary
 line, so the response may exceed it. Use `next_line` to continue without gaps.
 Whole-note and line reads skip AST parsing; outlines and heading reads parse only
@@ -226,17 +229,25 @@ executing formulas or plugin views. Unnamed and duplicate names remain unchanged
 Pass an exact unique name as `read_base.view` (CLI `--view`); missing/duplicate
 selectors fail. Omitting it selects the first view; `context_note` supplies the
 embedding file for `this`, otherwise `this`
-is the Base itself. Each page includes `row_paths` for precise follow-up reads.
+is the Base itself. The response contains `path`, `view`, `view_type`,
+`output_format: "markdown"`, `content` and `pagination` (`page`, `total_pages`).
+Each data row carries its full vault-relative
+source path: `file.name` and `file.basename` link to it, and views without an
+identity column receive a `file.path` column. Configured column display names are
+preserved. Resolved note links use complete paths and keep Unicode readable.
 
 `read_canvas` returns complete Mermaid with full text, typed file/image references,
-URLs, labeled arrows, and explicit group membership. It preserves paths and
-subpaths without opening images or reproducing coordinates. Both readers work
-without a running Obsidian desktop. They are read-only and leave `read_note`'s
+URLs, labeled arrows, and explicit group membership. Its response contains only
+`path`, `output_format: "mermaid"`, `content` and `pagination` (`page`,
+`total_pages`); group-inference diagnostics are Mermaid comments. It preserves
+paths and subpaths without opening images or reproducing coordinates. Both readers
+work without a running Obsidian desktop. They are read-only and leave `read_note`'s
 raw Markdown contract intact.
 
 Rendered pages use a Unicode `max_chars` budget and keep complete semantic units,
-so a single row/node and its required context may exceed the budget. Follow
-`pagination.next_page` with the same budget. Summaries cover all matching rows
+so a single row/node and its required context may exceed the budget. Request
+`page + 1` while `page < total_pages`, keeping the same budget across pages.
+Summaries cover all matching rows
 after the view limit, not just the current page. Rendered content has no source
 line citations. See [semantic reader support and limits](docs/semantic-readers.md)
 and the [generated contracts](docs/tools.md).

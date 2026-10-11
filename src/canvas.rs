@@ -23,12 +23,9 @@ pub struct ReadCanvasRequest {
 pub struct ReadCanvasResult {
     pub path: String,
     /// Always mermaid. Every page is a complete flowchart, without Markdown fences.
-    pub format: String,
+    pub output_format: String,
     pub content: String,
     pub pagination: RenderPagination,
-    /// Non-fatal structural ambiguities in inferred groups.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,15 +122,20 @@ impl VaultQueries {
         let budget = request
             .max_chars
             .unwrap_or(self.vault.config().max_read_note_chars);
+        // Keep group-inference diagnostics in the semantic content, within the
+        // same budget as nodes and connections, without a second metadata list.
+        let comments: String = warnings
+            .iter()
+            .map(|warning| format!("%% {}\n", escape_label(warning)))
+            .collect();
         let (content, pagination, _) = paginate(&units, request.page, budget, |units| {
-            render(&canvas, &ids, units)
+            format!("{comments}{}", render(&canvas, &ids, units))
         })?;
         Ok(ReadCanvasResult {
             path,
-            format: "mermaid".into(),
+            output_format: "mermaid".into(),
             content,
             pagination,
-            warnings,
         })
     }
 }

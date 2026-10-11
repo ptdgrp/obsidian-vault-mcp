@@ -596,3 +596,37 @@ fn input_numeric_bounds_match_runtime_limits_in_both_server_modes() {
         }
     }
 }
+
+#[test]
+fn semantic_reader_output_schemas_expose_only_the_requested_fields() {
+    for (name, expected) in [
+        (
+            "read_base",
+            vec![
+                "content",
+                "output_format",
+                "pagination",
+                "path",
+                "view",
+                "view_type",
+            ],
+        ),
+        (
+            "read_canvas",
+            vec!["content", "output_format", "pagination", "path"],
+        ),
+    ] {
+        let definition = ObsidianVaultMcp::tool_definitions()
+            .into_iter()
+            .find(|tool| tool.name == name)
+            .unwrap();
+        let schema = definition.output_schema.unwrap();
+        let fields = schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(fields, expected.into_iter().collect(), "{name}");
+    }
+}

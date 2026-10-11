@@ -65,7 +65,8 @@ fn complete_text_references_arrows_self_loops_and_safe_ids() {
             result.content
         );
     }
-    assert_eq!(result.pagination.total_units, 8);
+    assert_eq!(result.pagination.total_pages, 1);
+    assert_eq!(result.output_format, "mermaid");
     assert!(!result.content.contains("end\"; n99"));
     assert!(!result.content.contains("```"));
     let first = queries
@@ -87,7 +88,8 @@ fn complete_text_references_arrows_self_loops_and_safe_ids() {
     assert!(edge.content.contains("中文"));
     assert!(edge.content.contains("Image file"));
     assert!(edge.content.contains("n0 ---"));
-    assert_eq!(edge.pagination.returned_units, 1);
+    assert_eq!(edge.pagination.page, 4);
+    assert_eq!(edge.pagination.total_pages, 8);
 }
 #[test]
 fn nested_overlapping_empty_and_identical_groups() {
@@ -150,7 +152,8 @@ fn malformed_structures_are_errors_and_empty_pages_are_complete() {
             })
             .unwrap();
         assert!(result.content.ends_with("flowchart LR\n"));
-        assert_eq!(result.pagination.returned_units, 0);
+        assert_eq!(result.pagination.page, page);
+        assert_eq!(result.pagination.total_pages, 1);
     }
     assert!(
         queries
@@ -182,4 +185,41 @@ fn duplicate_ids_negative_rectangles_and_invalid_subpaths_fail() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn wrapper_is_compact_and_group_diagnostics_stay_in_mermaid() {
+    let mut group = node("group\nfirst", "group", 0., 0., 100., 100.);
+    group["label"] = json!("First");
+    let mut identical = group.clone();
+    identical["id"] = json!("group second");
+    let (_dir, queries) = fixture(&json!({"nodes":[group,identical]}));
+    let result = queries
+        .read_canvas(ReadCanvasRequest {
+            path: "test.canvas".into(),
+            page: 1,
+            max_chars: Some(0),
+        })
+        .unwrap();
+    assert!(result.content.starts_with("%% Groups "));
+    assert!(
+        result
+            .content
+            .contains("identical bounds; no parent relationship is inferred.")
+    );
+    assert!(result.content.contains("flowchart LR"));
+    let result = serde_json::to_value(result).unwrap();
+    assert_eq!(
+        result
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        ["content", "output_format", "pagination", "path"]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(result["pagination"], json!({"page":1,"total_pages":2}));
+    assert_eq!(result["output_format"], "mermaid");
 }

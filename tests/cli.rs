@@ -1148,7 +1148,30 @@ fn semantic_readers_cli_preserve_raw_reads_and_discovery_contracts() {
         String::from_utf8_lossy(&output.stderr)
     );
     let base: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(base["row_paths"], serde_json::json!(["record.md"]));
+    assert_eq!(
+        base.as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "content",
+            "output_format",
+            "pagination",
+            "path",
+            "view",
+            "view_type"
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(base["pagination"], json!({"page":1,"total_pages":1}));
+    assert!(
+        base["content"]
+            .as_str()
+            .unwrap()
+            .contains("| record.md | 7 |")
+    );
     assert!(base["content"].as_str().unwrap().contains("| 7 |"));
     assert!(base.get("source").is_none());
     let output = run_cli(&dir, &["read-canvas", "graph.canvas"]);
@@ -1212,7 +1235,14 @@ fn semantic_readers_stdio_in_vault_and_project_modes() {
         }
         if !project {
             let reply=client.request(serde_json::json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read_base","arguments":{"path":"records.base"}}}));
-            assert_eq!(reply["result"]["structuredContent"]["format"], "markdown");
+            assert!(reply["result"]["structuredContent"]["content"].is_string());
+            assert_eq!(
+                reply["result"]["structuredContent"]
+                    .as_object()
+                    .unwrap()
+                    .len(),
+                6
+            );
         }
         client.shutdown();
     }
@@ -1492,9 +1522,11 @@ fn exact_cli_paths_keep_filename_punctuation_and_edit_destinations_use_cwd() {
             "./host#name.md",
         ],
     ));
-    assert_eq!(
-        result["row_paths"],
-        serde_json::json!(["deep/work/host#name.md"])
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("| deep/work/host#name.md |")
     );
     let result = successful_json(run_cli_from(&cwd, &["read-canvas", "./graph#name.canvas"]));
     assert_eq!(result["path"], "deep/work/graph#name.canvas");

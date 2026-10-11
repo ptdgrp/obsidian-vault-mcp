@@ -1379,7 +1379,7 @@ fn read_note_uses_its_own_character_budget_and_directs_to_section_reads() {
         it.max_read_note_chars = "# 发动机\n".chars().count();
     });
 
-    assert_eq!(DEFAULT_MAX_READ_NOTE_CHARS, 4 * 1024);
+    assert_eq!(DEFAULT_MAX_READ_NOTE_CHARS, 8 * 1024);
 
     let result = queries
         .read_note("发动机.md", None, None)

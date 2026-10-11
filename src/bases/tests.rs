@@ -201,21 +201,32 @@ views:
     summaries: {formula.total: Sum, price: Rounded}
 "#;
     let result = read(&queries, source, 100000, 1).unwrap();
-    assert_eq!(result.total_rows, 2);
-    assert_eq!(result.row_paths, ["items/A.md", "items/C.md"]);
-    assert!(result.content.contains("| A.md | active | 36 |"));
+    assert!(
+        result
+            .content
+            .contains("| [A.md](<items/A.md>) | active | 36 |")
+    );
+    assert!(
+        result
+            .content
+            .contains("| [C.md](<items/C.md>) | active | 20 |")
+    );
+    assert!(!result.content.contains("items/B.md"));
     assert!(result.content.contains("| Total | Sum | 56 |"));
     assert!(result.content.contains("| price | Rounded | 7 |"));
     assert!(result.content.contains("## status: planned"));
     let first = read(&queries, source, 0, 1).unwrap();
-    assert_eq!(first.row_paths, ["items/A.md"]);
+    assert!(first.content.contains("[A.md](<items/A.md>)"));
+    assert!(!first.content.contains("items/C.md"));
     assert!(first.content.contains("| Total | Sum | 56 |"));
     assert_eq!(first.pagination.total_pages, 3);
     let second = read(&queries, source, 0, 2).unwrap();
-    assert_eq!(second.row_paths, ["items/C.md"]);
+    assert!(second.content.contains("[C.md](<items/C.md>)"));
+    assert!(!second.content.contains("items/A.md"));
     assert!(second.content.contains("| Total | Sum | 56 |"));
     let third = read(&queries, source, 0, 3).unwrap();
-    assert!(third.row_paths.is_empty());
+    assert!(!third.content.contains("](<items/"));
+    assert_eq!(third.pagination.page, 3);
     assert!(third.content.contains("No rows in this group"));
 }
 #[test]
@@ -235,9 +246,9 @@ fn all_file_types_ignores_and_lazy_body_reads() {
         1,
     )
     .unwrap();
-    assert!(result.row_paths.contains(&"image.png".to_string()));
-    assert!(!result.row_paths.contains(&"ignored.md".to_string()));
-    assert!(result.row_paths.contains(&"broken.md".to_string()));
+    assert!(result.content.contains("| image.png | png |"));
+    assert!(!result.content.contains("ignored.md"));
+    assert!(result.content.contains("| broken.md | md |"));
     let error = read(
         &queries,
         "filters: 'file.path == \"broken.md\"'\nviews: [{type: table, order: [note.status]}]",
@@ -292,9 +303,10 @@ fn explicit_context_view_selection_and_markdown_escaping() {
 formulas:
   literal: '"a|b\n<em>x</em> `code`"'
   alias: 'link("items/B.md", "B|alias")'
+  context: this.file
 views:
   - {type: table, name: First, order: [this]}
-  - {type: cards, name: Second, order: [formula.literal, formula.alias], image: related}
+  - {type: cards, name: Second, order: [formula.literal, formula.alias, formula.context], image: related}
 "#;
     fs::write(queries.vault.root.join("view.base"), source).unwrap();
     let result = queries
@@ -306,16 +318,21 @@ views:
             max_chars: Some(10000),
         })
         .unwrap();
-    assert_eq!(result.context, "items/context.md");
+    assert!(result.content.starts_with("# Second\n"));
+    assert!(
+        result
+            .content
+            .contains("[items/context.md](<items/context.md>)")
+    );
     assert!(
         result
             .content
             .contains("a&#124;b<br>&lt;em&gt;x&lt;/em&gt; \\`code\\`")
     );
-    assert!(result.content.contains("[B&#124;alias](items/B.md)"));
+    assert!(result.content.contains("[B&#124;alias](<items/B.md>)"));
     assert!(result.content.contains("related"));
     let result=read(&queries,"filters: 'file.ext == \"md\" && status == this.status'\nviews: [{type: list, order: [file.path]}]",100000,1).unwrap();
-    assert_eq!(result.total_rows, 0);
+    assert!(result.content.contains("No rows on this page"));
 }
 #[test]
 fn map_and_kanban_keep_semantic_fields() {
@@ -328,7 +345,7 @@ fn map_and_kanban_keep_semantic_fields() {
     let result=read(&queries,r#"filters: 'file.path == "items/place.md"'
 views: [{type: map, name: Map, coordinates: note.coordinates, markerIcon: note.icon, markerColor: note.color, center: '[48, 2]', defaultZoom: 12, mapTiles: https://example.com/tiles}]
 "#,100000,1).unwrap();
-    assert_eq!(result.total_rows, 1);
+    assert!(result.content.contains("](<items/place.md>)"));
     assert!(result.content.contains("48.8, 2.3"));
     assert!(result.content.contains("landmark"));
     assert!(result.content.contains("Map center: 48, 2"));
@@ -382,7 +399,7 @@ fn invalid_numbers_regex_flags_and_unicode_loss_never_become_null() {
 fn nullable_known_methods_and_repeated_references() {
     let (_dir, queries) = fixture();
     let result=read(&queries,"filters: 'categories.containsAny(link(\"Places\"))'\nviews: [{type: map, coordinates: due}]",10000,1).unwrap();
-    assert_eq!(result.total_rows, 0);
+    assert!(result.content.contains("No rows on this page"));
     let data = Dataset::new(&queries).unwrap();
     let row = data.exact("items/A.md").unwrap();
     let formulas = BTreeMap::new();
@@ -512,4 +529,151 @@ fn view_discovery_is_configuration_only_and_preserves_names() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn markdown_rows_keep_identity_without_changing_column_aliases_or_values() {
+    let (_dir, queries) = fixture();
+    for (column, expected) in [
+        ("file.name", "[A.md](<items/A.md>)"),
+        ("file.basename", "[A](<items/A.md>)"),
+        ("file.path", "items/A.md"),
+        ("file.file", "[items/A.md](<items/A.md>)"),
+    ] {
+        let result = read(&queries, &format!("filters: 'file.path == \"items/A.md\"'\nproperties:\n  {column}: {{displayName: Source}}\nviews: [{{type: table, order: [{column}, price]}}]"), 100000, 1).unwrap();
+        assert!(
+            result.content.contains("| Source | price |"),
+            "{}",
+            result.content
+        );
+        assert!(result.content.contains(&format!("| {expected} | 12 |")));
+        assert!(!result.content.contains("| file.path |"));
+    }
+    let result = read(&queries, "filters: 'file.path == \"items/A.md\"'\nformulas:\n  context: this.file\nviews: [{type: table, order: [formula.context, price]}]", 100000, 1).unwrap();
+    assert!(
+        result
+            .content
+            .contains("| file.path | formula.context | price |")
+    );
+    assert!(
+        result
+            .content
+            .contains("| items/A.md | [view.base](<view.base>) | 12 |")
+    );
+    let json = serde_json::to_value(result).unwrap();
+    assert_eq!(
+        json.as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "content",
+            "output_format",
+            "pagination",
+            "path",
+            "view",
+            "view_type"
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(
+        json["pagination"],
+        serde_json::json!({"page":1,"total_pages":1})
+    );
+}
+
+fn markdown_urls(source: &str) -> Vec<String> {
+    use ptdgrp_markdown::{MarkdownNode, Parser, ParserOptions, link::Link};
+    let document =
+        Parser::new_with_options(source, ParserOptions::default().enabled_gfm().enabled_ofm())
+            .parse()
+            .unwrap();
+    crate::parser::active_node_indices(&document)
+        .into_iter()
+        .filter_map(|index| {
+            if let MarkdownNode::Link(link) = &document.tree[index].body
+                && let Link::Default(link) = link.as_ref()
+            {
+                // The Markdown parser normalizes URIs to percent-encoded UTF-8.
+                // Decode once to assert the actual destination, including
+                // literal filename percent signs, rather than its spelling.
+                let mut input = document.text(&link.url).as_bytes();
+                let mut bytes = Vec::new();
+                while !input.is_empty() {
+                    if input[0] == b'%' {
+                        bytes.push(
+                            u8::from_str_radix(std::str::from_utf8(&input[1..3]).unwrap(), 16)
+                                .unwrap(),
+                        );
+                        input = &input[3..];
+                    } else {
+                        bytes.push(input[0]);
+                        input = &input[1..];
+                    }
+                }
+                Some(String::from_utf8(bytes).unwrap())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn rendered_links_use_resolved_paths_and_preserve_fragments_aliases_and_urls() {
+    let (_dir, queries) = fixture();
+    fs::create_dir(queries.vault.root.join("资料")).unwrap();
+    fs::write(
+        queries.vault.root.join("资料/目标.md"),
+        "# 标题\nblock ^id\n",
+    )
+    .unwrap();
+    fs::write(queries.vault.root.join("items/A.md"), "---\nrelated:\n  - '[[目标#标题|中文别名]]'\n  - '[[目标#^id]]'\n  - '[[missing#标题|找不到]]'\n  - '[[https://example.com/中文?q=a&b=2#片段|网址]]'\nnested: {dependency: '[[目标#^id|阻塞]]', missing: null, list: [null]}\n---\n").unwrap();
+    let result = read(&queries, "filters: 'file.path == \"items/A.md\"'\nviews: [{type: table, order: [file.name, related, nested]}]", 100000, 1).unwrap();
+    assert!(result.content.contains("[中文别名](<资料/目标.md#标题>)"));
+    assert!(result.content.contains("[目标#^id](<资料/目标.md#^id>)"));
+    assert!(result.content.contains("[找不到](<missing#标题>)"));
+    assert!(
+        result
+            .content
+            .contains("{dependency: [阻塞](<资料/目标.md#^id>), missing: null, list: null}")
+    );
+    let urls = markdown_urls(&result.content);
+    assert_eq!(
+        urls,
+        [
+            "items/A.md",
+            "资料/目标.md#标题",
+            "资料/目标.md#^id",
+            "missing#标题",
+            "https://example.com/中文?q=a&b=2#片段",
+            "资料/目标.md#^id",
+        ]
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn markdown_destinations_preserve_unicode_and_escape_literal_filename_delimiters() {
+    let (_dir, queries) = fixture();
+    fs::create_dir(queries.vault.root.join("资料")).unwrap();
+    let path = "资料/中 文(a)[b]#?%|&copy;`.md";
+    fs::write(queries.vault.root.join(path), "# Special\n").unwrap();
+    let data = Dataset::new(&queries).unwrap();
+    let index = data.exact(path).unwrap();
+    let markdown = cell(&data, &Value::File(index));
+    assert!(markdown.contains("资料/中 文(a)[b]%23%3F%25%7C&amp;copy;%60.md"));
+    let urls = markdown_urls(&format!("| Source |\n| --- |\n| {markdown} |\n"));
+    assert_eq!(urls, [path]);
+    let result = read(
+        &queries,
+        "filters: 'file.inFolder(\"资料\")'\nviews: [{type: table, order: [file.path]}]",
+        100000,
+        1,
+    )
+    .unwrap();
+    assert!(result.content.contains(&escape_cell(path)));
+    assert!(!result.content.contains("| file.path | file.path |"));
 }

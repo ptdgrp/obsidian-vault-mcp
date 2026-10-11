@@ -11,7 +11,7 @@ use std::{
 
 use crate::cli;
 
-pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 4 * 1024;
+pub const DEFAULT_MAX_READ_NOTE_CHARS: usize = 8 * 1024;
 #[cfg(feature = "attachments")]
 pub const DEFAULT_MAX_READ_ATTACHMENT_CHARS: usize = 16 * 1024;
 

@@ -107,15 +107,11 @@ pub struct ReadBaseResult {
     pub path: String,
     pub view: String,
     pub view_type: String,
-    pub context: String,
-    /// Always markdown. All supported layouts use a semantic Markdown table.
-    pub format: String,
+    /// Always markdown. Supported layouts share a semantic Markdown table.
+    pub output_format: String,
+    /// Markdown with the selected view and a complete source path in every data row.
     pub content: String,
-    /// Rows after filters, group visibility, sorting and the view's limit, before pagination.
-    #[schemars(with = "McpNonNegativeInteger")]
-    pub total_rows: usize,
-    /// Exact file paths for data rows on this page, in rendered order; empty groups are excluded.
-    pub row_paths: Vec<String>,
+    /// Compare page with total_pages to determine whether another page follows.
     pub pagination: RenderPagination,
 }
 #[derive(Debug, Deserialize)]
@@ -287,6 +283,12 @@ impl VaultQueries {
                     }
                 }
             }
+            // Keep record identity in the Markdown itself, even when the view
+            // only displays note properties or formulas. this is the context
+            // file and cannot identify the current result row.
+            if !columns.iter().any(|column| is_identity(column)) {
+                columns.insert(0, "file.path".into());
+            }
             for property in columns
                 .iter()
                 .chain(selected.sort.iter().map(|sort| &sort.property))
@@ -403,7 +405,6 @@ impl VaultQueries {
             if let Some(limit) = selected.limit {
                 rows.truncate(limit);
             }
-            let total_rows = rows.len();
             let overall = summarize(&data, &rows, selected, &custom, context, now, &formulas)?;
             let mut groups: Vec<Group> = Vec::new();
             if let Some(order) = &selected.group_order {
@@ -487,7 +488,7 @@ impl VaultQueries {
             let budget = request
                 .max_chars
                 .unwrap_or(self.vault.config().max_read_note_chars);
-            let (content, pagination, span) = paginate(&units, request.page, budget, |units| {
+            let (content, pagination, _) = paginate(&units, request.page, budget, |units| {
                 format!(
                     "{map_metadata}{}",
                     render(
@@ -495,22 +496,12 @@ impl VaultQueries {
                     )
                 )
             })?;
-            let row_paths = units[span]
-                .iter()
-                .filter_map(|unit| {
-                    unit.row
-                        .map(|row| groups[unit.group].rows[row].path.clone())
-                })
-                .collect();
             Ok(ReadBaseResult {
                 path: path.clone(),
                 view,
                 view_type: selected.kind.clone(),
-                context: data.file(context).relative_path,
-                format: "markdown".into(),
+                output_format: "markdown".into(),
                 content,
-                total_rows,
-                row_paths,
                 pagination,
             })
         };
@@ -856,8 +847,11 @@ fn render(
         if current != Some(unit.group) {
             current = Some(unit.group);
             if let Some(group_by) = &view.group_by {
+                if !out.ends_with("\n\n") {
+                    out.push('\n');
+                }
                 out.push_str(&format!(
-                    "\n## {}: {}\n\n",
+                    "## {}: {}\n\n",
                     escape_cell(display_name(base, &group_by.property)),
                     if matches!(group.value, Value::Null) {
                         "(empty)".into()
@@ -885,7 +879,14 @@ fn render(
                 &group.rows[row]
                     .values
                     .iter()
-                    .map(|value| cell(data, value))
+                    .zip(columns)
+                    .map(|(value, column)| {
+                        if matches!(column.as_str(), "file.name" | "file.basename") {
+                            markdown_link(&data.display(value), &group.rows[row].path, true)
+                        } else {
+                            cell(data, value)
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(" | "),
             );
@@ -941,37 +942,101 @@ fn render_summaries(
     }
     out.push('\n');
 }
+fn is_identity(column: &str) -> bool {
+    matches!(
+        column,
+        "file.name" | "file.basename" | "file.path" | "file.file"
+    )
+}
+
 fn cell(data: &Dataset<'_>, value: &Value) -> String {
     match value {
         Value::Null => String::new(),
         Value::File(index) | Value::This(index) => {
             let path = data.file(*index).relative_path;
-            format!("[{}]({})", escape_cell(&path), url(&path))
+            markdown_link(&path, &path, true)
         }
-        Value::Link { path, display, .. } => format!(
-            "[{}]({})",
-            display
+        Value::Link {
+            path,
+            display,
+            resolved,
+        } => {
+            let label = display
                 .as_ref()
-                .map(|value| escape_cell(&data.display(value)))
-                .unwrap_or_else(|| escape_cell(path)),
-            url(path)
-        ),
+                .map(|value| data.display(value))
+                .unwrap_or_else(|| path.clone());
+            if let Some(index) = resolved {
+                let canonical = data.file(*index).relative_path;
+                // The resolved file supplies the complete path, while the
+                // original reference still owns its heading/block fragment.
+                let mut target = destination(&canonical, true);
+                if let Some((_, fragment)) = path.split_once('#') {
+                    target.push('#');
+                    target.push_str(&destination(fragment, false));
+                }
+                format!("[{}](<{target}>)", escape_cell(&label))
+            } else {
+                markdown_link(&label, path, false)
+            }
+        }
         Value::List(values) => values
             .iter()
             .map(|value| cell(data, value))
             .collect::<Vec<_>>()
             .join(", "),
-        Value::Image(path) => format!("Image: [{}]({})", escape_cell(path), url(path)),
+        Value::Object(values) => format!(
+            "{{{}}}",
+            values
+                .iter()
+                .map(|(key, value)| format!("{}: {}", escape_cell(key), object_cell(data, value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Image(path) => format!("Image: {}", markdown_link(path, path, false)),
         _ => escape_cell(&data.display(value)),
     }
 }
-fn url(path: &str) -> String {
+
+// Null is an empty table cell, but remains an explicit value inside objects
+// (including their nested lists), as in the original object text rendering.
+fn object_cell(data: &Dataset<'_>, value: &Value) -> String {
+    match value {
+        Value::Null => "null".into(),
+        Value::List(values) => values
+            .iter()
+            .map(|value| object_cell(data, value))
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => cell(data, value),
+    }
+}
+
+fn markdown_link(label: &str, target: &str, canonical: bool) -> String {
+    format!(
+        "[{}](<{}>)",
+        escape_cell(label),
+        destination(target, canonical)
+    )
+}
+
+/// Angle destinations retain readable Unicode and spaces. Encode only Markdown
+/// delimiters/control characters and URI delimiters that are literal filename
+/// characters in a canonical vault path. External queries/fragments retain their
+/// separators; HTML entities preserve literal ampersands through Markdown parsing.
+fn destination(target: &str, canonical: bool) -> String {
     let mut out = String::new();
-    for byte in path.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~/:?#=&+@!$,;".contains(&byte) {
-            out.push(byte as char);
+    for ch in target.chars() {
+        if ch == '&' {
+            out.push_str("&amp;");
+        } else if ch.is_control()
+            || matches!(ch, '<' | '>' | '\\' | '`' | '|' | '"')
+            || (canonical && matches!(ch, '%' | '#' | '?' | ':'))
+        {
+            for byte in ch.to_string().bytes() {
+                out.push_str(&format!("%{byte:02X}"));
+            }
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            out.push(ch);
         }
     }
     out

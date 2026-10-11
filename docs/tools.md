@@ -33,8 +33,8 @@ server supports structural section edits as well as read operations.
 | `query_base_views` | List a .base file's configured views in file order without executing formulas, filters, queries or plugin views. Names remain exact, null or duplicated; read_base's optional view requires an exact unique name and otherwise defaults to the first view. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. |
-| `read_base` | Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages. |
-| `read_canvas` | Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated. |
+| `read_base` | Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Return path, view, view_type, output_format=markdown, content and pagination {page,total_pages}; every Markdown data row includes its full vault-relative path, and resolved links use full readable paths. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. If page is less than total_pages, request page+1 with the same max_chars. |
+| `read_canvas` | Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. Return path, output_format=mermaid, content and pagination {page,total_pages}; group-inference diagnostics stay in Mermaid comments. No source-line references are fabricated. |
 | `read_note` | Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note. |
 | `redo_edit` | Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
@@ -846,7 +846,7 @@ Nested types:
 
 ## 🔧 `read_base`
 
-Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages.
+Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Return path, view, view_type, output_format=markdown, content and pagination {page,total_pages}; every Markdown data row includes its full vault-relative path, and resolved links use full readable paths. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. If page is less than total_pages, request page+1 with the same max_chars.
 
 Input:
 
@@ -866,12 +866,9 @@ Output:
 | `path` | `string` | yes |  |
 | `view` | `string` | yes |  |
 | `view_type` | `string` | yes |  |
-| `context` | `string` | yes |  |
-| `format` | `string` | yes | Always markdown. All supported layouts use a semantic Markdown table. |
-| `content` | `string` | yes |  |
-| `total_rows` | `integer` | yes | Rows after filters, group visibility, sorting and the view's limit, before pagination. |
-| `row_paths` | `string[]` | yes | Exact file paths for data rows on this page, in rendered order; empty groups are excluded. |
-| `pagination` | `RenderPagination` | yes |  |
+| `output_format` | `string` | yes | Always markdown. Supported layouts share a semantic Markdown table. |
+| `content` | `string` | yes | Markdown with the selected view and a complete source path in every data row. |
+| `pagination` | `RenderPagination` | yes | Compare page with total_pages to determine whether another page follows. |
 
 Nested types:
 
@@ -881,14 +878,11 @@ Nested types:
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
-| `total_units` | `integer` | yes | Canvas nodes/connections/memberships, or Base rows/empty-group markers, across all pages. |
-| `returned_units` | `integer` | yes |  |
-| `next_page` | `integer \| null` | no |  |
 
 
 ## 🔧 `read_canvas`
 
-Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated.
+Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. Return path, output_format=mermaid, content and pagination {page,total_pages}; group-inference diagnostics stay in Mermaid comments. No source-line references are fabricated.
 
 Input:
 
@@ -904,10 +898,9 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | yes |  |
-| `format` | `string` | yes | Always mermaid. Every page is a complete flowchart, without Markdown fences. |
+| `output_format` | `string` | yes | Always mermaid. Every page is a complete flowchart, without Markdown fences. |
 | `content` | `string` | yes |  |
 | `pagination` | `RenderPagination` | yes |  |
-| `warnings` | `string[]` | yes | Non-fatal structural ambiguities in inferred groups. |
 
 Nested types:
 
@@ -917,9 +910,6 @@ Nested types:
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
-| `total_units` | `integer` | yes | Canvas nodes/connections/memberships, or Base rows/empty-group markers, across all pages. |
-| `returned_units` | `integer` | yes |  |
-| `next_page` | `integer \| null` | no |  |
 
 
 ## 🔧 `read_note`
