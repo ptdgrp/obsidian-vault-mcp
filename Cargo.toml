@@ -65,6 +65,7 @@ regress = "0.11"
 fastrand = "2"
 num-bigint = "0.4"
 ryu-js = "1"
+yaml-edit = "0.3.2"
 
 [dev-dependencies]
 insta = "1"

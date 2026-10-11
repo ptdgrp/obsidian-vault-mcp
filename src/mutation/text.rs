@@ -9,10 +9,10 @@ use crate::{
     resolver::{IndexedNote, RefResolver, ResolveResult},
 };
 
-struct PlannedEdit {
-    path: Utf8PathBuf,
-    original: String,
-    updated: String,
+pub(super) struct PlannedEdit {
+    pub(super) path: Utf8PathBuf,
+    pub(super) original: String,
+    pub(super) updated: String,
 }
 
 impl VaultMutations {
@@ -95,7 +95,10 @@ impl VaultMutations {
         self.apply_planned_edits("apply_patch", edits, dry_run)
     }
 
-    fn read_editable_note(&self, path: &str) -> anyhow::Result<(Utf8PathBuf, String, String)> {
+    pub(super) fn read_editable_note(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<(Utf8PathBuf, String, String)> {
         let file = self.queries.vault.resolve_exact_note_path(path)?;
         let relative_path = self.queries.vault.relative_path(&file);
         let metadata = std::fs::symlink_metadata(&file)
@@ -111,7 +114,7 @@ impl VaultMutations {
         Ok((file, relative_path, original))
     }
 
-    fn apply_planned_edits(
+    pub(super) fn apply_planned_edits(
         &self,
         operation: &str,
         edits: BTreeMap<String, PlannedEdit>,

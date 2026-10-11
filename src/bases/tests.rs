@@ -478,3 +478,38 @@ fn insertion_order_and_builtin_summary_types() {
         "172800000"
     );
 }
+
+#[test]
+fn view_discovery_is_configuration_only_and_preserves_names() {
+    let (_dir, queries) = fixture();
+    fs::write(queries.vault.root.join("view.base"), "formulas: {broken: 'unknown()'}\nfilters: 'not a valid expression'\nviews:\n  - {type: third-party}\n  - {type: table, name: Same}\n  - {type: list, name: Same}\n").unwrap();
+    let result = queries
+        .query_base_views(QueryBaseViewsRequest {
+            path: "view.base".into(),
+        })
+        .unwrap();
+    assert_eq!(result.path, "view.base");
+    assert_eq!(result.views.len(), 3);
+    assert_eq!(result.views[0].name, None);
+    assert_eq!(result.views[0].kind, "third-party");
+    assert!(result.views[0].is_default);
+    assert_eq!(result.views[1].position, 2);
+    assert_eq!(result.views[1].name, result.views[2].name);
+    assert!(!result.views[1].is_default);
+    for source in [
+        "[]",
+        "views: wrong",
+        "views: [{name: missing-type}]",
+        "views: []\nviews: []",
+    ] {
+        fs::write(queries.vault.root.join("view.base"), source).unwrap();
+        assert!(
+            queries
+                .query_base_views(QueryBaseViewsRequest {
+                    path: "view.base".into()
+                })
+                .is_err(),
+            "{source}"
+        );
+    }
+}

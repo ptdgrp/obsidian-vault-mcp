@@ -44,10 +44,17 @@ pub(crate) enum Command {
         limit: Option<usize>,
     },
 
-    /// Execute a .base view and read the actual result as Markdown.
+    /// List configured Base views without evaluating formulas or queries.
+    QueryBaseViews {
+        /// Exact .base path; ./ and ../ are relative to the process working directory.
+        path: String,
+    },
+
+    /// Execute a .base view and read the actual result as Markdown. Use query-base-views to discover names.
     ReadBase {
         /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
+        /// Exact unique view name; omit for the first configured view.
         #[arg(long)]
         view: Option<String>,
         /// Exact embedding/active file path used by this; defaults to the Base itself. ./ and ../ are relative to the process working directory.
@@ -387,6 +394,19 @@ pub(crate) enum Command {
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         dry_run: bool,
     },
+    /// Set one literal top-level frontmatter field. Preview is the default; null sets YAML null.
+    SetFrontmatterField {
+        /// Exact existing .md path; ./ and ../ are relative to the process working directory.
+        note: String,
+        /// Literal top-level key; dots do not select nested properties.
+        field: String,
+        /// Required JSON input: strings need JSON quotes, e.g. '"active"'; lists/objects/bools/numbers/null retain type.
+        #[arg(allow_hyphen_values = true)]
+        value: String,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        dry_run: bool,
+    },
+
     /// Apply a unified diff to existing Markdown notes. Preview is the default.
     ApplyPatch {
         /// Unified diff text with a/path.md and b/path.md file headers.
@@ -481,9 +501,11 @@ impl Command {
                     rebase(context, root, &cwd, Kind::ExistingFile)?;
                 }
             }
-            Self::ReadCanvas { path, .. }
+            Self::QueryBaseViews { path }
+            | Self::ReadCanvas { path, .. }
             | Self::DeleteNote { path, .. }
             | Self::EditNote { path, .. } => rebase(path, root, &cwd, Kind::ExistingFile)?,
+            Self::SetFrontmatterField { note, .. } => rebase(note, root, &cwd, Kind::ExistingFile)?,
             Self::CreateNote { path, .. } => rebase(path, root, &cwd, Kind::Destination)?,
             Self::RenameNote { path, new_path, .. } => {
                 rebase(path, root, &cwd, Kind::ExistingFile)?;
@@ -518,6 +540,8 @@ impl Command {
             Self::Doctor => "doctor",
             Self::ListFiles { .. } => "list_files",
             Self::ReadBase { .. } => "read_base",
+            Self::QueryBaseViews { .. } => "query_base_views",
+            Self::SetFrontmatterField { .. } => "set_frontmatter_field",
             Self::ReadCanvas { .. } => "read_canvas",
             Self::ListNotes { .. } => "list_notes",
             Self::AuditLinks { .. } => "audit_links",
@@ -586,6 +610,24 @@ impl Command {
                     page,
                     limit,
                 })?)?;
+            }
+            Command::QueryBaseViews { path } => {
+                print_value(
+                    &queries.query_base_views(crate::bases::QueryBaseViewsRequest { path })?,
+                )?;
+            }
+            Command::SetFrontmatterField {
+                note,
+                field,
+                value,
+                dry_run,
+            } => {
+                let value = serde_json::from_str(&value).map_err(|error| {
+                    anyhow::anyhow!(
+                        "VALUE must be valid JSON (strings require JSON quotes): {error}"
+                    )
+                })?;
+                print_value(&mutations.set_frontmatter_field(&note, &field, value, dry_run)?)?;
             }
             Command::ReadBase {
                 path,

@@ -39,6 +39,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "apply_patch",
         "list_notes",
         "list_files",
+        "query_base_views",
         "read_base",
         "read_canvas",
         "audit_links",
@@ -70,6 +71,7 @@ fn public_tool_set_matches_task8_contract_exactly() {
         "rename_note",
         "rename_heading",
         "set_block_id",
+        "set_frontmatter_field",
         "undo_edit",
     ]
     .into_iter()

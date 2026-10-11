@@ -68,6 +68,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "list_files",
             "list_notes",
             "list_tags",
+            "query_base_views",
             "query_frontmatter",
             #[cfg(feature = "attachments")]
             "read_attachment",
@@ -82,6 +83,7 @@ fn public_tool_definitions_preserve_names_and_object_schemas() {
             "search_regex",
             "search_text",
             "set_block_id",
+            "set_frontmatter_field",
             "undo_edit",
         ]
     );

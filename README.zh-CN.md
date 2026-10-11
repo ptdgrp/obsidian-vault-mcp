@@ -72,12 +72,15 @@ obsidian-vault-mcp get-note-outline ./README.md
 obsidian-vault-mcp read-note ./README.zh-CN.md --heading "构建与测试"
 obsidian-vault-mcp list-notes --page 1
 obsidian-vault-mcp list-files --extension base --extension canvas --page 1
+obsidian-vault-mcp query-base-views "项目.base"
 obsidian-vault-mcp read-base "项目.base" --view "进行中" --max-chars 8192
 obsidian-vault-mcp read-canvas "规划.canvas" --max-chars 8192
 obsidian-vault-mcp get-note-outline "人物/林动.md" --page 1
 obsidian-vault-mcp read-note "人物/林动.md#身体" --max-chars 4096
 obsidian-vault-mcp get-note-structure "人物/林动.md"
 obsidian-vault-mcp get-note-stats "人物/林动.md"
+obsidian-vault-mcp set-frontmatter-field "人物/林动.md" status '"active"'
+obsidian-vault-mcp set-frontmatter-field "人物/林动.md" score '7' --dry-run false
 obsidian-vault-mcp resolve-ref '[[林动#身体]]'
 obsidian-vault-mcp get-outlinks "人物/林动.md" --page 1
 obsidian-vault-mcp get-backlinks '[[林动]]' --page 1
@@ -110,10 +113,10 @@ obsidian-vault-mcp serve
 
 如果 `serve` 没有发现 vault，会提供当前项目目录下的 `list_files`、`read_canvas` 及 Markdown 文件工具：
 `read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
-`audit_links`、`create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`，以及编辑历史、撤销与重做工具。
+`audit_links`、`create_note`、`delete_note`、`edit_note`、`set_frontmatter_field`、`apply_patch`、`append_section`、`replace_section`、`delete_section`，以及编辑历史、撤销与重做工具。
 此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
 `audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
-全库 Bases 查询（`read_base`）、搜索、元数据和链接图谱工具不可用。
+Bases 配置发现与全库查询（`query_base_views`、`read_base`）、搜索、元数据和链接图谱工具不可用。
 `read-note`、`get-note-outline`、`get-note-structure`、`get-note-stats`、
 `read-canvas` 和 `list-files` CLI 命令也支持此项目模式。其他 CLI 命令仍需要显式配置
 或自动发现的有效 vault；未发现 vault 或显式配置的路径无效时会报错。
@@ -136,8 +139,22 @@ obsidian-vault-mcp \
 3. note 外部关系：`resolve_ref`、`get_outlinks`、`get_backlinks`、`get_note_neighborhood`、`list_tags`、`get_tag`、`list_categories`、`get_category`、`query_frontmatter`、`search_text` 和 `search_regex` 回答聚焦的跨 note 问题。
 4. 问题关系审计：`audit_links` 分页报告可见 notes 中无法解析和解析歧义的本地链接，让大范围工作先确认链接健康状态。
 
-编辑工具包括 `create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note` 和 `set_block_id`。
+编辑工具包括 `create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`、`rename_heading`、`rename_note`、`set_block_id` 和 `set_frontmatter_field`。
 section 编辑仅支持 heading 和 block-id selector；line selector 仅保留给 `read_note`。
+
+`set_frontmatter_field` 修改既有 `.md` 精确路径中的单个顶层 YAML 字段，与
+`edit_note` 一样不接受简称、别名或 selector。`field` 中的点是字面字符。
+`value` 必须是 JSON：字符串需要 JSON 引号，数字、布尔值、数组、对象和 `null`
+保留类型；null 写入 YAML null，不删除字段。缺少字段或 frontmatter 时会创建。
+默认预览，设置 `dry_run=false`（CLI `--dry-run false`）才写入。结果包含修改前后值、
+`previous_exists` 和 `changed`；语义未变化不会增加历史。CLI 修改仍要求 vault，
+MCP 的 project 模式也提供此文件局部工具。
+
+编辑器保留正文、BOM、换行风格和其他字段的原文及注释；被替换值内部的格式和注释
+可能改变。新增 `yaml-edit` 0.3.2 用于保留语法格式的局部编辑，随后严格校验 YAML、
+重复键、目标值、其他元数据和既有引用。语法错误、未闭合、非 mapping 的 header，
+以及影响其他字段的 alias/merge 修改均拒绝写入。特殊 YAML 若无法安全局部修改，
+会明确报错，不会整块重新序列化。实际写入复用原子写、解析缓存失效和撤销/重做历史。
 
 `edit_history` 列出可撤销和可重做操作的触发命令、时间与受影响文件，不返回笔记正文。`undo_edit` 撤销最近一次成功修改，`redo_edit` 重做最近一次撤销；两者都支持可选的 `steps`（默认 1）。写入前会检查请求中的所有步骤，若有冲突则整次请求都不执行，并返回冲突路径。执行新的修改会清空重做栈。
 
@@ -154,7 +171,9 @@ block ID 读取保留完整解析。这些路径仍读取源文件，并遵守 `
 `list_files` 发现可见的 `.base`、`.canvas` 和附件路径，不解析文件内容；
 `list_notes` 继续只列出 Markdown。`read_base` 执行带类型的公式、全局及视图过滤、
 展示字段、排序、分组、limit 和汇总，将 table、cards、list、kanban 及官方 Maps
-视图统一表达为 Markdown 表格。默认选择第一视图；`context_note` 指定嵌入宿主作为
+视图统一表达为 Markdown 表格。先用 `query_base_views` 按文件顺序列出视图名称和类型，
+它不执行公式或插件视图，忠实保留无名称与重复名称。`read_base.view`（CLI `--view`）
+只接受精确且唯一的名称，名称缺失或重复会报错；省略时选择第一视图。`context_note` 指定嵌入宿主作为
 `this`，省略时 `this` 指向 Base 自身。每页 `row_paths` 提供精确路径，便于继续核对记录。
 
 `read_canvas` 输出完整 Mermaid，保留全部文本、明确类型的文件/图片引用、URL、
@@ -204,6 +223,7 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 
 - `list_notes`
 - `list_files`
+- `query_base_views`
 - `read_base`
 - `read_canvas`
 - `get_note_outline`
@@ -228,6 +248,7 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 - `create_note`
 - `delete_note`
 - `edit_note`
+- `set_frontmatter_field`
 - `apply_patch`
 - `append_section`
 - `replace_section`

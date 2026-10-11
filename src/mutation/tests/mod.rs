@@ -9,6 +9,7 @@ use crate::{
     vault::{Vault, VaultConfig},
 };
 
+mod frontmatter;
 mod note_more;
 mod rename_more;
 mod text_more;

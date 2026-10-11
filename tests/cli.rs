@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
 
 #[test]
@@ -1072,6 +1072,7 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
             "read_note",
             "redo_edit",
             "replace_section",
+            "set_frontmatter_field",
             "undo_edit",
         ]
     );
@@ -1591,4 +1592,228 @@ fn mcp_dot_paths_remain_vault_relative_when_server_cwd_is_a_subdirectory() {
         "# Vault root\n"
     );
     client.shutdown();
+}
+
+#[test]
+fn frontmatter_and_base_view_cli_support_exact_dot_paths_and_typed_values() {
+    let dir = tempdir().unwrap();
+    write_note(&dir, "nested/item.md", "---\nscore: 7\n---\n# Body\n");
+    write_note(
+        &dir,
+        "nested/views.base",
+        "filters: 'file.ext == \"md\"'\nviews:\n  - {type: table, name: First, order: [score]}\n  - {type: table, name: Second, order: [file.path]}\n",
+    );
+    let invoke = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+            .arg("--vault")
+            .arg(dir.path())
+            .current_dir(dir.path().join("nested"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let preview = invoke(&["set-frontmatter-field", "./item.md", "literal.dot", "null"]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let value: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(value["path"], "nested/item.md");
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["previous_exists"], false);
+    assert!(
+        !fs::read_to_string(dir.path().join("nested/item.md"))
+            .unwrap()
+            .contains("literal.dot")
+    );
+    let apply = invoke(&[
+        "set-frontmatter-field",
+        "./item.md",
+        "literal.dot",
+        "[1,true,null]",
+        "--dry-run",
+        "false",
+    ]);
+    assert!(
+        apply.status.success(),
+        "{}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let source = fs::read_to_string(dir.path().join("nested/item.md")).unwrap();
+    let yaml = source
+        .strip_prefix("---\n")
+        .unwrap()
+        .split("---\n")
+        .next()
+        .unwrap();
+    let properties: Value = serde_yaml_ng::from_str(yaml).unwrap();
+    assert_eq!(properties["literal.dot"], json!([1, true, null]));
+    assert!(source.ends_with("---\n# Body\n"));
+    assert!(
+        !invoke(&["set-frontmatter-field", "./item.md", "score", "unquoted"])
+            .status
+            .success()
+    );
+    assert!(
+        !invoke(&["set-frontmatter-field", "item", "score", "0"])
+            .status
+            .success()
+    );
+    for number in ["-1", "-1.25", "-1.25e-10"] {
+        for apply in [false, true] {
+            let mut args = vec!["set-frontmatter-field", "./item.md", "score", number];
+            if apply {
+                args.extend(["--dry-run", "false"]);
+            }
+            let output = invoke(&args);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(result["dry_run"], !apply);
+            assert_eq!(
+                result["result_value"],
+                serde_json::from_str::<Value>(number).unwrap()
+            );
+        }
+    }
+    // Restore the score used to check the two view selections below.
+    assert!(
+        invoke(&[
+            "set-frontmatter-field",
+            "./item.md",
+            "score",
+            "7",
+            "--dry-run",
+            "false"
+        ])
+        .status
+        .success()
+    );
+    let discovered = invoke(&["query-base-views", "./views.base"]);
+    assert!(discovered.status.success());
+    let views: Value = serde_json::from_slice(&discovered.stdout).unwrap();
+    assert_eq!(views["views"][1]["name"], "Second");
+    let first = invoke(&["read-base", "./views.base"]);
+    let second = invoke(&["read-base", "./views.base", "--view", "Second"]);
+    let first: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let second: Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert!(first["content"].as_str().unwrap().contains("| 7 |"));
+    assert!(
+        second["content"]
+            .as_str()
+            .unwrap()
+            .contains("nested/item.md")
+    );
+    assert!(
+        !invoke(&["read-base", "./views.base", "--view", "Missing"])
+            .status
+            .success()
+    );
+    write_note(
+        &dir,
+        "nested/views.base",
+        "views: [{type: table, name: Same}, {type: table, name: Same}]\n",
+    );
+    assert!(
+        !invoke(&["read-base", "./views.base", "--view", "Same"])
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn frontmatter_and_view_discovery_stdio_contracts() {
+    for project in [false, true] {
+        let dir = tempdir().unwrap();
+        write_note(&dir, "item.md", "---\nscore: 7\n---\n# Body\n");
+        write_note(
+            &dir,
+            "views.base",
+            "views: [{type: custom-plugin}, {type: table, name: Table, order: [score]}]\n",
+        );
+        let mut client = if project {
+            McpStdioClient::spawn_without_vault(&dir)
+        } else {
+            McpStdioClient::spawn(&dir)
+        };
+        initialize_mcp(&mut client);
+        let tools = client
+            .request(serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}));
+        let tools = tools["result"]["tools"].as_array().unwrap();
+        let setter = tools
+            .iter()
+            .find(|tool| tool["name"] == "set_frontmatter_field")
+            .unwrap();
+        assert!(
+            setter["inputSchema"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("value"))
+        );
+        assert_eq!(
+            tools.iter().any(|tool| tool["name"] == "query_base_views"),
+            !project
+        );
+        let mut id = 3;
+        let mut call = |name: &str, arguments: Value| {
+            id += 1;
+            client.request(json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}}))
+        };
+        let missing = call(
+            "set_frontmatter_field",
+            json!({"note":"item.md","field":"score"}),
+        );
+        assert!(missing.get("error").is_some() || missing["result"]["isError"] == true);
+        let preview = call(
+            "set_frontmatter_field",
+            json!({"note":"item.md","field":"score","value":null}),
+        );
+        assert_eq!(preview["result"]["structuredContent"]["dry_run"], true);
+        assert_eq!(preview["result"]["structuredContent"]["previous_value"], 7);
+        let applied = call(
+            "set_frontmatter_field",
+            json!({"note":"item.md","field":"score","value":null,"dry_run":false}),
+        );
+        assert_ne!(applied["result"]["isError"], true);
+        let noop = call(
+            "set_frontmatter_field",
+            json!({"note":"item.md","field":"score","value":null,"dry_run":false}),
+        );
+        assert_eq!(noop["result"]["structuredContent"]["changed"], false);
+        let history = call("edit_history", json!({}));
+        assert_eq!(
+            history["result"]["structuredContent"]["undo"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        call("undo_edit", json!({}));
+        assert!(
+            fs::read_to_string(dir.path().join("item.md"))
+                .unwrap()
+                .contains("score: 7")
+        );
+        let discovery = call("query_base_views", json!({"path":"views.base"}));
+        if project {
+            assert!(discovery.get("error").is_some() || discovery["result"]["isError"] == true);
+        } else {
+            assert_eq!(
+                discovery["result"]["structuredContent"]["views"][0]["name"],
+                Value::Null
+            );
+            let selected = call("read_base", json!({"path":"views.base","view":"Table"}));
+            assert!(
+                selected["result"]["structuredContent"]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("| 7 |")
+            );
+        }
+        client.shutdown();
+    }
 }

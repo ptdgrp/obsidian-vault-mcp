@@ -1,12 +1,12 @@
 #[cfg(feature = "attachments")]
 use crate::attachment::ReadAttachmentResult;
 use crate::{
-    bases::{ReadBaseRequest, ReadBaseResult},
+    bases::{QueryBaseViewsRequest, QueryBaseViewsResult, ReadBaseRequest, ReadBaseResult},
     canvas::{ReadCanvasRequest, ReadCanvasResult},
     mutation::{
         ApplyPatchResult, CreateNoteResult, DeleteNoteResult, EditHistoryResult, EditNoteResult,
-        EditSectionResult, RedoEditResult, RenameResult, SetBlockIdResult, UndoEditResult,
-        VaultMutations,
+        EditSectionResult, RedoEditResult, RenameResult, SetBlockIdResult,
+        SetFrontmatterFieldResult, UndoEditResult, VaultMutations,
     },
     query::{
         AuditLinksResult, BacklinksResult, FrontmatterQueryOptions, FrontmatterQueryResult,
@@ -33,7 +33,7 @@ use std::{sync::Arc, time::Instant};
 
 const ACTIVE_SERVER_INSTRUCTIONS: &str =
     "Obsidian vault structure tools for LLM agents, including structural section edits.";
-const PROJECT_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found. Markdown tools, read_canvas, and list_files operate below the current project directory using project-relative paths. read_canvas returns semantic Mermaid and list_files discovers file metadata without parsing contents. Vault-wide Bases queries (read_base), search, metadata queries, and link-graph tools are unavailable.";
+const PROJECT_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found. Markdown tools, read_canvas, and list_files operate below the current project directory using project-relative paths. read_canvas returns semantic Mermaid and list_files discovers file metadata without parsing contents. Vault-wide Bases tools (query_base_views and read_base), search, metadata queries, and link-graph tools are unavailable.";
 
 pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
     serve_mcp(ObsidianVaultMcp::new(vault)).await
@@ -76,6 +76,7 @@ impl ObsidianVaultMcp {
     fn tool_router() -> ToolRouter<Self> {
         let router = Self::markdown_tool_router();
         let router = router
+            .with_route((Self::query_base_views_tool_attr(), Self::query_base_views))
             .with_route((Self::read_base_tool_attr(), Self::read_base))
             .with_route((Self::read_canvas_tool_attr(), Self::read_canvas))
             .with_route((Self::list_files_tool_attr(), Self::list_files));
@@ -85,7 +86,7 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
-        description = "Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages."
+        description = "Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages."
     )]
     fn read_base(
         &self,
@@ -93,6 +94,18 @@ impl ObsidianVaultMcp {
     ) -> Result<Json<ReadBaseResult>, String> {
         run_tool("read_base", request, |request| {
             self.queries().read_base(request)
+        })
+    }
+
+    #[tool(
+        description = "List a .base file's configured views in file order without executing formulas, filters, queries or plugin views. Names remain exact, null or duplicated; read_base's optional view requires an exact unique name and otherwise defaults to the first view."
+    )]
+    fn query_base_views(
+        &self,
+        Parameters(request): Parameters<QueryBaseViewsRequest>,
+    ) -> Result<Json<QueryBaseViewsResult>, String> {
+        run_tool("query_base_views", request, |request| {
+            self.queries().query_base_views(request)
         })
     }
 
@@ -564,6 +577,26 @@ pub struct EditNoteRequest {
     /// Preview without writing. Defaults to true.
     #[serde(default = "default_dry_run")]
     pub dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetFrontmatterFieldRequest {
+    /// Exact workspace-relative existing .md path; not a stem, alias or selector.
+    pub note: String,
+    /// Literal top-level YAML key. Dots are part of the key, not a nested path.
+    pub field: String,
+    /// Required JSON value. Null sets YAML null; it does not delete the field.
+    #[serde(deserialize_with = "required_json_value")]
+    pub value: serde_json::Value,
+    /// Preview without writing. Defaults to true.
+    #[serde(default = "default_dry_run")]
+    pub dry_run: bool,
+}
+
+fn required_json_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<serde_json::Value, D::Error> {
+    serde::Deserialize::deserialize(deserializer)
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1106,6 +1139,28 @@ impl ObsidianVaultMcp {
     }
 
     #[tool(
+        description = "Set one literal top-level frontmatter field in an exact existing .md note using a required JSON value. Null sets YAML null, never deletes. Defaults to dry_run=true. Preserve body, BOM, line endings and other fields with their comments; the replaced value may lose internal formatting/comments; reject malformed/duplicate YAML and edits that break references or affect other metadata. Applied changes support edit history, undo and redo; no-ops create no history."
+    )]
+    fn set_frontmatter_field(
+        &self,
+        Parameters(request): Parameters<SetFrontmatterFieldRequest>,
+    ) -> Result<Json<SetFrontmatterFieldResult>, String> {
+        run_tool(
+            "set_frontmatter_field",
+            request,
+            |SetFrontmatterFieldRequest {
+                 note,
+                 field,
+                 value,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .set_frontmatter_field(&note, &field, value, dry_run)
+            },
+        )
+    }
+
+    #[tool(
         description = "Apply a unified diff to existing Markdown notes after validating every hunk and preserved reference. Preview is the default."
     )]
     fn apply_patch(
@@ -1415,6 +1470,28 @@ impl ProjectMarkdownMcp {
              }| {
                 self.mutations()
                     .edit_note(&path, &old_text, &new_text, replace_all, dry_run)
+            },
+        )
+    }
+
+    #[tool(
+        description = "Set one literal top-level frontmatter field in an exact existing .md note using a required JSON value. Null sets YAML null, never deletes. Defaults to dry_run=true. Preserve body, BOM, line endings and other fields with their comments; the replaced value may lose internal formatting/comments; reject malformed/duplicate YAML and edits that break references or affect other metadata. Applied changes support edit history, undo and redo; no-ops create no history."
+    )]
+    fn set_frontmatter_field(
+        &self,
+        Parameters(request): Parameters<SetFrontmatterFieldRequest>,
+    ) -> Result<Json<SetFrontmatterFieldResult>, String> {
+        run_tool(
+            "set_frontmatter_field",
+            request,
+            |SetFrontmatterFieldRequest {
+                 note,
+                 field,
+                 value,
+                 dry_run,
+             }| {
+                self.mutations()
+                    .set_frontmatter_field(&note, &field, value, dry_run)
             },
         )
     }

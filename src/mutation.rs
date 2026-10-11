@@ -1,4 +1,5 @@
 mod edit;
+mod frontmatter;
 mod history;
 mod note;
 mod rename;
@@ -74,6 +75,23 @@ pub struct EditNoteResult {
     pub path: String,
     /// Whether changes were only previewed.
     pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SetFrontmatterFieldResult {
+    /// Exact workspace-relative Markdown path.
+    pub path: String,
+    /// Literal top-level key, including dots if supplied.
+    pub field: String,
+    pub dry_run: bool,
+    /// Whether the field would change or was changed. No-op edits create no history.
+    pub changed: bool,
+    /// Distinguishes an absent field from an existing YAML null.
+    pub previous_exists: bool,
+    /// Previous JSON-compatible value; null when the field was absent.
+    pub previous_value: serde_json::Value,
+    /// Proposed/resulting JSON value. Null sets YAML null and never deletes the key.
+    pub result_value: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

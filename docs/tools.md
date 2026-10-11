@@ -30,9 +30,10 @@ server supports structural section edits as well as read operations.
 | `list_files` | Discover visible files, including .base, .canvas and attachments, without parsing their contents. Filter by extensions and relative-path globs. Discovery obeys vault ignores; list_notes remains Markdown-only. Files per page defaults to 100, maximum 100. |
 | `list_notes` | Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
+| `query_base_views` | List a .base file's configured views in file order without executing formulas, filters, queries or plugin views. Names remain exact, null or duplicated; read_base's optional view requires an exact unique name and otherwise defaults to the first view. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. |
-| `read_base` | Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages. |
+| `read_base` | Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages. |
 | `read_canvas` | Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated. |
 | `read_note` | Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note. |
 | `redo_edit` | Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict. |
@@ -43,6 +44,7 @@ server supports structural section edits as well as read operations.
 | `search_regex` | Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `search_text` | Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `set_block_id` | Set, generate, replace, or delete one lowercase block id. Select by existing id or unique block content. Replacements update resolved wikilinks; deletion is refused while references exist. Set dry_run to false to apply. |
+| `set_frontmatter_field` | Set one literal top-level frontmatter field in an exact existing .md note using a required JSON value. Null sets YAML null, never deletes. Defaults to dry_run=true. Preserve body, BOM, line endings and other fields with their comments; the replaced value may lose internal formatting/comments; reject malformed/duplicate YAML and edits that break references or affect other metadata. Applied changes support edit history, undo and redo; no-ops create no history. |
 | `undo_edit` | Undo the latest edit or requested number of steps in this server process. The whole request is rejected on conflict. |
 
 ## 🔧 `append_section`
@@ -730,6 +732,36 @@ Nested types:
 | `total_tags` | `integer` | yes |  |
 
 
+## 🔧 `query_base_views`
+
+List a .base file's configured views in file order without executing formulas, filters, queries or plugin views. Names remain exact, null or duplicated; read_base's optional view requires an exact unique name and otherwise defaults to the first view.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Exact vault-relative .base path. Only view configuration is inspected. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes |  |
+| `views` | `BaseViewSummary[]` | yes | Views in file order. Names are returned exactly, including null and duplicates. |
+
+Nested types:
+
+### `BaseViewSummary`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `position` | `integer` | yes | One-based position for discovery, not a read_base selector. |
+| `name` | `string \| null` | no | Original name, or null for an unnamed view; no selectable name is invented. |
+| `type` | `string` | yes |  |
+| `is_default` | `boolean` | yes | True only for the first view, which read_base uses when view is omitted. |
+
+
 ## 🔧 `query_frontmatter`
 
 Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode
@@ -814,14 +846,14 @@ Nested types:
 
 ## 🔧 `read_base`
 
-Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages.
+Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Use query_base_views first to discover names; view selects an exact unique name, or omit it for the first view. context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | yes | Exact vault-relative .base path. Rendered output never uses source-line references. |
-| `view` | `string \| null` | no | View name; defaults to the first view in the file. |
+| `view` | `string \| null` | no | Exact unique view name from query_base_views; omit to use the first view in file order. |
 | `context_note` | `string \| null` | no | Exact embedding/active file path for this; defaults to the .base itself. |
 | `page` | `integer` | no |  |
 | `max_chars` | `integer \| null` | no | Unicode-character page budget. Complete rows plus headers and summaries may exceed it. |
@@ -1127,6 +1159,33 @@ Output:
 | `block_id` | `string \| null` | no | Resulting block id, including a generated proposal during dry-run; null after deletion. |
 | `updated_references` | `integer` | yes |  |
 | `changed_notes` | `string[]` | yes | Workspace-relative notes that would change or were changed. |
+
+
+## 🔧 `set_frontmatter_field`
+
+Set one literal top-level frontmatter field in an exact existing .md note using a required JSON value. Null sets YAML null, never deletes. Defaults to dry_run=true. Preserve body, BOM, line endings and other fields with their comments; the replaced value may lose internal formatting/comments; reject malformed/duplicate YAML and edits that break references or affect other metadata. Applied changes support edit history, undo and redo; no-ops create no history.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `note` | `string` | yes | Exact workspace-relative existing .md path; not a stem, alias or selector. |
+| `field` | `string` | yes | Literal top-level YAML key. Dots are part of the key, not a nested path. |
+| `value` | `unknown` | yes | Required JSON value. Null sets YAML null; it does not delete the field. |
+| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Exact workspace-relative Markdown path. |
+| `field` | `string` | yes | Literal top-level key, including dots if supplied. |
+| `dry_run` | `boolean` | yes |  |
+| `changed` | `boolean` | yes | Whether the field would change or was changed. No-op edits create no history. |
+| `previous_exists` | `boolean` | yes | Distinguishes an absent field from an existing YAML null. |
+| `previous_value` | `unknown` | yes | Previous JSON-compatible value; null when the field was absent. |
+| `result_value` | `unknown` | yes | Proposed/resulting JSON value. Null sets YAML null and never deletes the key. |
 
 
 ## 🔧 `undo_edit`

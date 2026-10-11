@@ -88,12 +88,15 @@ obsidian-vault-mcp get-note-outline ./README.md
 obsidian-vault-mcp read-note ./README.md --heading "Build"
 obsidian-vault-mcp list-notes --page 1
 obsidian-vault-mcp list-files --extension base --extension canvas --page 1
+obsidian-vault-mcp query-base-views "Projects.base"
 obsidian-vault-mcp read-base "Projects.base" --view "Active" --max-chars 8192
 obsidian-vault-mcp read-canvas "Planning.canvas" --max-chars 8192
 obsidian-vault-mcp get-note-outline "People/Alex.md" --page 1
 obsidian-vault-mcp read-note "People/Alex.md#Health" --max-chars 4096
 obsidian-vault-mcp get-note-structure "People/Alex.md"
 obsidian-vault-mcp get-note-stats "People/Alex.md"
+obsidian-vault-mcp set-frontmatter-field "People/Alex.md" status '"active"'
+obsidian-vault-mcp set-frontmatter-field "People/Alex.md" score '7' --dry-run false
 obsidian-vault-mcp resolve-ref '[[Alex#Health]]'
 obsidian-vault-mcp get-outlinks "People/Alex.md" --page 1
 obsidian-vault-mcp get-backlinks '[[Alex]]' --page 1
@@ -127,13 +130,13 @@ process working directory. Discovery searches ancestors only, not child director
 whole computer. If `serve` cannot discover a vault, it exposes `list_files`,
 `read_canvas`, and file-local Markdown tools: `read_note`,
 `get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`,
-`create_note`, `delete_note`, `edit_note`, `apply_patch`, the structural section edit tools,
+`create_note`, `delete_note`, `edit_note`, `set_frontmatter_field`, `apply_patch`, the structural section edit tools,
 and edit history and undo/redo tools. Note paths
 are relative to the current project directory; absolute paths and paths outside
 it are rejected.
 In this mode, `audit_links` checks only standard Markdown relative links such
 as `[text](../target.md)`, reporting targets whose files do not exist.
-Vault-wide Bases queries (`read_base`), search, metadata, and link-graph tools remain unavailable.
+Bases configuration discovery and vault-wide queries (`query_base_views`, `read_base`), search, metadata, and link-graph tools remain unavailable.
 The `read-note`, `get-note-outline`, `get-note-structure`, `get-note-stats`,
 `read-canvas`, and `list-files` CLI commands also work in this project mode. Other
 commands still require an explicitly configured or discovered vault and report an error, as does an invalid explicitly configured vault
@@ -166,9 +169,28 @@ The public tools are organized around the question an agent is trying to answer:
 
 Editing tools include `create_note`, `delete_note`, `edit_note`, `apply_patch`, `append_section`,
 `replace_section`, `delete_section`, `rename_heading`, `rename_note`, and
-`set_block_id`.
+`set_block_id`, plus `set_frontmatter_field`.
 Section edits accept only heading and block-id selectors; line selectors remain
 available for `read_note` only.
+
+`set_frontmatter_field` updates one literal top-level YAML key in an exact existing
+`.md` path (like `edit_note`, without note stems, aliases or selectors). Dots in
+`field` are literal. `value` is required JSON: quote strings as JSON, and pass
+numbers, booleans, arrays, objects or `null` directly. Null sets YAML null; it does
+not delete the field. Missing fields and frontmatter are created. Preview is the
+default; set `dry_run=false` (CLI `--dry-run false`) to apply. Results include the
+previous/result values, `previous_exists` and `changed`; semantic no-ops add no
+history. CLI mutations require a vault; MCP also exposes this file-local tool in
+project mode.
+
+The editor retains the body, BOM, line endings and other fields' text/comments.
+Formatting and comments inside the replaced value may change. It uses
+`yaml-edit` 0.3.2 for lossless syntax editing, then strictly validates YAML,
+duplicate keys, the requested value, unchanged metadata and existing references.
+Malformed/unclosed/non-mapping headers and unsafe alias/merge side effects fail
+without writing. Unusual YAML that cannot be edited without changing other fields
+is rejected rather than reserialized. Applied changes use atomic writes, parse
+cache invalidation and the existing undo/redo history.
 
 `edit_history` lists undoable and redoable operations with their command, time,
 and affected files, without returning note content. `undo_edit` reverses the
@@ -198,8 +220,12 @@ parsing. These paths still read the source file and enforce `max_note_bytes`.
 parsing their contents; `list_notes` continues to list Markdown only.
 `read_base` executes typed formulas, global and view filters, display columns,
 sorting, grouping, limits, and summaries. It supports table, cards, list, kanban,
-and the official Maps view as semantic Markdown tables. The first view is the
-default; `context_note` supplies the embedding file for `this`, otherwise `this`
+and the official Maps view as semantic Markdown tables. Use `query_base_views`
+to list configured names/types in file order without
+executing formulas or plugin views. Unnamed and duplicate names remain unchanged.
+Pass an exact unique name as `read_base.view` (CLI `--view`); missing/duplicate
+selectors fail. Omitting it selects the first view; `context_note` supplies the
+embedding file for `this`, otherwise `this`
 is the Base itself. Each page includes `row_paths` for precise follow-up reads.
 
 `read_canvas` returns complete Mermaid with full text, typed file/image references,
@@ -276,6 +302,7 @@ Primary read/query tools:
 
 - `list_notes`
 - `list_files`
+- `query_base_views`
 - `read_base`
 - `read_canvas`
 - `get_note_outline`
@@ -300,6 +327,7 @@ Primary edit tools:
 - `create_note`
 - `delete_note`
 - `edit_note`
+- `set_frontmatter_field`
 - `apply_patch`
 - `append_section`
 - `replace_section`

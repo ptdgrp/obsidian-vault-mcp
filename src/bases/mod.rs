@@ -23,7 +23,7 @@ use value::{Value, escape_cell};
 pub struct ReadBaseRequest {
     /// Exact vault-relative .base path. Rendered output never uses source-line references.
     pub path: String,
-    /// View name; defaults to the first view in the file.
+    /// Exact unique view name from query_base_views; omit to use the first view in file order.
     pub view: Option<String>,
     /// Exact embedding/active file path for this; defaults to the .base itself.
     pub context_note: Option<String>,
@@ -33,6 +33,74 @@ pub struct ReadBaseRequest {
     /// Unicode-character page budget. Complete rows plus headers and summaries may exceed it.
     #[schemars(with = "Option<McpNonNegativeInteger>", range(min = 0))]
     pub max_chars: Option<usize>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+pub struct QueryBaseViewsRequest {
+    /// Exact vault-relative .base path. Only view configuration is inspected.
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+pub struct QueryBaseViewsResult {
+    pub path: String,
+    /// Views in file order. Names are returned exactly, including null and duplicates.
+    pub views: Vec<BaseViewSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, JsonSchema)]
+pub struct BaseViewSummary {
+    /// One-based position for discovery, not a read_base selector.
+    #[schemars(with = "McpNonNegativeInteger", range(min = 1))]
+    pub position: usize,
+    /// Original name, or null for an unnamed view; no selectable name is invented.
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// True only for the first view, which read_base uses when view is omitted.
+    pub is_default: bool,
+}
+
+impl VaultQueries {
+    pub fn query_base_views(
+        &self,
+        request: QueryBaseViewsRequest,
+    ) -> anyhow::Result<QueryBaseViewsResult> {
+        let (path, source) = read_source(&self.vault, &request.path, "base")?;
+        // Parse a value first so duplicate keys are rejected even in fields that
+        // discovery does not interpret. No expression or dataset is evaluated.
+        let yaml: serde_yaml_ng::Value = serde_yaml_ng::from_str(&source)
+            .with_context(|| format!("invalid Base YAML: {path}"))?;
+        #[derive(Deserialize)]
+        struct Config {
+            views: Vec<ConfiguredView>,
+        }
+        #[derive(Deserialize)]
+        struct ConfiguredView {
+            name: Option<String>,
+            #[serde(rename = "type")]
+            kind: String,
+        }
+        if !yaml.is_mapping() {
+            bail!("invalid Base YAML: {path}: expected a mapping");
+        }
+        let config: Config = serde_yaml_ng::from_value(yaml)
+            .with_context(|| format!("invalid Base view configuration: {path}"))?;
+        Ok(QueryBaseViewsResult {
+            path,
+            views: config
+                .views
+                .into_iter()
+                .enumerate()
+                .map(|(index, view)| BaseViewSummary {
+                    position: index + 1,
+                    name: view.name,
+                    kind: view.kind,
+                    is_default: index == 0,
+                })
+                .collect(),
+        })
+    }
 }
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 pub struct ReadBaseResult {

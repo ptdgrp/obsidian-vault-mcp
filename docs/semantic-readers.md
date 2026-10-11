@@ -1,6 +1,6 @@
 # Read-only Bases and Canvas
 
-The default binary includes `read_base`, `read_canvas`, and `list_files` and their
+The default binary includes `query_base_views`, `read_base`, `read_canvas`, and `list_files` and their
 hyphenated CLI equivalents. No Obsidian process, browser, JavaScript runtime,
 network connection, or optional attachment feature is required. `read_note`
 continues to return Markdown source and source selectors; rendered results never
@@ -26,7 +26,13 @@ them. Properties from non-Markdown files are empty. `.obsidian/types.json` suppl
 configured date/date-time property types; otherwise YAML values retain their
 parsed types. Invalid required YAML or property types produce contextual errors.
 
-`read_base` chooses the first view unless `view` names another one. `this` points
+`query_base_views` reads an exact `.base` path and lists each configured view's
+1-based `position`, nullable `name`, `type` and `is_default` in file order. It
+validates YAML structure without executing formulas, filters, datasets or plugin
+views. Unknown view kinds/functions do not block discovery. Names are not
+invented or deduplicated, and position is informational, not a selector.
+`read_base` chooses the first view unless `view` names an exact unique configured
+name (CLI `--view`); missing or duplicate selected names are errors. `this` points
 to the Base by default. Set `context_note` to the exact host path to evaluate an
 embedded Base in that host's context. Explicit contextual files may be ignored;
 they are available for evaluation without entering the candidate set. Local link
@@ -36,7 +42,8 @@ their reference and yield null from `asFile()`.
 
 Without a discovered vault, project mode exposes `list_files` and `read_canvas`
 alongside the existing file-local Markdown tools, rooted at the working directory.
-`read_base` requires vault mode because it evaluates vault-wide data and context.
+`query_base_views` and `read_base` require vault mode; the latter evaluates
+vault-wide data and context.
 
 ## Bases data semantics
 
