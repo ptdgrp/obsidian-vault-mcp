@@ -1319,7 +1319,7 @@ fn local_markdown_cli_reads_work_without_a_vault_and_do_not_enable_vault_queries
     );
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("vault root is not a directory"));
-    let help = run_cli_from(dir.path(), &["get-note-outline", "--help"]);
+    let help = run_cli_from(dir.path(), &["--help"]);
     assert!(String::from_utf8_lossy(&help.stdout).contains("process working directory"));
 }
 

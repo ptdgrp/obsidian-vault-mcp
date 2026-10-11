@@ -46,18 +46,18 @@ pub(crate) enum Command {
 
     /// List configured Base views without evaluating formulas or queries.
     QueryBaseViews {
-        /// Exact .base path; ./ and ../ are relative to the process working directory.
+        /// Base file (.base) to inspect.
         path: String,
     },
 
     /// Execute a .base view and read the actual result as Markdown. Use query-base-views to discover names.
     ReadBase {
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Base file (.base) to query.
         path: String,
         /// Exact unique view name; omit for the first configured view.
         #[arg(long)]
         view: Option<String>,
-        /// Exact embedding/active file path used by this; defaults to the Base itself. ./ and ../ are relative to the process working directory.
+        /// File that Base expressions refer to as 'this'; defaults to the Base itself.
         #[arg(long)]
         context_note: Option<String>,
         #[arg(long, default_value_t = 1)]
@@ -69,7 +69,7 @@ pub(crate) enum Command {
 
     /// Read a .canvas as complete Mermaid with full text and references.
     ReadCanvas {
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Canvas file (.canvas) to read.
         path: String,
         #[arg(long, default_value_t = 1)]
         page: usize,
@@ -106,7 +106,7 @@ pub(crate) enum Command {
 
     #[command(about = "Return a bounded resolved-link neighborhood around one note reference.")]
     GetNoteNeighborhood {
-        /// CLI: ./ and ../ targets are relative to the process working directory.
+        /// Note path, stem, alias, or Obsidian reference at the center of the neighborhood.
         target: String,
         #[arg(long, default_value_t = 1)]
         depth: usize,
@@ -117,7 +117,7 @@ pub(crate) enum Command {
     /// Read one Markdown note, heading section, block, or line range.
     /// Prefer get-note-outline first, then select a heading or line range.
     ReadNote {
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, alias, or reference such as Note#Heading, Note#^id or Note#L1-L20.
         note: String,
 
         #[arg(long)]
@@ -136,13 +136,13 @@ pub(crate) enum Command {
 
     /// Print one note's extracted Obsidian structure
     GetNoteStructure {
-        /// Note/reference; ./ and ../ are relative to the process working directory.
+        /// Markdown note path, stem, or alias.
         note: String,
     },
 
-    /// Print one note's selectable non-H1 heading tree or a selected heading's ancestor chain
+    /// List a note's non-H1 headings and line numbers, one page at a time.
     GetNoteOutline {
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
 
         #[arg(long, default_value_t = 1)]
@@ -151,19 +151,19 @@ pub(crate) enum Command {
 
     /// Return one note's word, character, and line counts
     GetNoteStats {
-        /// Note/reference; ./ and ../ are relative to the process working directory.
+        /// Markdown note path, stem, alias, or heading/block reference.
         note: String,
     },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
     ResolveRef {
-        /// Obsidian reference; ./ and ../ targets are relative to the process working directory.
+        /// Obsidian reference to resolve, such as [[Note#Heading]].
         reference: String,
     },
 
     /// Get outgoing local links from one note
     GetOutlinks {
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Source Markdown note path, stem, or alias.
         note: String,
 
         #[arg(long, default_value_t = 1)]
@@ -172,7 +172,7 @@ pub(crate) enum Command {
 
     /// Find backlinks to a note or reference
     GetBacklinks {
-        /// CLI: ./ and ../ targets are relative to the process working directory.
+        /// Target note path, stem, alias, or Obsidian reference.
         target: String,
 
         /// Vault-relative glob patterns that backlink source notes must match when non-empty.
@@ -315,8 +315,7 @@ pub(crate) enum Command {
 
     /// Append content at the end of exactly one heading or block section. This uses structural selection, not text matching.
     AppendSection {
-        /// Vault-relative path, note stem, or alias.
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -332,8 +331,7 @@ pub(crate) enum Command {
     },
     /// Replace a heading section's body while preserving its heading, or replace a block.
     ReplaceSection {
-        /// Vault-relative path, note stem, or alias.
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -349,8 +347,7 @@ pub(crate) enum Command {
     },
     /// Delete exactly one heading or block section. Refuse edits that break existing heading or block links.
     DeleteSection {
-        /// Vault-relative path, note stem, or alias.
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -363,16 +360,14 @@ pub(crate) enum Command {
     },
     /// Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file.
     CreateNote {
-        /// New vault-relative path ending in .md.
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Destination path for the new Markdown note, ending in .md.
         path: String,
         /// Complete Markdown content for the note.
         content: String,
     },
     /// Delete a visible Markdown note with no inbound references from visible notes. Preview is the default.
     DeleteNote {
-        /// Existing vault-relative path ending in .md.
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Exact path of the existing Markdown note (.md) to delete.
         path: String,
         /// Preview without deleting.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
@@ -380,8 +375,7 @@ pub(crate) enum Command {
     },
     /// Replace exact text in an existing Markdown note. Preview is the default.
     EditNote {
-        /// Existing vault-relative Markdown path ending in .md.
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Exact path of the existing Markdown note (.md) to edit.
         path: String,
         /// Nonempty text that must occur exactly once unless --replace-all is set.
         old_text: String,
@@ -396,7 +390,7 @@ pub(crate) enum Command {
     },
     /// Set one literal top-level frontmatter field. Preview is the default; null sets YAML null.
     SetFrontmatterField {
-        /// Exact existing .md path; ./ and ../ are relative to the process working directory.
+        /// Exact path of the existing Markdown note (.md) to update.
         note: String,
         /// Literal top-level key; dots do not select nested properties.
         field: String,
@@ -418,8 +412,7 @@ pub(crate) enum Command {
     },
     /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
     RenameHeading {
-        /// Vault-relative path, note stem, or alias.
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
         /// Current heading text or anchor.
         #[arg(long)]
@@ -433,11 +426,9 @@ pub(crate) enum Command {
     },
     /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
     RenameNote {
-        /// Existing safe vault-relative Markdown path.
-        /// CLI: ./ and ../ paths are relative to the process working directory.
+        /// Exact path of the Markdown note (.md) to move.
         path: String,
-        /// New vault-relative Markdown path. Parent directories are created when applying.
-        /// CLI: ./ and ../ destinations are relative to the process working directory.
+        /// Destination path ending in .md; missing parent directories are created when applying.
         new_path: String,
         /// Preview changed notes and references without writing. Defaults to true.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
@@ -445,8 +436,7 @@ pub(crate) enum Command {
     },
     /// Set, generate, replace, or delete one lowercase block id. Set dry_run to false to apply.
     SetBlockId {
-        /// Vault-relative path, note stem, or alias.
-        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
+        /// Markdown note path, stem, or alias.
         note: String,
         /// Existing block id selector without the leading caret. Mutually exclusive with content.
         #[arg(long, conflicts_with = "content")]

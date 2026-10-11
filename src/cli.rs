@@ -7,7 +7,7 @@ use crate::vault::DEFAULT_MAX_READ_NOTE_CHARS;
 use camino::Utf8PathBuf;
 
 #[derive(Debug, clap::Parser)]
-#[command(version, about, long_about = None, after_help = "CLI paths beginning with ./ or ../ are relative to the process working directory and must stay inside the selected vault/project root. Bare paths and Obsidian references keep their vault-relative semantics. Without a vault, read-note, get-note-outline, get-note-structure, get-note-stats, read-canvas and list-files use the current project directory. MCP paths remain workspace-relative.")]
+#[command(version, about, long_about = None, after_help = "Paths to notes, Bases and Canvas files beginning with ./ or ../ are relative to the process working directory and must stay inside the selected vault or project root. Bare paths are relative to that root; note stems, aliases and Obsidian references retain their usual resolution.\n\nWithout a configured or discovered vault, read-note, get-note-outline, get-note-structure, get-note-stats, read-canvas and list-files use the current directory as the project root. Other note commands require a vault.")]
 pub(crate) struct Cli {
     /// Vault root directory; relative roots are resolved from the process working directory
     #[arg(long, env = "OBSIDIAN_VAULT_MCP_ROOT")]
