@@ -2,14 +2,14 @@ use anyhow::Context;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 #[derive(Debug)]
-pub(super) struct PathFilter {
+pub(crate) struct PathFilter {
     include: GlobSet,
     exclude: GlobSet,
     include_is_empty: bool,
 }
 
 impl PathFilter {
-    pub(super) fn new(include: &[String], exclude: &[String]) -> anyhow::Result<Self> {
+    pub(crate) fn new(include: &[String], exclude: &[String]) -> anyhow::Result<Self> {
         Ok(Self {
             include: compile_glob_set(include, "include")?,
             exclude: compile_glob_set(exclude, "exclude")?,
@@ -17,7 +17,7 @@ impl PathFilter {
         })
     }
 
-    pub(super) fn is_match(&self, relative_path: &str) -> bool {
+    pub(crate) fn is_match(&self, relative_path: &str) -> bool {
         (self.include_is_empty || self.include.is_match(relative_path))
             && !self.exclude.is_match(relative_path)
     }

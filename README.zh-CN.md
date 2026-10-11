@@ -2,7 +2,7 @@
 
 [English README](./README.md)
 
-面向 Obsidian 风格 Markdown vault 的 MCP server，提供紧凑、面向任务的查询工具和结构化章节编辑。
+面向 Obsidian vault 的 MCP server，提供紧凑的 Markdown 查询、只读 Bases 和 Canvas 内容理解，以及结构化章节编辑。
 
 这个服务刻意保持机械、可验证：
 
@@ -11,8 +11,8 @@
 - 解析缓存默认 10 分钟未使用即过期，最多保留 1024 篇已解析 note。
 - 只通过显式修改工具编辑 note；每个笔记的单次写入都是原子替换。
 - 默认忽略隐藏路径，例如 `.obsidian/`、`.git/`、`.agents/` 和 `.hidden.md`。
-- 扫描可见 Markdown note 时遵守 `.gitignore`、`.git/info/exclude` 和父目录规则。
-- 扫描可见 Markdown note 时遵守 Obsidian `.obsidian/app.json` 的
+- 扫描可见文件时遵守 `.gitignore`、`.git/info/exclude` 和父目录规则。
+- 扫描可见文件时遵守 Obsidian `.obsidian/app.json` 的
   `userIgnoreFilters`；精确 path 读取仍然可用。
 - 返回 vault-relative path、Obsidian 风格行引用和最近标题，便于 LLM 引用证据。
 
@@ -38,7 +38,7 @@ obsidian-vault-mcp serve
 
 配置 MCP 客户端时，命令可设为 `npx`，参数设为
 `["-y", "@ptdgrp/obsidian-vault-mcp", "--vault", "/笔记库的绝对路径", "serve"]`。
-npm 包只包含默认的 Markdown 功能；附件读取和 OCR 需要从源码构建。
+npm 包包含默认的 Markdown、Bases 和 Canvas 功能；附件读取和 OCR 需要从源码构建。
 启动包通过可选平台依赖安装对应的二进制包；不要禁用 npm 的可选依赖。
 
 ### 从源码构建
@@ -54,7 +54,7 @@ cargo test
 cargo install --path .
 ```
 
-默认构建仅支持 Markdown。使用 `cargo install --path . --features attachments`
+默认构建支持 Markdown、Bases 查询和 Canvas 转 Mermaid 读取。使用 `cargo install --path . --features attachments`
 启用 PDF、DOCX 附件读取及 `read_attachment` MCP 工具。
 需要图片和扫描 PDF 的本地 OCR 时，使用 `--features ocr-local`，它会自动启用
 `attachments`；OCR 运行库和模型文件仍需单独安装。
@@ -69,6 +69,9 @@ cargo install --path .
 
 ```sh
 obsidian-vault-mcp list-notes --page 1
+obsidian-vault-mcp list-files --extension base --extension canvas --page 1
+obsidian-vault-mcp read-base "项目.base" --view "进行中" --max-chars 8192
+obsidian-vault-mcp read-canvas "规划.canvas" --max-chars 8192
 obsidian-vault-mcp get-note-outline "人物/林动.md" --page 1
 obsidian-vault-mcp read-note "人物/林动.md#身体" --max-chars 4096
 obsidian-vault-mcp get-note-structure "人物/林动.md"
@@ -102,12 +105,13 @@ obsidian-vault-mcp serve
 `OBSIDIAN_VAULT_MCP_ROOT`。显式配置优先于自动发现，`--vault` 优先于环境变量，
 并支持 `~` 和 `~/...` 路径。自动发现只查找当前目录及其祖先，不搜索子目录或整台电脑。
 
-如果 `serve` 没有发现 vault，会提供当前项目目录下的 Markdown 文件工具：
+如果 `serve` 没有发现 vault，会提供当前项目目录下的 `list_files`、`read_canvas` 及 Markdown 文件工具：
 `read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
 `audit_links`、`create_note`、`delete_note`、`edit_note`、`apply_patch`、`append_section`、`replace_section`、`delete_section`，以及编辑历史、撤销与重做工具。
 此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
 `audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
-全库搜索、元数据和链接图谱工具不可用。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
+全库 Bases 查询（`read_base`）、搜索、元数据和链接图谱工具不可用。
+`read-canvas` 和 `list-files` CLI 命令也支持此项目模式。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
 显式配置的 vault 路径无效时也会报错。
 
 常用缓存参数：
@@ -141,6 +145,23 @@ section 编辑仅支持 heading 和 block-id selector；line selector 仅保留�
 全文和行范围读取跳过 AST 解析；大纲和标题读取在扫描块结构后只解析标题的行内内容；
 block ID 读取保留完整解析。这些路径仍读取源文件，并遵守 `max_note_bytes`。
 
+## Bases 与 Canvas 内容理解
+
+`list_files` 发现可见的 `.base`、`.canvas` 和附件路径，不解析文件内容；
+`list_notes` 继续只列出 Markdown。`read_base` 执行带类型的公式、全局及视图过滤、
+展示字段、排序、分组、limit 和汇总，将 table、cards、list、kanban 及官方 Maps
+视图统一表达为 Markdown 表格。默认选择第一视图；`context_note` 指定嵌入宿主作为
+`this`，省略时 `this` 指向 Base 自身。每页 `row_paths` 提供精确路径，便于继续核对记录。
+
+`read_canvas` 输出完整 Mermaid，保留全部文本、明确类型的文件/图片引用、URL、
+带标签箭头和显式分组成员关系。路径及 subpath 均保留，不需要打开图片或复现坐标。
+两项读取均不依赖正在运行的 Obsidian 桌面，只读且保持 `read_note` 原始 Markdown 契约。
+
+渲染分页按 Unicode 字符预算 `max_chars` 保留完整语义单元，因此单行、节点及必要上下文
+可能超过预算。使用相同预算跟随 `pagination.next_page`。汇总针对应用视图 limit 后的
+全部结果，不仅当前页。渲染内容不提供源文件行号引用。详细范围与限制见
+[语义读取说明](docs/semantic-readers.md)，接口见[生成的工具契约](docs/tools.md)。
+
 ## 分页与过滤
 
 分页工具接受固定数字 `page`。页码从 1 开始，`page: 1` 是第一页。没有 cursor，也没有不透明翻页 token。如果 `page` 超过总页数，响应会保留请求的页码，返回空结果列表，并同时返回分页总数。
@@ -164,6 +185,9 @@ reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身�
 主要读取与查询工具：
 
 - `list_notes`
+- `list_files`
+- `read_base`
+- `read_canvas`
 - `get_note_outline`
 - `read_note`
 - `get_note_structure`

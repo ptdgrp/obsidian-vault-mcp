@@ -1,6 +1,8 @@
 #[cfg(feature = "attachments")]
 use crate::attachment::ReadAttachmentResult;
 use crate::{
+    bases::{ReadBaseRequest, ReadBaseResult},
+    canvas::{ReadCanvasRequest, ReadCanvasResult},
     mutation::{
         ApplyPatchResult, CreateNoteResult, DeleteNoteResult, EditHistoryResult, EditNoteResult,
         EditSectionResult, RedoEditResult, RenameResult, SetBlockIdResult, UndoEditResult,
@@ -13,6 +15,7 @@ use crate::{
         NoteStatsResult, NoteStructureResult, OutlinksResult, ReadNoteResult, ResolveRefResult,
         SearchRegexResult, SearchTextResult, SectionSelector, TagScope, VaultQueries,
     },
+    rendered::{ListFilesRequest, ListFilesResult},
     vault::Vault,
 };
 use rmcp::{
@@ -30,7 +33,7 @@ use std::{sync::Arc, time::Instant};
 
 const ACTIVE_SERVER_INSTRUCTIONS: &str =
     "Obsidian vault structure tools for LLM agents, including structural section edits.";
-const PROJECT_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found. These tools operate on Markdown files below the current project directory using project-relative paths. Vault-wide search, metadata, and link-graph tools are unavailable.";
+const PROJECT_SERVER_INSTRUCTIONS: &str = "No Obsidian vault was found. Markdown tools, read_canvas, and list_files operate below the current project directory using project-relative paths. read_canvas returns semantic Mermaid and list_files discovers file metadata without parsing contents. Vault-wide Bases queries (read_base), search, metadata queries, and link-graph tools are unavailable.";
 
 pub async fn run_mcp_server(vault: Arc<Vault>) -> anyhow::Result<()> {
     serve_mcp(ObsidianVaultMcp::new(vault)).await
@@ -72,9 +75,49 @@ pub struct ObsidianVaultMcp {
 impl ObsidianVaultMcp {
     fn tool_router() -> ToolRouter<Self> {
         let router = Self::markdown_tool_router();
+        let router = router
+            .with_route((Self::read_base_tool_attr(), Self::read_base))
+            .with_route((Self::read_canvas_tool_attr(), Self::read_canvas))
+            .with_route((Self::list_files_tool_attr(), Self::list_files));
         #[cfg(feature = "attachments")]
         let router = router.with_route((Self::read_attachment_tool_attr(), Self::read_attachment));
         router
+    }
+
+    #[tool(
+        description = "Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages."
+    )]
+    fn read_base(
+        &self,
+        Parameters(request): Parameters<ReadBaseRequest>,
+    ) -> Result<Json<ReadBaseResult>, String> {
+        run_tool("read_base", request, |request| {
+            self.queries().read_base(request)
+        })
+    }
+
+    #[tool(
+        description = "Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated."
+    )]
+    fn read_canvas(
+        &self,
+        Parameters(request): Parameters<ReadCanvasRequest>,
+    ) -> Result<Json<ReadCanvasResult>, String> {
+        run_tool("read_canvas", request, |request| {
+            self.queries().read_canvas(request)
+        })
+    }
+
+    #[tool(
+        description = "Discover visible files, including .base, .canvas and attachments, without parsing their contents. Filter by extensions and relative-path globs. Discovery obeys vault ignores; list_notes remains Markdown-only. Files per page defaults to 100, maximum 100."
+    )]
+    fn list_files(
+        &self,
+        Parameters(request): Parameters<ListFilesRequest>,
+    ) -> Result<Json<ListFilesResult>, String> {
+        run_tool("list_files", request, |request| {
+            self.queries().list_files(request)
+        })
     }
 
     #[cfg(feature = "attachments")]
@@ -134,9 +177,36 @@ pub struct ProjectMarkdownMcp {
 impl ProjectMarkdownMcp {
     fn tool_router() -> ToolRouter<Self> {
         let router = Self::markdown_tool_router();
+        let router = router
+            .with_route((Self::read_canvas_tool_attr(), Self::read_canvas))
+            .with_route((Self::list_files_tool_attr(), Self::list_files));
         #[cfg(feature = "attachments")]
         let router = router.with_route((Self::read_attachment_tool_attr(), Self::read_attachment));
         router
+    }
+
+    #[tool(
+        description = "Read an exact project-relative .canvas file as complete Mermaid for LLM understanding, preserving full text, typed file/image references, subpaths, URLs, arrows, labels and inferred group membership. Each page includes complete edge endpoint context and may exceed max_chars at a whole-unit boundary. Reuse the same max_chars on subsequent pages."
+    )]
+    fn read_canvas(
+        &self,
+        Parameters(request): Parameters<ReadCanvasRequest>,
+    ) -> Result<Json<ReadCanvasResult>, String> {
+        run_tool("read_canvas", request, |request| {
+            self.queries().read_canvas(request)
+        })
+    }
+
+    #[tool(
+        description = "Discover visible project files, including .base, .canvas and attachments, without parsing contents. Optional extensions and path globs narrow discovery; ignores still apply. Files per page defaults to 100, maximum 100."
+    )]
+    fn list_files(
+        &self,
+        Parameters(request): Parameters<ListFilesRequest>,
+    ) -> Result<Json<ListFilesResult>, String> {
+        run_tool("list_files", request, |request| {
+            self.queries().list_files(request)
+        })
     }
 
     #[cfg(feature = "attachments")]
@@ -765,7 +835,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "Search visible Markdown notes with literal text. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn search_text(
         &self,
         Parameters(request): Parameters<SearchTextRequest>,
@@ -786,7 +858,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "Search visible Markdown notes with a Rust regular expression. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn search_regex(
         &self,
         Parameters(request): Parameters<SearchRegexRequest>,
@@ -831,7 +905,9 @@ impl ObsidianVaultMcp {
         })
     }
 
-    #[tool(description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence.")]
+    #[tool(
+        description = "Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence."
+    )]
     fn get_backlinks(
         &self,
         Parameters(request): Parameters<BacklinksRequest>,
@@ -851,7 +927,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn list_tags(
         &self,
         Parameters(request): Parameters<ListTagsRequest>,
@@ -868,7 +946,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn get_tag(
         &self,
         Parameters(request): Parameters<GetTagRequest>,
@@ -894,7 +974,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn list_categories(
         &self,
         Parameters(request): Parameters<ListCategoriesRequest>,
@@ -910,7 +992,9 @@ impl ObsidianVaultMcp {
         )
     }
 
-    #[tool(description = "Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence.")]
+    #[tool(
+        description = "Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence."
+    )]
     fn get_category(
         &self,
         Parameters(request): Parameters<GetCategoryRequest>,

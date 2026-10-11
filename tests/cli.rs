@@ -1065,8 +1065,10 @@ fn mcp_server_without_discovered_vault_exposes_project_markdown_tools() {
             "get_note_outline",
             "get_note_stats",
             "get_note_structure",
+            "list_files",
             #[cfg(feature = "attachments")]
             "read_attachment",
+            "read_canvas",
             "read_note",
             "redo_edit",
             "replace_section",
@@ -1122,4 +1124,134 @@ fn explicit_missing_vault_still_fails_to_start_server() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn semantic_readers_cli_preserve_raw_reads_and_discovery_contracts() {
+    let dir = tempdir().unwrap();
+    write_note(&dir, "record.md", "---\nscore: 7\n---\n# Record\n");
+    write_note(
+        &dir,
+        "records.base",
+        "filters: 'file.ext == \"md\"'\nviews: [{type: table, order: [score]}]\n",
+    );
+    write_note(
+        &dir,
+        "graph.canvas",
+        r#"{"nodes":[{"id":"text","type":"text","x":0,"y":0,"width":100,"height":100,"text":"完整内容"}],"edges":[]}"#,
+    );
+    let output = run_cli(&dir, &["read-base", "records.base", "--max-chars", "1"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let base: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(base["row_paths"], serde_json::json!(["record.md"]));
+    assert!(base["content"].as_str().unwrap().contains("| 7 |"));
+    assert!(base.get("source").is_none());
+    let output = run_cli(&dir, &["read-canvas", "graph.canvas"]);
+    assert!(output.status.success());
+    let canvas: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(canvas["content"].as_str().unwrap().contains("完整内容"));
+    let output = run_cli(
+        &dir,
+        &["list-files", "--extension", "base", "--extension", "canvas"],
+    );
+    let files: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(files["pagination"]["total_files"], 2);
+    let output = run_cli(&dir, &["list-notes"]);
+    let notes: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(notes["pagination"]["total_notes"], 1);
+    let output = run_cli(&dir, &["read-note", "record.md"]);
+    let note: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(note["content"], "---\nscore: 7\n---\n# Record\n");
+}
+
+#[test]
+fn deep_formulas_fail_safely_in_cli() {
+    let dir = tempdir().unwrap();
+    write_note(&dir, "record.md", "# Record\n");
+    write_note(
+        &dir,
+        "deep.base",
+        &format!(
+            "filters: 'false'\nformulas:\n  deep: '1{}'\nviews: [{{type: table}}]",
+            ".abs()".repeat(12000)
+        ),
+    );
+    let output = run_cli(&dir, &["read-base", "deep.base"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("depth exceeds"));
+}
+
+#[test]
+fn semantic_readers_stdio_in_vault_and_project_modes() {
+    for project in [false, true] {
+        let dir = tempdir().unwrap();
+        write_note(&dir, "graph.canvas", "{}");
+        write_note(&dir, "records.base", "views: [{type: table}]\n");
+        let mut client = if project {
+            McpStdioClient::spawn_without_vault(&dir)
+        } else {
+            McpStdioClient::spawn(&dir)
+        };
+        initialize_mcp(&mut client);
+        for (id, name, arguments) in [
+            (2, "read_canvas", serde_json::json!({"path":"graph.canvas"})),
+            (
+                3,
+                "list_files",
+                serde_json::json!({"extensions":["canvas"]}),
+            ),
+        ] {
+            let reply=client.request(serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}}));
+            assert!(reply["result"]["structuredContent"].is_object(), "{reply}");
+            assert_ne!(reply["result"]["isError"], true);
+        }
+        if !project {
+            let reply=client.request(serde_json::json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read_base","arguments":{"path":"records.base"}}}));
+            assert_eq!(reply["result"]["structuredContent"]["format"], "markdown");
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn calendar_days_preserve_local_hour_across_dst() {
+    let dir = tempdir().unwrap();
+    write_note(&dir, "record.md", "# Record\n");
+    for (start, duration, expected) in [
+        ("2026-03-07 12:00:00", "1d", "2026-03-08 12:00"),
+        ("2026-03-07 12:00:00", "24h", "2026-03-08 13:00"),
+        ("2026-10-31 12:00:00", "1d", "2026-11-01 12:00"),
+        ("2026-10-31 12:00:00", "24h", "2026-11-01 11:00"),
+    ] {
+        write_note(
+            &dir,
+            "dates.base",
+            &format!(
+                "filters: 'file.ext == \"md\"'\nformulas:\n  result: '(date(\"{start}\") + \"{duration}\").format(\"YYYY-MM-DD HH:mm\")'\nviews: [{{type: table, order: [formula.result]}}]"
+            ),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+            .env("TZ", "America/Los_Angeles")
+            .arg("--vault")
+            .arg(dir.path())
+            .args(["read-base", "dates.base"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let base: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(
+            base["content"].as_str().unwrap().contains(expected),
+            "{}",
+            base["content"]
+        );
+    }
 }

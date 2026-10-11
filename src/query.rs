@@ -5,7 +5,7 @@ mod levenshtein_distance;
 mod links;
 mod notes;
 mod outline;
-mod path_filter;
+pub(crate) mod path_filter;
 pub(crate) mod public;
 mod search;
 pub(crate) mod section;

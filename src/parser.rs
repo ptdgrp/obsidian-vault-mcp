@@ -498,7 +498,7 @@ fn is_inside_heading(document: &Document, index: usize) -> bool {
     }
 }
 
-fn active_node_indices(document: &Document) -> Vec<usize> {
+pub(crate) fn active_node_indices(document: &Document) -> Vec<usize> {
     let mut out = Vec::new();
     let mut current = document.tree.get_first_child(0);
     while let Some(index) = current {
@@ -590,7 +590,7 @@ fn source_for_node(
     }
 }
 
-fn collect_text(document: &Document, index: usize) -> String {
+pub(crate) fn collect_text(document: &Document, index: usize) -> String {
     let mut out = String::new();
     collect_text_into(document, index, &mut out);
     out
@@ -733,7 +733,7 @@ fn line_number_for_byte(text: &str, byte_index: usize) -> u64 {
         + 1
 }
 
-fn local_markdown_link_target(
+pub(crate) fn local_markdown_link_target(
     current_path: &str,
     url: &str,
 ) -> Option<(String, Option<ReferenceInfo>)> {

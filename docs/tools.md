@@ -17,7 +17,7 @@ server supports structural section edits as well as read operations.
 | `delete_note` | Delete a visible Markdown note with no inbound references from visible notes. Preview is the default; set dry_run to false to apply. |
 | `delete_section` | Delete exactly one heading or block section. Refuse edits that break existing heading or block links. |
 | `edit_history` | Show undoable and redoable edits in this server process, newest first, with command, time, and affected files. |
-| `edit_note` | Replace exact text in one Markdown note. Require a unique match by default, or replace every occurrence with `replace_all: true`. Refuse edits that break preserved links or embeds. Preview is the default. |
+| `edit_note` | Replace exact text in one Markdown note. By default the text must occur exactly once; set replace_all to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default. |
 | `get_backlinks` | Get backlinks to a uniquely resolved note, heading, or block. Optional include and exclude filter source-note paths; excludes take precedence. |
 | `get_category` | Locate one folder-derived category in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `get_note_neighborhood` | Return a bounded resolved-link neighborhood around one note reference. |
@@ -27,10 +27,13 @@ server supports structural section edits as well as read operations.
 | `get_outlinks` | Get outgoing local links from one note as compact resolved, ambiguous, and unresolved target groups |
 | `get_tag` | Locate one tag in visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `list_categories` | List folder-derived categories from visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
+| `list_files` | Discover visible files, including .base, .canvas and attachments, without parsing their contents. Filter by extensions and relative-path globs. Discovery obeys vault ignores; list_notes remains Markdown-only. Files per page defaults to 100, maximum 100. |
 | `list_notes` | Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100. |
 | `list_tags` | List unique tag names across visible notes. Optional include and exclude use vault-relative glob patterns; include patterns are unioned, empty arrays do not restrict, and excludes take precedence. |
 | `query_frontmatter` | Query notes by a top-level frontmatter field using explicit exists, equals, or regex mode |
 | `read_attachment` | Read a project-relative PDF, DOCX, PNG, or JPEG attachment. PDFs use native text extraction first and identify pages that need optional local OCR; PNG and JPEG use that same ocr-local runtime. |
+| `read_base` | Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages. |
+| `read_canvas` | Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated. |
 | `read_note` | Read raw Markdown from a note or section. Prefer get_note_outline to choose a heading or line range. Use either a reference fragment or one explicit selector (heading, block_id, line); omit both for the whole note. |
 | `redo_edit` | Redo the latest undone edit or requested number of steps in this server process. The whole request is rejected on conflict. |
 | `rename_heading` | Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default. |
@@ -50,10 +53,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Text appended at the selected section boundary. |
-| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -71,8 +74,8 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview all changed notes without writing. Defaults to true. |
 | `patch` | `string` | yes | Unified diff with --- a/path.md and +++ b/path.md headers and one or more hunks. |
+| `dry_run` | `boolean` | no | Preview all changed notes without writing. Defaults to true. |
 
 
 Output:
@@ -98,28 +101,12 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `ambiguous` | `AuditAmbiguousLink[]` | yes |  |
-| `pagination` | `Pagination` | yes |  |
-| `totals` | `AuditLinkTotals` | yes |  |
 | `unresolved` | `AuditUnresolvedLink[]` | yes |  |
+| `ambiguous` | `AuditAmbiguousLink[]` | yes |  |
+| `totals` | `AuditLinkTotals` | yes |  |
+| `pagination` | `Pagination` | yes |  |
 
 Nested types:
-
-### `AuditAmbiguousLink`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `candidates` | `string[]` | yes |  |
-| `omitted_candidates` | `integer \| null` | no |  |
-| `source` | `string` | yes |  |
-| `target` | `string` | yes |  |
-
-### `AuditLinkTotals`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `ambiguous` | `integer` | yes |  |
-| `unresolved` | `integer` | yes |  |
 
 ### `AuditUnresolvedLink`
 
@@ -127,6 +114,22 @@ Nested types:
 | --- | --- | --- | --- |
 | `source` | `string` | yes |  |
 | `target` | `string` | yes |  |
+
+### `AuditAmbiguousLink`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `string` | yes |  |
+| `target` | `string` | yes |  |
+| `candidates` | `string[]` | yes |  |
+| `omitted_candidates` | `integer \| null` | no |  |
+
+### `AuditLinkTotals`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `unresolved` | `integer` | yes |  |
+| `ambiguous` | `integer` | yes |  |
 
 ### `Pagination`
 
@@ -144,8 +147,8 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `content` | `string` | yes | Complete Markdown content for the new note. |
 | `path` | `string` | yes | New vault-relative path ending in .md; parent directories are created. |
+| `content` | `string` | yes | Complete Markdown content for the new note. |
 
 
 Output:
@@ -163,16 +166,16 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview without deleting. Defaults to true. |
 | `path` | `string` | yes | Existing vault-relative path ending in .md. |
+| `dry_run` | `boolean` | no | Preview without deleting. Defaults to true. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | yes | Whether the note was only previewed. |
 | `path` | `string` | yes | Vault-relative path of the note. |
+| `dry_run` | `boolean` | yes | Whether the note was only previewed. |
 
 
 ## 🔧 `delete_section`
@@ -183,9 +186,9 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_id` | `string \| null` | no | Block id without the leading caret. |
-| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
 | `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
 
 
 Output:
@@ -208,8 +211,8 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `redo` | `EditHistoryEntry[]` | yes | Next operation to redo first. |
 | `undo` | `EditHistoryEntry[]` | yes | Most recent undoable operation first. |
+| `redo` | `EditHistoryEntry[]` | yes | Next operation to redo first. |
 
 Nested types:
 
@@ -217,33 +220,33 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `affected_files` | `string[]` | yes | Vault-relative paths affected by the edit. |
-| `command` | `string` | yes | Tool or command that created the edit. |
 | `operation_id` | `string` | yes | Unique identifier for this undo or redo operation. |
+| `command` | `string` | yes | Tool or command that created the edit. |
 | `timestamp` | `string` | yes | Time the edit was recorded. |
+| `affected_files` | `string[]` | yes | Vault-relative paths affected by the edit. |
 
 
 ## 🔧 `edit_note`
 
-Replace exact text in one Markdown note. By default the text must occur exactly once. Set `replace_all: true` to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default.
+Replace exact text in one Markdown note. By default the text must occur exactly once; set replace_all to replace every occurrence. Refuse edits that break preserved links or embeds. Preview is the default.
 
 Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
-| `new_text` | `string` | yes | Text to put in its place. |
-| `old_text` | `string` | yes | Nonempty text that must occur exactly once unless `replace_all` is true. |
 | `path` | `string` | yes | Existing vault-relative Markdown path ending in .md. |
-| `replace_all` | `boolean` | no | Replace every occurrence. Defaults to false. |
+| `old_text` | `string` | yes | Nonempty text that must occur exactly once unless replace_all is true. |
+| `new_text` | `string` | yes | Text to put in its place. |
+| `replace_all` | `boolean` | no | Replace every occurrence instead of requiring a unique match. Defaults to false. |
+| `dry_run` | `boolean` | no | Preview without writing. Defaults to true. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 | `path` | `string` | yes | Vault-relative path of the edited note. |
+| `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 
 
 ## 🔧 `get_backlinks`
@@ -254,19 +257,19 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching source-note path globs; overrides include. |
-| `include` | `string[]` | no | Include any matching source-note path glob; empty means all sources. |
-| `page` | `integer` | no | Page of up to 50 backlink occurrences (1-based). |
 | `target` | `string` | yes | Note path, stem, alias, or Obsidian reference to find inbound links for. |
+| `include` | `string[]` | no | Include any matching source-note path glob; empty means all sources. |
+| `exclude` | `string[]` | no | Exclude matching source-note path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 50 backlink occurrences (1-based). |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `pagination` | `BacklinksPagination` | yes |  |
-| `references` | `BacklinkReference[]` | yes |  |
 | `scope` | `string` | yes |  |
+| `references` | `BacklinkReference[]` | yes |  |
+| `pagination` | `BacklinksPagination` | yes |  |
 
 Nested types:
 
@@ -274,16 +277,16 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `sources` | `string[]` | yes |  |
 | `target` | `string` | yes |  |
+| `sources` | `string[]` | yes |  |
 
 ### `BacklinksPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_backlinks` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+| `total_backlinks` | `integer` | yes |  |
 
 
 ## 🔧 `get_category`
@@ -295,8 +298,8 @@ Input:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `category` | `string` | yes | Exact folder-derived category name to locate. |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `page` | `integer` | no | Page of up to 100 notes (1-based). |
 
 
@@ -314,8 +317,8 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_notes` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
 
 
 ## 🔧 `get_note_neighborhood`
@@ -326,9 +329,9 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `target` | `string` | yes |  |
 | `depth` | `integer` | no |  |
 | `direction` | `NeighborhoodDirection` | no |  |
-| `target` | `string` | yes |  |
 
 Nested types:
 
@@ -346,11 +349,11 @@ Output:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `center` | `NeighborhoodCenter` | yes |  |
-| `links` | `NeighborhoodLink[]` | yes |  |
 | `notes` | `NeighborhoodNote[]` | yes |  |
-| `omitted_links` | `integer \| null` | no |  |
-| `omitted_notes` | `integer \| null` | no |  |
+| `links` | `NeighborhoodLink[]` | yes |  |
 | `truncated` | `boolean \| null` | no |  |
+| `omitted_notes` | `integer \| null` | no |  |
+| `omitted_links` | `integer \| null` | no |  |
 
 Nested types:
 
@@ -358,10 +361,18 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_id` | `string \| null` | no |  |
-| `heading` | `string \| null` | no |  |
 | `path` | `string` | yes |  |
 | `title` | `string \| null` | no |  |
+| `heading` | `string \| null` | no |  |
+| `block_id` | `string \| null` | no |  |
+
+### `NeighborhoodNote`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes |  |
+| `title` | `string \| null` | no |  |
+| `distance` | `integer` | yes |  |
 
 ### `NeighborhoodLink`
 
@@ -369,14 +380,6 @@ Nested types:
 | --- | --- | --- | --- |
 | `from` | `string` | yes |  |
 | `to` | `string` | yes |  |
-
-### `NeighborhoodNote`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `distance` | `integer` | yes |  |
-| `path` | `string` | yes |  |
-| `title` | `string \| null` | no |  |
 
 
 ## 🔧 `get_note_outline`
@@ -395,19 +398,11 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `headings` | `OutlineHeading[]` | yes |  |
 | `note` | `string` | yes |  |
+| `headings` | `OutlineHeading[]` | yes |  |
 | `pagination` | `NoteOutlinePagination` | yes |  |
 
 Nested types:
-
-### `NoteOutlinePagination`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `page` | `integer` | yes |  |
-| `total_headings` | `integer` | yes |  |
-| `total_pages` | `integer` | yes |  |
 
 ### `OutlineHeading`
 
@@ -415,6 +410,14 @@ Nested types:
 | --- | --- | --- | --- |
 | `heading` | `string` | yes |  |
 | `line` | `integer` | yes |  |
+
+### `NoteOutlinePagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_headings` | `integer` | yes |  |
 
 
 ## 🔧 `get_note_stats`
@@ -432,10 +435,10 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
-| `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
 | `scope` | `string` | yes | Resolved note, heading, or block scope. |
 | `word_count` | `integer` | yes | Word count computed from the raw Markdown source text. |
+| `character_count` | `integer` | yes | Character count computed from the note's Markdown source text. |
+| `line_count` | `integer` | yes | Line count computed from the note's Markdown source text. |
 
 
 ## 🔧 `get_note_structure`
@@ -453,14 +456,14 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `blocks` | `array \| null` | no |  |
-| `embeds` | `array \| null` | no |  |
+| `note` | `string` | yes |  |
+| `link_count` | `integer` | yes |  |
 | `frontmatter_fields` | `array \| null` | no |  |
 | `headings` | `array \| null` | no |  |
-| `link_count` | `integer` | yes |  |
-| `note` | `string` | yes |  |
-| `omitted` | `object \| null` | no |  |
+| `embeds` | `array \| null` | no |  |
 | `tags` | `array \| null` | no |  |
+| `blocks` | `array \| null` | no |  |
+| `omitted` | `object \| null` | no |  |
 
 Nested types:
 
@@ -488,21 +491,13 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `ambiguous_targets` | `AmbiguousOutlinkTarget[]` | yes |  |
 | `note` | `string` | yes |  |
-| `pagination` | `OutlinksPagination` | yes |  |
 | `targets` | `OutlinkTarget[]` | yes |  |
+| `ambiguous_targets` | `AmbiguousOutlinkTarget[]` | yes |  |
 | `unresolved_targets` | `UnresolvedOutlinkTarget[]` | yes |  |
+| `pagination` | `OutlinksPagination` | yes |  |
 
 Nested types:
-
-### `AmbiguousOutlinkTarget`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `candidates` | `string[]` | yes |  |
-| `reference` | `string` | yes |  |
-| `source` | `string` | yes |  |
 
 ### `OutlinkTarget`
 
@@ -511,20 +506,28 @@ Nested types:
 | `source` | `string` | yes |  |
 | `target` | `string` | yes |  |
 
-### `OutlinksPagination`
+### `AmbiguousOutlinkTarget`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `page` | `integer` | yes |  |
-| `total_links` | `integer` | yes |  |
-| `total_pages` | `integer` | yes |  |
+| `source` | `string` | yes |  |
+| `reference` | `string` | yes |  |
+| `candidates` | `string[]` | yes |  |
 
 ### `UnresolvedOutlinkTarget`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `reference` | `string` | yes |  |
 | `source` | `string` | yes |  |
+| `reference` | `string` | yes |  |
+
+### `OutlinksPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_links` | `integer` | yes |  |
 
 
 ## 🔧 `get_tag`
@@ -535,11 +538,11 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
-| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
-| `page` | `integer` | no | Page of up to 100 locators (1-based). |
-| `scope` | `TagScope` | no | Where to look for tags. |
 | `tag` | `string` | yes | Exact tag to locate. Both "状态/身体" and "#状态/身体" are accepted. |
+| `scope` | `TagScope` | no | Where to look for tags. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 100 locators (1-based). |
 
 Nested types:
 
@@ -568,8 +571,8 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_matches` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+| `total_matches` | `integer` | yes |  |
 
 
 ## 🔧 `list_categories`
@@ -580,8 +583,8 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `page` | `integer` | no | Page of up to 100 categories (1-based). |
 
 
@@ -599,8 +602,49 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_categories` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+| `total_categories` | `integer` | yes |  |
+
+
+## 🔧 `list_files`
+
+Discover visible files, including .base, .canvas and attachments, without parsing their contents. Filter by extensions and relative-path globs. Discovery obeys vault ignores; list_notes remains Markdown-only. Files per page defaults to 100, maximum 100.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `extensions` | `string[]` | no | Extensions without a dot, e.g. ["base", "canvas"]. Empty means all file types. |
+| `include` | `string[]` | no |  |
+| `exclude` | `string[]` | no |  |
+| `page` | `integer` | no |  |
+| `limit` | `integer \| null` | no | Files per page, 1-100; defaults to 100. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `files` | `FileSummary[]` | yes |  |
+| `pagination` | `FilesPagination` | yes |  |
+
+Nested types:
+
+### `FileSummary`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes |  |
+| `extension` | `string` | yes |  |
+| `size_bytes` | `integer` | yes |  |
+
+### `FilesPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_files` | `integer` | yes |  |
 
 
 ## 🔧 `list_notes`
@@ -611,10 +655,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
-| `limit` | `integer \| null` | no | Notes per page; defaults to 100. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `page` | `integer` | no |  |
+| `limit` | `integer \| null` | no | Notes per page; defaults to 100. |
 
 
 Output:
@@ -626,20 +670,20 @@ Output:
 
 Nested types:
 
-### `ListNotesPagination`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `page` | `integer` | yes |  |
-| `total_notes` | `integer` | yes |  |
-| `total_pages` | `integer` | yes |  |
-
 ### `NoteSummary`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | yes |  |
 | `title` | `string \| null` | no |  |
+
+### `ListNotesPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
 
 
 ## 🔧 `list_tags`
@@ -650,10 +694,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
-| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
-| `page` | `integer` | no | Page of up to 100 tags (1-based). |
 | `scope` | `TagScope` | no | Where to look for tags. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 100 tags (1-based). |
 
 Nested types:
 
@@ -672,8 +716,8 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `pagination` | `ListTagsPagination` | yes |  |
 | `tags` | `string[]` | yes | Unique tag names available in the requested scope. |
+| `pagination` | `ListTagsPagination` | yes |  |
 
 Nested types:
 
@@ -694,12 +738,12 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
 | `field` | `string` | yes | Top-level frontmatter field name. |
-| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
 | `mode` | `FrontmatterMatchMode` | yes | Match mode. Use exists to find notes that contain the field without matching a value. |
-| `page` | `integer` | no | Page of up to 100 matching notes (1-based). |
 | `value` | `string \| null` | no | Value used by equals or regex mode. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 100 matching notes (1-based). |
 
 Nested types:
 
@@ -726,8 +770,8 @@ Nested types:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_notes` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
+| `total_notes` | `integer` | yes |  |
 
 
 ## 🔧 `read_attachment`
@@ -738,25 +782,25 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `include_embedded_images` | `boolean` | no | OCR embedded PNG or JPEG images in a DOCX. Defaults to false. |
-| `max_chars` | `integer \| null` | no | Optional Unicode-character limit for this request. |
-| `page` | `integer \| null` | no | PDF page (1-based); omit for all pages. PDF only. |
 | `path` | `string` | yes | Project-relative PDF, DOCX, PNG, or JPEG path. The extension is required. |
+| `page` | `integer \| null` | no | PDF page (1-based); omit for all pages. PDF only. |
+| `max_chars` | `integer \| null` | no | Optional Unicode-character limit for this request. |
+| `include_embedded_images` | `boolean` | no | OCR embedded PNG or JPEG images in a DOCX. Defaults to false. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `content` | `string` | yes |  |
-| `extraction` | `string` | yes | Native extraction or local OCR. |
-| `format` | `string` | yes | `pdf`, `docx`, `png`, or `jpeg`. |
-| `ocr_required_pages` | `array \| null` | no | PDF pages that could not be read natively and require local OCR. |
-| `ocr_sources` | `array \| null` | no | OCR results from requested embedded DOCX images. |
 | `source` | `string` | yes | Attachment path, optionally narrowed to a one-based PDF page. |
+| `format` | `string` | yes | `pdf`, `docx`, `png`, or `jpeg`. |
 | `status` | `string` | yes | `complete`, `partial`, or `ocr_required`. |
-| `truncated` | `boolean \| null` | no |  |
+| `extraction` | `string` | yes | Native extraction or local OCR. |
+| `content` | `string` | yes |  |
+| `ocr_required_pages` | `array \| null` | no | PDF pages that could not be read natively and require local OCR. |
 | `warnings` | `array \| null` | no |  |
+| `ocr_sources` | `array \| null` | no | OCR results from requested embedded DOCX images. |
+| `truncated` | `boolean \| null` | no |  |
 
 Nested types:
 
@@ -764,8 +808,86 @@ Nested types:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `mean_confidence` | `number \| null` | no |  |
 | `source` | `string` | yes | Location inside the attachment package, for example `word/media/image1.png`. |
+| `mean_confidence` | `number \| null` | no |  |
+
+
+## 🔧 `read_base`
+
+Execute one local Obsidian .base view and return its actual rows, formulas, filters, sorting, groups, limit and summaries as Markdown. Defaults to the first view; context_note supplies the embedding/active file for this. Unknown syntax or functions fail explicitly. Pagination uses complete rows; summaries cover all result rows after limit, before pagination. Reuse the same max_chars on subsequent pages.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Exact vault-relative .base path. Rendered output never uses source-line references. |
+| `view` | `string \| null` | no | View name; defaults to the first view in the file. |
+| `context_note` | `string \| null` | no | Exact embedding/active file path for this; defaults to the .base itself. |
+| `page` | `integer` | no |  |
+| `max_chars` | `integer \| null` | no | Unicode-character page budget. Complete rows plus headers and summaries may exceed it. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes |  |
+| `view` | `string` | yes |  |
+| `view_type` | `string` | yes |  |
+| `context` | `string` | yes |  |
+| `format` | `string` | yes | Always markdown. All supported layouts use a semantic Markdown table. |
+| `content` | `string` | yes |  |
+| `total_rows` | `integer` | yes | Rows after filters, group visibility, sorting and the view's limit, before pagination. |
+| `row_paths` | `string[]` | yes | Exact file paths for data rows on this page, in rendered order; empty groups are excluded. |
+| `pagination` | `RenderPagination` | yes |  |
+
+Nested types:
+
+### `RenderPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_units` | `integer` | yes | Canvas nodes/connections/memberships, or Base rows/empty-group markers, across all pages. |
+| `returned_units` | `integer` | yes |  |
+| `next_page` | `integer \| null` | no |  |
+
+
+## 🔧 `read_canvas`
+
+Read an exact .canvas file as complete Mermaid for LLM understanding: full text, typed file/image references with subpaths, URLs, arrows, labels and inferred group membership. Each page is a valid flowchart with complete edge endpoint context; a complete unit may exceed max_chars. Reuse the same max_chars on subsequent pages. No source-line references are fabricated.
+
+Input:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes | Exact workspace-relative .canvas path; no node or source-line fragment. |
+| `page` | `integer` | no |  |
+| `max_chars` | `integer \| null` | no | Unicode-character page budget. Complete nodes and their edge context may exceed it. |
+
+
+Output:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `path` | `string` | yes |  |
+| `format` | `string` | yes | Always mermaid. Every page is a complete flowchart, without Markdown fences. |
+| `content` | `string` | yes |  |
+| `pagination` | `RenderPagination` | yes |  |
+| `warnings` | `string[]` | yes | Non-fatal structural ambiguities in inferred groups. |
+
+Nested types:
+
+### `RenderPagination`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `page` | `integer` | yes |  |
+| `total_pages` | `integer` | yes |  |
+| `total_units` | `integer` | yes | Canvas nodes/connections/memberships, or Base rows/empty-group markers, across all pages. |
+| `returned_units` | `integer` | yes |  |
+| `next_page` | `integer \| null` | no |  |
 
 
 ## 🔧 `read_note`
@@ -776,22 +898,22 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_id` | `string \| null` | no | Block id without the leading caret. |
-| `heading` | `string \| null` | no | Heading text, anchor, or slash-separated path; H1 and Markdown heading syntax are accepted. |
-| `line` | `string \| null` | no | Line or inclusive range, e.g. L3 or L3-L20. |
-| `max_chars` | `integer \| null` | no | Unicode-character budget; the complete boundary line is returned even if it exceeds this value. |
 | `note` | `string` | yes | Relative path, stem, alias, or reference: Note#Heading, Note#^id, Note#L1-L20. |
+| `max_chars` | `integer \| null` | no | Unicode-character budget; the complete boundary line is returned even if it exceeds this value. |
+| `heading` | `string \| null` | no | Heading text, anchor, or slash-separated path; H1 and Markdown heading syntax are accepted. |
+| `block_id` | `string \| null` | no | Block id without the leading caret. |
+| `line` | `string \| null` | no | Line or inclusive range, e.g. L3 or L3-L20. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `content` | `string` | yes |  |
-| `next_line` | `integer \| null` | no | Next unread line when truncated; resume with note#L{next_line}-. |
-| `returned_source` | `string \| null` | no | Actual returned source range when truncated. |
 | `source` | `string` | yes | Selected source range before truncation, e.g. note.md#L3-L20. |
+| `content` | `string` | yes |  |
 | `truncated` | `boolean \| null` | no | True when selected content remains unread; omitted otherwise. |
+| `returned_source` | `string \| null` | no | Actual returned source range when truncated. |
+| `next_line` | `integer \| null` | no | Next unread line when truncated; resume with note#L{next_line}-. |
 
 
 ## 🔧 `redo_edit`
@@ -809,9 +931,9 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `operation_ids` | `string[]` | yes | Identifiers of operations redone by this request. |
 | `changed_notes` | `string[]` | yes | Vault-relative paths changed by this request. |
 | `conflicts` | `string[]` | yes | Conflicts that prevented one or more operations from being redone. |
-| `operation_ids` | `string[]` | yes | Identifiers of operations redone by this request. |
 
 
 ## 🔧 `rename_heading`
@@ -822,19 +944,19 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
-| `new_heading` | `string` | yes | Replacement heading text. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 | `old_heading` | `string` | yes | Current heading text or anchor. |
+| `new_heading` | `string` | yes | Replacement heading text. |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed_notes` | `string[]` | yes |  |
 | `dry_run` | `boolean` | yes |  |
 | `updated_references` | `integer` | yes |  |
+| `changed_notes` | `string[]` | yes |  |
 
 
 ## 🔧 `rename_note`
@@ -845,18 +967,18 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
-| `new_path` | `string` | yes | New vault-relative Markdown path. Parent directories are created when applying. |
 | `path` | `string` | yes | Existing safe vault-relative Markdown path. |
+| `new_path` | `string` | yes | New vault-relative Markdown path. Parent directories are created when applying. |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `changed_notes` | `string[]` | yes |  |
 | `dry_run` | `boolean` | yes |  |
 | `updated_references` | `integer` | yes |  |
+| `changed_notes` | `string[]` | yes |  |
 
 
 ## 🔧 `replace_section`
@@ -867,10 +989,10 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
+| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
 | `block_id` | `string \| null` | no | Block id without the leading caret. |
 | `content` | `string` | yes | Replacement body for a heading section, or replacement content for a block. |
-| `heading` | `string \| null` | no | Heading text, heading anchor, or slash-separated heading path. |
-| `note` | `string` | yes | Workspace-relative path, note stem, or alias. |
 
 
 Output:
@@ -895,10 +1017,10 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `ambiguous_targets` | `array \| null` | no |  |
-| `suggested_target` | `string \| null` | no |  |
 | `target` | `string \| null` | no |  |
+| `ambiguous_targets` | `array \| null` | no |  |
 | `unresolved_target` | `string \| null` | no |  |
+| `suggested_target` | `string \| null` | no |  |
 
 
 ## 🔧 `search_regex`
@@ -909,11 +1031,11 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
-| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
-| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 | `pattern` | `string` | yes | Rust regex pattern matched line by line. |
+| `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 
 
 Output:
@@ -925,20 +1047,20 @@ Output:
 
 Nested types:
 
+### `TextMatch`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
+| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
+
 ### `SearchPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_matches` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
-
-### `TextMatch`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
-| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
+| `total_matches` | `integer` | yes |  |
 
 
 ## 🔧 `search_text`
@@ -949,11 +1071,11 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
-| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
-| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
-| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 | `query` | `string` | yes | Literal text to search for. |
+| `case_sensitive` | `boolean` | no | Whether matching should be case-sensitive. |
+| `include` | `string[]` | no | Include any matching relative-path glob; empty means all. |
+| `exclude` | `string[]` | no | Exclude matching relative-path globs; overrides include. |
+| `page` | `integer` | no | Page of up to 50 matching lines (1-based). |
 
 
 Output:
@@ -965,20 +1087,20 @@ Output:
 
 Nested types:
 
+### `TextMatch`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
+| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
+
 ### `SearchPagination`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `page` | `integer` | yes |  |
-| `total_matches` | `integer` | yes |  |
 | `total_pages` | `integer` | yes |  |
-
-### `TextMatch`
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `preview` | `string` | yes | Short centered preview text. Use read_note for full evidence. |
-| `source` | `string` | yes | Workspace-relative path with Obsidian-style line reference. |
+| `total_matches` | `integer` | yes |  |
 
 
 ## 🔧 `set_block_id`
@@ -989,22 +1111,22 @@ Input:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_id` | `string \| null` | no | Desired lowercase block id. Omit to generate a timx8 id; pass an empty string to delete. |
-| `content` | `string \| null` | no | Text contained by the target Markdown block. Mutually exclusive with old_block_id. |
-| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
 | `note` | `string` | yes | Vault-relative path, note stem, or alias. |
 | `old_block_id` | `string \| null` | no | Existing block id selector without the leading caret. Mutually exclusive with content. |
+| `content` | `string \| null` | no | Text contained by the target Markdown block. Mutually exclusive with old_block_id. |
+| `block_id` | `string \| null` | no | Desired lowercase block id. Omit to generate a timx8 id; pass an empty string to delete. |
+| `dry_run` | `boolean` | no | Preview changed notes and references without writing. Defaults to true. |
 
 
 Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `block_id` | `string \| null` | no | Resulting block id, including a generated proposal during dry-run; null after deletion. |
-| `changed_notes` | `string[]` | yes | Workspace-relative notes that would change or were changed. |
 | `dry_run` | `boolean` | yes | Whether changes were only previewed. |
 | `previous_block_id` | `string \| null` | no | Block id present before this operation, if any. |
+| `block_id` | `string \| null` | no | Resulting block id, including a generated proposal during dry-run; null after deletion. |
 | `updated_references` | `integer` | yes |  |
+| `changed_notes` | `string[]` | yes | Workspace-relative notes that would change or were changed. |
 
 
 ## 🔧 `undo_edit`
@@ -1022,6 +1144,6 @@ Output:
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `operation_ids` | `string[]` | yes | Identifiers of operations undone by this request. |
 | `changed_notes` | `string[]` | yes | Vault-relative paths changed by this request. |
 | `conflicts` | `string[]` | yes | Conflicts that prevented one or more operations from being undone. |
-| `operation_ids` | `string[]` | yes | Identifiers of operations undone by this request. |

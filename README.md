@@ -2,8 +2,8 @@
 
 [Chinese README](./README.zh-CN.md)
 
-MCP server for Obsidian-style Markdown vaults with compact, task-oriented tools
-and structural section edits.
+MCP server for Obsidian vaults with compact Markdown queries, read-only Bases and
+Canvas understanding, and structural section edits.
 
 The server is deliberately mechanical:
 
@@ -16,9 +16,9 @@ The server is deliberately mechanical:
 - ignores hidden dot paths by default, such as `.obsidian/`, `.git/`,
   `.agents/`, and `.hidden.md`
 - respects `.gitignore`, `.git/info/exclude`, and parent gitignore rules while
-  scanning visible Markdown notes
+  scanning visible files
 - respects Obsidian's `.obsidian/app.json` `userIgnoreFilters` while scanning
-  visible Markdown notes; exact-path reads remain available
+  visible files; exact-path reads remain available
 - returns vault-relative paths, Obsidian-style line references, and nearest
   headings so an LLM can cite evidence
 
@@ -51,7 +51,7 @@ obsidian-vault-mcp serve
 
 For an MCP client, set the command to `npx` and the arguments to
 `["-y", "@ptdgrp/obsidian-vault-mcp", "--vault", "/absolute/path/to/vault", "serve"]`.
-The npm package uses the default Markdown feature set. Build from source to enable
+The npm package uses the default Markdown, Bases, and Canvas feature set. Build from source to enable
 attachment reading or OCR.
 The launcher uses optional platform packages, so npm downloads only the binary
 for the current operating system and CPU. Do not disable optional dependencies.
@@ -69,7 +69,7 @@ Install the CLI from this repository for the examples below:
 cargo install --path .
 ```
 
-The default build supports Markdown only. Enable PDF and DOCX attachment reading
+The default build supports Markdown, Bases queries, and Canvas-to-Mermaid reading. Enable PDF and DOCX attachment reading
 and the `read_attachment` MCP tool with `cargo install --path . --features attachments`.
 For local image and scanned-PDF OCR, use `--features ocr-local`, which also enables
 `attachments`; OCR runtime libraries and model files must be installed separately.
@@ -85,6 +85,9 @@ Start with the first page of notes, then move to precise reads and relation chec
 
 ```sh
 obsidian-vault-mcp list-notes --page 1
+obsidian-vault-mcp list-files --extension base --extension canvas --page 1
+obsidian-vault-mcp read-base "Projects.base" --view "Active" --max-chars 8192
+obsidian-vault-mcp read-canvas "Planning.canvas" --max-chars 8192
 obsidian-vault-mcp get-note-outline "People/Alex.md" --page 1
 obsidian-vault-mcp read-note "People/Alex.md#Health" --max-chars 4096
 obsidian-vault-mcp get-note-structure "People/Alex.md"
@@ -118,7 +121,8 @@ To explicitly select a vault from another directory, use
 `OBSIDIAN_VAULT_MCP_ROOT`. Explicit configuration overrides discovery;
 `--vault` takes precedence over the environment variable and accepts `~` and
 `~/...` paths. Discovery searches ancestors only, not child directories or the
-whole computer. If `serve` cannot discover a vault, it exposes file-local Markdown tools: `read_note`,
+whole computer. If `serve` cannot discover a vault, it exposes `list_files`,
+`read_canvas`, and file-local Markdown tools: `read_note`,
 `get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`,
 `create_note`, `delete_note`, `edit_note`, `apply_patch`, the structural section edit tools,
 and edit history and undo/redo tools. Note paths
@@ -126,7 +130,8 @@ are relative to the current project directory; absolute paths and paths outside
 it are rejected.
 In this mode, `audit_links` checks only standard Markdown relative links such
 as `[text](../target.md)`, reporting targets whose files do not exist.
-Vault-wide search, metadata, and link-graph tools remain unavailable. Other
+Vault-wide Bases queries (`read_base`), search, metadata, and link-graph tools remain unavailable.
+The `read-canvas` and `list-files` CLI commands also work in this project mode. Other
 commands still report an error, as does an invalid explicitly configured vault
 path.
 
@@ -183,6 +188,29 @@ Whole-note and line reads skip AST parsing; outlines and heading reads parse onl
 heading inline content after scanning block structure. Block-ID reads retain full
 parsing. These paths still read the source file and enforce `max_note_bytes`.
 
+## Bases and Canvas understanding
+
+`list_files` discovers visible `.base`, `.canvas`, and attachment paths without
+parsing their contents; `list_notes` continues to list Markdown only.
+`read_base` executes typed formulas, global and view filters, display columns,
+sorting, grouping, limits, and summaries. It supports table, cards, list, kanban,
+and the official Maps view as semantic Markdown tables. The first view is the
+default; `context_note` supplies the embedding file for `this`, otherwise `this`
+is the Base itself. Each page includes `row_paths` for precise follow-up reads.
+
+`read_canvas` returns complete Mermaid with full text, typed file/image references,
+URLs, labeled arrows, and explicit group membership. It preserves paths and
+subpaths without opening images or reproducing coordinates. Both readers work
+without a running Obsidian desktop. They are read-only and leave `read_note`'s
+raw Markdown contract intact.
+
+Rendered pages use a Unicode `max_chars` budget and keep complete semantic units,
+so a single row/node and its required context may exceed the budget. Follow
+`pagination.next_page` with the same budget. Summaries cover all matching rows
+after the view limit, not just the current page. Rendered content has no source
+line citations. See [semantic reader support and limits](docs/semantic-readers.md)
+and the [generated contracts](docs/tools.md).
+
 ## Pagination and filters
 
 Paged tools accept a fixed numeric `page` value. Page numbers are one-based;
@@ -223,6 +251,9 @@ contracts.
 Primary read/query tools:
 
 - `list_notes`
+- `list_files`
+- `read_base`
+- `read_canvas`
 - `get_note_outline`
 - `read_note`
 - `get_note_structure`

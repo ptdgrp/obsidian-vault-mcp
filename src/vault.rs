@@ -98,6 +98,28 @@ impl Vault {
             .replace('\\', "/")
     }
 
+    /// Resolve an explicitly addressed existing file. Discovery ignores do not
+    /// restrict exact reads, but symlinks may never escape the workspace.
+    pub fn resolve_existing_file(&self, input: &str) -> anyhow::Result<Utf8PathBuf> {
+        let input_path = Utf8Path::new(input);
+        if input_path.is_absolute() {
+            return Err(VaultError::AbsolutePathNotAllowed.into());
+        }
+        let path = normalize_path(&self.root.join(input_path));
+        if !path.starts_with(&self.root) {
+            return Err(VaultError::PathEscapesVault.into());
+        }
+        let root = fs::canonicalize(&self.root)?;
+        let actual = fs::canonicalize(&path)?;
+        if !actual.starts_with(root) {
+            return Err(VaultError::PathEscapesVault.into());
+        }
+        if !path.is_file() {
+            anyhow::bail!("not a file: {input}");
+        }
+        Ok(path)
+    }
+
     pub fn write_note_atomic(&self, path: &Utf8Path, content: &str) -> Result<(), VaultError> {
         if !path.starts_with(&self.root) {
             return Err(VaultError::PathEscapesVault);
@@ -117,6 +139,15 @@ impl Vault {
     }
 
     pub fn list_notes(&self) -> Result<Vec<NoteFile>, VaultError> {
+        Ok(self
+            .list_files()?
+            .into_iter()
+            .filter(|file| file.path.extension() == Some("md"))
+            .collect())
+    }
+
+    /// Scan file metadata without feeding attachments into the Markdown index.
+    pub fn list_files(&self) -> Result<Vec<NoteFile>, VaultError> {
         let config = self.config.load();
         let include = Arc::new(compile_globs(&config.include)?);
         let exclude = Arc::new(compile_globs(&config.exclude)?);
@@ -124,6 +155,8 @@ impl Vault {
         let files = Arc::new(Mutex::new(Vec::new()));
         let error = Arc::new(Mutex::new(None));
         let root = self.root.clone();
+        let canonical_root =
+            Arc::new(fs::canonicalize(&root).map_err(|err| VaultError::Io(err.to_string()))?);
         let include_is_empty = config.include.is_empty();
         let mut walker = WalkBuilder::new(&self.root);
         walker
@@ -143,6 +176,7 @@ impl Vault {
             let exclude = Arc::clone(&exclude);
             let obsidian_ignore = Arc::clone(&obsidian_ignore);
             let root = root.clone();
+            let canonical_root = Arc::clone(&canonical_root);
             Box::new(move |entry| {
                 let entry = match entry {
                     Ok(entry) => entry,
@@ -182,12 +216,17 @@ impl Vault {
                         WalkState::Continue
                     };
                 }
-                if !entry.file_type().is_some_and(|kind| kind.is_file())
-                    || path.extension() != Some("md")
-                {
+                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                     return WalkState::Continue;
                 }
                 if !include_is_empty && !include.is_match(&rel) {
+                    return WalkState::Continue;
+                }
+                // A followed directory symlink is still confined to the root.
+                if !fs::canonicalize(&path)
+                    .ok()
+                    .is_some_and(|actual| actual.starts_with(canonical_root.as_ref()))
+                {
                     return WalkState::Continue;
                 }
                 let metadata = match fs::metadata(&path) {

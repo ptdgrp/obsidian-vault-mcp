@@ -29,6 +29,46 @@ pub(crate) enum Command {
     /// Check vault config and list readable notes
     Doctor,
 
+    /// Discover visible files of any type, including Bases, Canvas and attachments.
+    ListFiles {
+        /// File extension without a dot; may be repeated.
+        #[arg(long = "extension", alias = "extensions")]
+        extensions: Vec<String>,
+        #[arg(long)]
+        include: Vec<String>,
+        #[arg(long)]
+        exclude: Vec<String>,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+
+    /// Execute a .base view and read the actual result as Markdown.
+    ReadBase {
+        path: String,
+        #[arg(long)]
+        view: Option<String>,
+        /// Exact embedding/active file path used by this; defaults to the Base itself.
+        #[arg(long)]
+        context_note: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+        /// Unicode-character page budget; complete rows may exceed it.
+        #[arg(long)]
+        max_chars: Option<usize>,
+    },
+
+    /// Read a .canvas as complete Mermaid with full text and references.
+    ReadCanvas {
+        path: String,
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+        /// Unicode-character page budget; complete nodes/edges may exceed it.
+        #[arg(long)]
+        max_chars: Option<usize>,
+    },
+
     #[command(
         about = "Page through visible Markdown notes for lightweight navigation. Set limit between 1 and 100 to keep responses compact; it defaults to 100."
     )]
@@ -383,6 +423,9 @@ impl Command {
             Self::GenerateDocs { .. } => "generate_docs",
             Self::InstallOcrModels { .. } => "install_ocr_models",
             Self::Doctor => "doctor",
+            Self::ListFiles { .. } => "list_files",
+            Self::ReadBase { .. } => "read_base",
+            Self::ReadCanvas { .. } => "read_canvas",
             Self::ListNotes { .. } => "list_notes",
             Self::AuditLinks { .. } => "audit_links",
             Self::GetNoteNeighborhood { .. } => "get_note_neighborhood",
@@ -434,6 +477,47 @@ impl Command {
             }
             Command::Doctor => {
                 print_value(&queries.list_notes(&[], &[], 1, None)?)?;
+            }
+            Command::ListFiles {
+                extensions,
+                include,
+                exclude,
+                page,
+                limit,
+            } => {
+                print_value(&queries.list_files(crate::rendered::ListFilesRequest {
+                    extensions,
+                    include,
+                    exclude,
+                    page,
+                    limit,
+                })?)?;
+            }
+            Command::ReadBase {
+                path,
+                view,
+                context_note,
+                page,
+                max_chars,
+            } => {
+                print_value(&queries.read_base(crate::bases::ReadBaseRequest {
+                    path,
+                    view,
+                    context_note,
+                    page,
+                    max_chars,
+                })?)?;
+            }
+            Command::ReadCanvas {
+                path,
+                page,
+                max_chars,
+            } => {
+                print_value(&queries.read_canvas(crate::canvas::ReadCanvasRequest {
+                    path,
+                    page,
+                    max_chars,
+                })?)?;
             }
             Command::ListNotes {
                 include,

@@ -38,6 +38,9 @@ fn public_tool_set_matches_task8_contract_exactly() {
     let expected = [
         "apply_patch",
         "list_notes",
+        "list_files",
+        "read_base",
+        "read_canvas",
         "audit_links",
         "get_note_neighborhood",
         "get_note_structure",
@@ -79,6 +82,9 @@ fn public_tool_set_matches_task8_contract_exactly() {
 #[test]
 fn public_tool_set_paged_collections_use_fixed_page_contract() {
     for name in [
+        "list_files",
+        "read_base",
+        "read_canvas",
         "list_notes",
         "audit_links",
         "get_note_outline",
@@ -108,6 +114,7 @@ fn public_tool_set_paged_collections_use_fixed_page_contract() {
 #[test]
 fn public_tool_set_filter_tools_expose_include_exclude_arrays() {
     for name in [
+        "list_files",
         "list_notes",
         "search_text",
         "search_regex",

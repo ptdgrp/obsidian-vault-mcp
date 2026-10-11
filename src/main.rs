@@ -1,5 +1,7 @@
 #[cfg(feature = "attachments")]
 mod attachment;
+mod bases;
+mod canvas;
 mod cli;
 mod docs;
 mod logging;
@@ -7,6 +9,7 @@ mod mutation;
 mod ocr;
 mod parser;
 mod query;
+mod rendered;
 mod resolver;
 mod server;
 mod timx8;
@@ -51,7 +54,11 @@ async fn main() -> anyhow::Result<()> {
         cli.command_ref(),
         None | Some(cli::commands::Command::Serve)
     );
-    let vault_path = resolve_vault_path(cli.vault.as_deref(), serves_mcp)?;
+    let file_local = matches!(
+        cli.command_ref(),
+        Some(cli::commands::Command::ReadCanvas { .. } | cli::commands::Command::ListFiles { .. })
+    );
+    let vault_path = resolve_vault_path(cli.vault.as_deref(), serves_mcp || file_local)?;
     logging::init(&cli.log_level)?;
     tracing::debug!("logging.initialized");
     let started = Instant::now();
@@ -70,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
         (cli::commands::Command::Serve, None) => {
             tracing::warn!(
                 parent: &command_span,
-                "no Obsidian vault found; starting project Markdown MCP server"
+                "no Obsidian vault found; starting project file MCP server"
             );
             let root = std::env::current_dir()?;
             let root = camino::Utf8PathBuf::from_path_buf(root).map_err(|path| {
@@ -84,7 +91,15 @@ async fn main() -> anyhow::Result<()> {
             let vault = Vault::open(&vault_path, config)?;
             command.run(vault).instrument(command_span.clone()).await
         }
-        (_, None) => unreachable!("commands other than serve require a vault"),
+        (command, None) if file_local => {
+            let root = camino::Utf8PathBuf::from_path_buf(std::env::current_dir()?)
+                .map_err(|path| anyhow::anyhow!("non-UTF8 project path: {}", path.display()))?;
+            command
+                .run(Vault::open(&root, config)?)
+                .instrument(command_span.clone())
+                .await
+        }
+        (_, None) => unreachable!("vault-dependent command requires a vault"),
     };
     let duration_ms = started.elapsed().as_millis() as u64;
     match &result {
