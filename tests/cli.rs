@@ -1255,3 +1255,340 @@ fn calendar_days_preserve_local_hour_across_dst() {
         );
     }
 }
+
+fn run_cli_from(cwd: &std::path::Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .env_remove("OBSIDIAN_VAULT_MCP_ROOT")
+        .current_dir(cwd)
+        .args(["--log-level", "warn"])
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn successful_json(output: std::process::Output) -> Value {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn local_markdown_cli_reads_work_without_a_vault_and_do_not_enable_vault_queries() {
+    let dir = tempdir().unwrap();
+    write_note(
+        &dir,
+        "README.md",
+        "# Readme\n\n## Local\n\nproject evidence\n",
+    );
+    for command in [
+        "read-note",
+        "get-note-outline",
+        "get-note-structure",
+        "get-note-stats",
+    ] {
+        let result = successful_json(run_cli_from(dir.path(), &[command, "./README.md"]));
+        if command == "read-note" {
+            assert!(
+                result["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("project evidence")
+            );
+        } else {
+            assert!(result.to_string().contains("README.md"));
+        }
+    }
+    for args in [
+        vec!["list-notes"],
+        vec!["search-text", "evidence"],
+        vec!["read-base", "./records.base"],
+        vec!["audit-links"],
+        vec!["create-note", "./new.md", "body"],
+    ] {
+        let output = run_cli_from(dir.path(), &args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("no Obsidian vault found"));
+    }
+    let output = run_cli_from(
+        dir.path(),
+        &["--vault", "./missing", "read-note", "./README.md"],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("vault root is not a directory"));
+    let help = run_cli_from(dir.path(), &["get-note-outline", "--help"]);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("process working directory"));
+}
+
+#[test]
+fn cwd_note_paths_preserve_selectors_and_bare_vault_paths() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join(".obsidian")).unwrap();
+    write_note(
+        &dir,
+        "deep/work/local.md",
+        "# Local file\n\n## Local\n\nlocal evidence\n\nblock evidence ^block\n",
+    );
+    write_note(
+        &dir,
+        "deep/sibling.md",
+        "# Sibling\n\nsibling evidence ^block\n",
+    );
+    write_note(&dir, "local.md", "# Root file\nroot evidence\n");
+    let cwd = dir.path().join("deep/work");
+    for (input, path, text) in [
+        ("./local", "deep/work/local.md", "local evidence"),
+        ("../sibling.md", "deep/sibling.md", "sibling evidence"),
+        ("local.md", "local.md", "root evidence"),
+        ("deep/work/local.md", "deep/work/local.md", "local evidence"),
+    ] {
+        let result = successful_json(run_cli_from(&cwd, &["read-note", input]));
+        assert!(result["source"].as_str().unwrap().starts_with(path));
+        assert!(result["content"].as_str().unwrap().contains(text));
+    }
+    for input in [
+        "[[./local#Local|display]]",
+        "![[./local.md#^block|display]]",
+        "./local.md#L3-L5",
+    ] {
+        let result = successful_json(run_cli_from(&cwd, &["read-note", input]));
+        assert!(
+            result["source"]
+                .as_str()
+                .unwrap()
+                .starts_with("deep/work/local.md#L")
+        );
+        assert!(!result["content"].as_str().unwrap().contains("# Local file"));
+    }
+    let result = successful_json(run_cli_from(
+        &cwd,
+        &["read-note", "./local.md", "--heading", "Local"],
+    ));
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("local evidence")
+    );
+    let result = successful_json(run_cli_from(
+        &cwd,
+        &["resolve-ref", "[[../sibling#^block|display]]"],
+    ));
+    assert!(result.to_string().contains("deep/sibling.md"));
+    for command in [
+        "get-note-outline",
+        "get-note-structure",
+        "get-note-stats",
+        "get-outlinks",
+        "get-backlinks",
+        "get-note-neighborhood",
+    ] {
+        let result = successful_json(run_cli_from(&cwd, &[command, "./local.md"]));
+        assert!(
+            result.to_string().contains("deep/work/local.md"),
+            "{command}: {result}"
+        );
+    }
+}
+
+#[test]
+fn explicit_missing_and_escaping_cwd_paths_never_fall_back_to_other_notes() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join(".obsidian")).unwrap();
+    fs::create_dir_all(dir.path().join("deep/work")).unwrap();
+    write_note(&dir, "elsewhere/missing.md", "# Wrong file\n");
+    let cwd = dir.path().join("deep/work");
+    for command in [
+        "read-note",
+        "get-note-outline",
+        "get-note-structure",
+        "get-note-stats",
+        "resolve-ref",
+        "get-outlinks",
+        "get-backlinks",
+        "get-note-neighborhood",
+    ] {
+        let output = run_cli_from(&cwd, &[command, "./missing.md"]);
+        assert!(!output.status.success(), "{command}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("CLI path does not exist"));
+    }
+    for command in ["read-note", "get-note-outline", "create-note"] {
+        let mut args = vec![command, "../../../outside.md"];
+        if command == "create-note" {
+            args.push("body");
+        }
+        let output = run_cli_from(&cwd, &args);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("escapes selected root"));
+    }
+}
+
+#[test]
+fn configured_vault_relative_roots_and_environment_precedence_are_preserved() {
+    let dir = tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("discovered/.obsidian")).unwrap();
+    fs::create_dir_all(dir.path().join("chosen/deep/work")).unwrap();
+    write_note(&dir, "chosen/deep/work/local.md", "# Chosen\n");
+    write_note(&dir, "chosen/root.md", "# Chosen root\n");
+    write_note(&dir, "discovered/root.md", "# Discovered root\n");
+    let cwd = dir.path().join("chosen/deep/work");
+    for root in ["../..", "../.././deep/.."] {
+        let result = successful_json(run_cli_from(
+            &cwd,
+            &["--vault", root, "read-note", "./local.md"],
+        ));
+        assert_eq!(result["content"], "# Chosen\n");
+        let result = successful_json(run_cli_from(
+            &cwd,
+            &["--vault", root, "read-note", "root.md"],
+        ));
+        assert_eq!(result["content"], "# Chosen root\n");
+    }
+    for (explicit, env_root, expected) in [
+        (None, "../chosen", "# Chosen root\n"),
+        (Some("../chosen"), "./missing", "# Chosen root\n"),
+    ] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"));
+        command
+            .current_dir(dir.path().join("discovered"))
+            .env("OBSIDIAN_VAULT_MCP_ROOT", env_root);
+        if let Some(root) = explicit {
+            command.args(["--vault", root]);
+        }
+        let result = successful_json(command.args(["read-note", "root.md"]).output().unwrap());
+        assert_eq!(result["content"], expected);
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"))
+        .current_dir(dir.path().join("discovered"))
+        .env("OBSIDIAN_VAULT_MCP_ROOT", "./missing")
+        .args(["read-note", "root.md"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("vault root is not a directory"));
+}
+
+#[test]
+fn exact_cli_paths_keep_filename_punctuation_and_edit_destinations_use_cwd() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join(".obsidian")).unwrap();
+    write_note(&dir, "deep/work/host#name.md", "# Host\n");
+    write_note(&dir, "deep/work/graph#name.canvas", "{}");
+    write_note(
+        &dir,
+        "deep/work/records#name.base",
+        "filters: 'file == this.file'\nviews: [{type: table, order: [file.path]}]\n",
+    );
+    let cwd = dir.path().join("deep/work");
+    let result = successful_json(run_cli_from(
+        &cwd,
+        &[
+            "read-base",
+            "./records#name.base",
+            "--context-note",
+            "./host#name.md",
+        ],
+    ));
+    assert_eq!(
+        result["row_paths"],
+        serde_json::json!(["deep/work/host#name.md"])
+    );
+    let result = successful_json(run_cli_from(&cwd, &["read-canvas", "./graph#name.canvas"]));
+    assert_eq!(result["path"], "deep/work/graph#name.canvas");
+    let body = "./literal content ../unchanged";
+    successful_json(run_cli_from(&cwd, &["create-note", "./created.md", body]));
+    assert_eq!(fs::read_to_string(cwd.join("created.md")).unwrap(), body);
+    successful_json(run_cli_from(
+        &cwd,
+        &[
+            "edit-note",
+            "./created.md",
+            "./literal",
+            "../literal",
+            "--dry-run",
+            "false",
+        ],
+    ));
+    assert_eq!(
+        fs::read_to_string(cwd.join("created.md")).unwrap(),
+        "../literal content ../unchanged"
+    );
+    successful_json(run_cli_from(
+        &cwd,
+        &[
+            "rename-note",
+            "./created.md",
+            "../moved.md",
+            "--dry-run",
+            "false",
+        ],
+    ));
+    assert!(!cwd.join("created.md").exists());
+    assert!(dir.path().join("deep/moved.md").exists());
+    successful_json(run_cli_from(
+        &cwd,
+        &["delete-note", "../moved.md", "--dry-run", "false"],
+    ));
+    assert!(!dir.path().join("deep/moved.md").exists());
+    #[cfg(unix)]
+    {
+        write_note(&dir, "deep/work/graph|name.canvas", "{}");
+        let result = successful_json(run_cli_from(&cwd, &["read-canvas", "./graph|name.canvas"]));
+        assert_eq!(result["path"], "deep/work/graph|name.canvas");
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn cwd_cli_paths_reject_symlink_escape_for_reads_and_new_destinations() {
+    let dir = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    fs::create_dir(dir.path().join(".obsidian")).unwrap();
+    write_note(&dir, "inside.md", "# Inside\n");
+    write_note(&outside, "outside.md", "# Outside\n");
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("escape")).unwrap();
+    for args in [
+        vec!["read-note", "./escape/outside.md"],
+        vec!["get-note-outline", "./escape/outside.md"],
+        vec!["create-note", "./escape/new.md", "body"],
+        vec![
+            "rename-note",
+            "./inside.md",
+            "./escape/new.md",
+            "--dry-run",
+            "false",
+        ],
+    ] {
+        let output = run_cli_from(dir.path(), &args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("escapes selected root through a symlink")
+        );
+    }
+    assert!(!outside.path().join("new.md").exists());
+    assert!(dir.path().join("inside.md").exists());
+}
+
+#[test]
+fn mcp_dot_paths_remain_vault_relative_when_server_cwd_is_a_subdirectory() {
+    let dir = tempdir().unwrap();
+    write_note(&dir, "local.md", "# Vault root\n");
+    write_note(&dir, "deep/local.md", "# Process cwd\n");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_obsidian-vault-mcp"));
+    command
+        .current_dir(dir.path().join("deep"))
+        .arg("--vault")
+        .arg(dir.path())
+        .args(["--log-level", "warn", "serve"]);
+    let mut client = McpStdioClient::spawn_command(command);
+    initialize_mcp(&mut client);
+    let reply=client.request(serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_note","arguments":{"note":"./local.md"}}}));
+    assert_eq!(
+        reply["result"]["structuredContent"]["content"],
+        "# Vault root\n"
+    );
+    client.shutdown();
+}

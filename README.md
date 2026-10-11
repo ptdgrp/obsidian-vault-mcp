@@ -84,6 +84,8 @@ walks upward to the nearest directory containing `.obsidian/`.
 Start with the first page of notes, then move to precise reads and relation checks:
 
 ```sh
+obsidian-vault-mcp get-note-outline ./README.md
+obsidian-vault-mcp read-note ./README.md --heading "Build"
 obsidian-vault-mcp list-notes --page 1
 obsidian-vault-mcp list-files --extension base --extension canvas --page 1
 obsidian-vault-mcp read-base "Projects.base" --view "Active" --max-chars 8192
@@ -120,7 +122,8 @@ To explicitly select a vault from another directory, use
 `obsidian-vault-mcp --vault /path/to/vault serve` or set
 `OBSIDIAN_VAULT_MCP_ROOT`. Explicit configuration overrides discovery;
 `--vault` takes precedence over the environment variable and accepts `~` and
-`~/...` paths. Discovery searches ancestors only, not child directories or the
+`~/...` paths. Relative configured roots are resolved and normalized against the
+process working directory. Discovery searches ancestors only, not child directories or the
 whole computer. If `serve` cannot discover a vault, it exposes `list_files`,
 `read_canvas`, and file-local Markdown tools: `read_note`,
 `get_note_outline`, `get_note_structure`, `get_note_stats`, `audit_links`,
@@ -131,8 +134,9 @@ it are rejected.
 In this mode, `audit_links` checks only standard Markdown relative links such
 as `[text](../target.md)`, reporting targets whose files do not exist.
 Vault-wide Bases queries (`read_base`), search, metadata, and link-graph tools remain unavailable.
-The `read-canvas` and `list-files` CLI commands also work in this project mode. Other
-commands still report an error, as does an invalid explicitly configured vault
+The `read-note`, `get-note-outline`, `get-note-structure`, `get-note-stats`,
+`read-canvas`, and `list-files` CLI commands also work in this project mode. Other
+commands still require an explicitly configured or discovered vault and report an error, as does an invalid explicitly configured vault
 path.
 
 Common cache settings:
@@ -233,6 +237,26 @@ you need a paged relation-health sweep.
 A path is a vault-relative Markdown note path such as `People/Alex.md`. It names a
 file directly and is the clearest choice once `list_notes` or another tool has
 returned a path.
+
+For CLI note/reference/file arguments, an explicit `./` or `../` prefix means a
+path relative to the process working directory. From `vault/People/Drafts`,
+`read-note ./Alex.md` reads `People/Drafts/Alex.md`, while
+`read-note ../Alex.md` reads `People/Alex.md`. A bare `People/Alex.md`, stem, or
+alias keeps its existing vault-relative resolution. Heading, block, and line
+selectors and wikilink wrappers remain usable, for example
+`read-note '[[../Alex.md#Health|Alex]]'` and `read-note './Alex.md#L3-L10'`.
+
+This CLI rule also applies to Base/Canvas paths, Base `--context-note`, and
+editing/creation/rename source and destination arguments. Exact file-path fields
+preserve literal `#` and `|` filename characters; only note/reference fields parse
+selectors and aliases. Body text, patches, globs, tags, and categories are not
+rewritten. An explicit cwd path must stay inside the selected root, including
+symlink resolution; a missing path fails without searching for another note with
+the same name. In project mode the root is the process working directory, so
+`../` cannot escape it. A configured vault still takes precedence, and invalid
+explicit/environment roots fail instead of falling back to project mode. MCP
+arguments retain their workspace-relative semantics; they do not use the CLI's
+process-cwd interpretation.
 
 A reference is an Obsidian-style note target such as `[[Alex#Health]]`,
 `Alex#Health`, or `People/Alex.md#L1-L20`. References may point at a note, heading,

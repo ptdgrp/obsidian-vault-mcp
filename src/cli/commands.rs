@@ -46,10 +46,11 @@ pub(crate) enum Command {
 
     /// Execute a .base view and read the actual result as Markdown.
     ReadBase {
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         #[arg(long)]
         view: Option<String>,
-        /// Exact embedding/active file path used by this; defaults to the Base itself.
+        /// Exact embedding/active file path used by this; defaults to the Base itself. ./ and ../ are relative to the process working directory.
         #[arg(long)]
         context_note: Option<String>,
         #[arg(long, default_value_t = 1)]
@@ -61,6 +62,7 @@ pub(crate) enum Command {
 
     /// Read a .canvas as complete Mermaid with full text and references.
     ReadCanvas {
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         #[arg(long, default_value_t = 1)]
         page: usize,
@@ -97,6 +99,7 @@ pub(crate) enum Command {
 
     #[command(about = "Return a bounded resolved-link neighborhood around one note reference.")]
     GetNoteNeighborhood {
+        /// CLI: ./ and ../ targets are relative to the process working directory.
         target: String,
         #[arg(long, default_value_t = 1)]
         depth: usize,
@@ -107,6 +110,7 @@ pub(crate) enum Command {
     /// Read one Markdown note, heading section, block, or line range.
     /// Prefer get-note-outline first, then select a heading or line range.
     ReadNote {
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         #[arg(long)]
@@ -124,10 +128,14 @@ pub(crate) enum Command {
     },
 
     /// Print one note's extracted Obsidian structure
-    GetNoteStructure { note: String },
+    GetNoteStructure {
+        /// Note/reference; ./ and ../ are relative to the process working directory.
+        note: String,
+    },
 
     /// Print one note's selectable non-H1 heading tree or a selected heading's ancestor chain
     GetNoteOutline {
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         #[arg(long, default_value_t = 1)]
@@ -135,13 +143,20 @@ pub(crate) enum Command {
     },
 
     /// Return one note's word, character, and line counts
-    GetNoteStats { note: String },
+    GetNoteStats {
+        /// Note/reference; ./ and ../ are relative to the process working directory.
+        note: String,
+    },
 
     /// Resolve an Obsidian reference, e.g. [[Note#Heading]]
-    ResolveRef { reference: String },
+    ResolveRef {
+        /// Obsidian reference; ./ and ../ targets are relative to the process working directory.
+        reference: String,
+    },
 
     /// Get outgoing local links from one note
     GetOutlinks {
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         #[arg(long, default_value_t = 1)]
@@ -150,6 +165,7 @@ pub(crate) enum Command {
 
     /// Find backlinks to a note or reference
     GetBacklinks {
+        /// CLI: ./ and ../ targets are relative to the process working directory.
         target: String,
 
         /// Vault-relative glob patterns that backlink source notes must match when non-empty.
@@ -293,6 +309,7 @@ pub(crate) enum Command {
     /// Append content at the end of exactly one heading or block section. This uses structural selection, not text matching.
     AppendSection {
         /// Vault-relative path, note stem, or alias.
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -309,6 +326,7 @@ pub(crate) enum Command {
     /// Replace a heading section's body while preserving its heading, or replace a block.
     ReplaceSection {
         /// Vault-relative path, note stem, or alias.
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -325,6 +343,7 @@ pub(crate) enum Command {
     /// Delete exactly one heading or block section. Refuse edits that break existing heading or block links.
     DeleteSection {
         /// Vault-relative path, note stem, or alias.
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
 
         /// Heading text, heading anchor, or slash-separated heading path.
@@ -338,6 +357,7 @@ pub(crate) enum Command {
     /// Create a new Markdown note at an exact vault-relative .md path without overwriting an existing file.
     CreateNote {
         /// New vault-relative path ending in .md.
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         /// Complete Markdown content for the note.
         content: String,
@@ -345,6 +365,7 @@ pub(crate) enum Command {
     /// Delete a visible Markdown note with no inbound references from visible notes. Preview is the default.
     DeleteNote {
         /// Existing vault-relative path ending in .md.
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         /// Preview without deleting.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
@@ -353,6 +374,7 @@ pub(crate) enum Command {
     /// Replace exact text in an existing Markdown note. Preview is the default.
     EditNote {
         /// Existing vault-relative Markdown path ending in .md.
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         /// Nonempty text that must occur exactly once unless --replace-all is set.
         old_text: String,
@@ -377,6 +399,7 @@ pub(crate) enum Command {
     /// Rename one heading and update uniquely resolved Obsidian wikilinks to it. Set dry_run to false to apply; preview is the default.
     RenameHeading {
         /// Vault-relative path, note stem, or alias.
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
         /// Current heading text or anchor.
         #[arg(long)]
@@ -391,8 +414,10 @@ pub(crate) enum Command {
     /// Move a note to a new vault-relative path and update uniquely resolved wikilinks. Set dry_run to false to apply.
     RenameNote {
         /// Existing safe vault-relative Markdown path.
+        /// CLI: ./ and ../ paths are relative to the process working directory.
         path: String,
         /// New vault-relative Markdown path. Parent directories are created when applying.
+        /// CLI: ./ and ../ destinations are relative to the process working directory.
         new_path: String,
         /// Preview changed notes and references without writing. Defaults to true.
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
@@ -401,6 +426,7 @@ pub(crate) enum Command {
     /// Set, generate, replace, or delete one lowercase block id. Set dry_run to false to apply.
     SetBlockId {
         /// Vault-relative path, note stem, or alias.
+        /// CLI: ./ and ../ paths are relative to the process working directory. Bare references remain vault-relative.
         note: String,
         /// Existing block id selector without the leading caret. Mutually exclusive with content.
         #[arg(long, conflicts_with = "content")]
@@ -417,6 +443,73 @@ pub(crate) enum Command {
     },
 }
 impl Command {
+    pub(crate) fn is_file_local(&self) -> bool {
+        matches!(
+            self,
+            Self::ReadNote { .. }
+                | Self::GetNoteOutline { .. }
+                | Self::GetNoteStructure { .. }
+                | Self::GetNoteStats { .. }
+                | Self::ReadCanvas { .. }
+                | Self::ListFiles { .. }
+        )
+    }
+
+    fn rebase_paths(&mut self, root: &camino::Utf8Path) -> anyhow::Result<()> {
+        use super::paths::{Kind, rebase};
+        let cwd = super::paths::cwd()?;
+        match self {
+            Self::ReadNote { note, .. }
+            | Self::GetNoteStructure { note }
+            | Self::GetNoteOutline { note, .. }
+            | Self::GetNoteStats { note }
+            | Self::GetOutlinks { note, .. }
+            | Self::AppendSection { note, .. }
+            | Self::ReplaceSection { note, .. }
+            | Self::DeleteSection { note, .. }
+            | Self::RenameHeading { note, .. }
+            | Self::SetBlockId { note, .. } => rebase(note, root, &cwd, Kind::Reference)?,
+            Self::ResolveRef { reference } => rebase(reference, root, &cwd, Kind::Reference)?,
+            Self::GetBacklinks { target, .. } | Self::GetNoteNeighborhood { target, .. } => {
+                rebase(target, root, &cwd, Kind::Reference)?
+            }
+            Self::ReadBase {
+                path, context_note, ..
+            } => {
+                rebase(path, root, &cwd, Kind::ExistingFile)?;
+                if let Some(context) = context_note {
+                    rebase(context, root, &cwd, Kind::ExistingFile)?;
+                }
+            }
+            Self::ReadCanvas { path, .. }
+            | Self::DeleteNote { path, .. }
+            | Self::EditNote { path, .. } => rebase(path, root, &cwd, Kind::ExistingFile)?,
+            Self::CreateNote { path, .. } => rebase(path, root, &cwd, Kind::Destination)?,
+            Self::RenameNote { path, new_path, .. } => {
+                rebase(path, root, &cwd, Kind::ExistingFile)?;
+                rebase(new_path, root, &cwd, Kind::Destination)?;
+            }
+            // Body text, patches, globs, tag/category names and generated-output
+            // locations have their own contracts and are never note paths.
+            Self::Serve
+            | Self::GenerateDocs { .. }
+            | Self::InstallOcrModels { .. }
+            | Self::Doctor
+            | Self::ListFiles { .. }
+            | Self::ListNotes { .. }
+            | Self::AuditLinks { .. }
+            | Self::ListTags { .. }
+            | Self::GetTag { .. }
+            | Self::ListCategories { .. }
+            | Self::GetCategory { .. }
+            | Self::QueryFrontmatter { .. }
+            | Self::SearchText { .. }
+            | Self::SearchRegex { .. }
+            | Self::ApplyPatch { .. } => {}
+        }
+        Ok(())
+    }
+
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Serve => "serve",
@@ -455,7 +548,8 @@ impl Command {
             Self::SetBlockId { .. } => "set_block_id",
         }
     }
-    pub(crate) async fn run(self, vault: Vault) -> anyhow::Result<()> {
+    pub(crate) async fn run(mut self, vault: Vault) -> anyhow::Result<()> {
+        self.rebase_paths(&vault.root)?;
         let vault = Arc::new(vault);
         if let Command::GenerateDocs { check, output } = self {
             let content = crate::docs::render_docs(&crate::docs::all_tool_definitions())?;

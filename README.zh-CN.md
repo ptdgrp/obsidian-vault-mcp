@@ -68,6 +68,8 @@ cargo install --path .
 `.obsidian/` 的目录作为 vault。从第一页 notes 开始，再逐步进入精确读取和关系检查：
 
 ```sh
+obsidian-vault-mcp get-note-outline ./README.md
+obsidian-vault-mcp read-note ./README.zh-CN.md --heading "构建与测试"
 obsidian-vault-mcp list-notes --page 1
 obsidian-vault-mcp list-files --extension base --extension canvas --page 1
 obsidian-vault-mcp read-base "项目.base" --view "进行中" --max-chars 8192
@@ -103,7 +105,8 @@ obsidian-vault-mcp serve
 需要从其他目录显式选择 vault 时，可使用
 `obsidian-vault-mcp --vault /path/to/vault serve`，或设置
 `OBSIDIAN_VAULT_MCP_ROOT`。显式配置优先于自动发现，`--vault` 优先于环境变量，
-并支持 `~` 和 `~/...` 路径。自动发现只查找当前目录及其祖先，不搜索子目录或整台电脑。
+并支持 `~` 和 `~/...` 路径。相对配置 root 会以进程当前工作目录为基准绝对化并规范化。
+自动发现只查找当前目录及其祖先，不搜索子目录或整台电脑。
 
 如果 `serve` 没有发现 vault，会提供当前项目目录下的 `list_files`、`read_canvas` 及 Markdown 文件工具：
 `read_note`、`get_note_outline`、`get_note_structure`、`get_note_stats`、
@@ -111,8 +114,9 @@ obsidian-vault-mcp serve
 此时 `note` 使用相对于当前项目目录的路径，绝对路径和越界路径会被拒绝；
 `audit_links` 只检查 `[text](../target.md)` 等标准 Markdown 相对链接的目标文件是否存在。
 全库 Bases 查询（`read_base`）、搜索、元数据和链接图谱工具不可用。
-`read-canvas` 和 `list-files` CLI 命令也支持此项目模式。其他需要 vault 的 CLI 命令在未发现 vault 时仍会报错，
-显式配置的 vault 路径无效时也会报错。
+`read-note`、`get-note-outline`、`get-note-structure`、`get-note-stats`、
+`read-canvas` 和 `list-files` CLI 命令也支持此项目模式。其他 CLI 命令仍需要显式配置
+或自动发现的有效 vault；未发现 vault 或显式配置的路径无效时会报错。
 
 常用缓存参数：
 
@@ -173,6 +177,20 @@ block ID 读取保留完整解析。这些路径仍读取源文件，并遵守 `
 ## reference 与 path
 
 path 是 vault-relative Markdown note 路径，例如 `人物/林动.md`。当 `list_notes` 或其他工具已经返回具体路径时，直接传 path 最清晰。
+
+CLI 的 note/reference/file 参数若明确以 `./` 或 `../` 开头，则相对于进程当前工作目录。
+例如在 `vault/人物/草稿` 中，`read-note ./林动.md` 读取 `人物/草稿/林动.md`，
+`read-note ../林动.md` 读取 `人物/林动.md`。裸路径 `人物/林动.md`、stem 和 alias
+保持原有 vault-relative 解析。heading、block、line selector 和 wikilink 包裹语法均保留，
+例如 `read-note '[[../林动.md#身体|林动]]'` 和 `read-note './林动.md#L3-L10'`。
+
+同一 CLI 规则适用于 Base/Canvas 路径、Base `--context-note`，以及编辑、创建和重命名的
+源/目标路径。精确 file-path 字段保留文件名中的 `#` 和 `|`，仅 note/reference 字段解析
+selector 和 alias。正文、patch、glob、tag 和 category 不会被当作路径改写。
+明确的 cwd 相对路径必须留在选定 root 内，symlink 解析也不能越界；路径不存在时直接失败，
+不会搜索另一篇同名 note。项目模式的 root 是进程当前目录，因此 `../` 不能逃出该目录。
+已配置的 vault 仍然优先，显式参数或环境变量指定无效 root 时会报错，不回退到项目模式。
+MCP 参数保持 workspace-relative 语义，不采用 CLI 的进程 cwd 相对规则。
 
 reference 是 Obsidian 风格目标，例如 `[[林动#身体]]`、`林动#身体` 或 `人物/林动.md#L1-L20`。reference 可以指向 note、标题、block id 或行范围。人类写法需要先校验时，用 `resolve_ref`。
 

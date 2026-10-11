@@ -54,10 +54,9 @@ async fn main() -> anyhow::Result<()> {
         cli.command_ref(),
         None | Some(cli::commands::Command::Serve)
     );
-    let file_local = matches!(
-        cli.command_ref(),
-        Some(cli::commands::Command::ReadCanvas { .. } | cli::commands::Command::ListFiles { .. })
-    );
+    let file_local = cli
+        .command_ref()
+        .is_some_and(|command| command.is_file_local());
     let vault_path = resolve_vault_path(cli.vault.as_deref(), serves_mcp || file_local)?;
     logging::init(&cli.log_level)?;
     tracing::debug!("logging.initialized");
@@ -131,7 +130,7 @@ fn resolve_vault_path(
     allow_missing: bool,
 ) -> anyhow::Result<Option<camino::Utf8PathBuf>> {
     if let Some(path) = configured_path {
-        return expand_home_directory(path).map(Some);
+        return crate::cli::absolute_path(&expand_home_directory(path)?).map(Some);
     }
 
     let current_directory = std::env::current_dir()?;
